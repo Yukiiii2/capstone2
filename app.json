@@ -1,5 +1,6 @@
 {
   "expo": {
+    "scheme": "capstone2",
     "name": "capstone2",
     "slug": "capstone2",
     "version": "1.0.0",
@@ -24,6 +25,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router"
+    ]
   }
 }
