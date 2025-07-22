@@ -1,17 +1,53 @@
-// app/create-account.tsx
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Pressable, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { Link } from "expo-router";
 import { Eye, EyeOff } from "lucide-react-native";
 
 export default function CreateAccount() {
+  const [role, setRole] = useState("STUDENT");
+  const [dropdownVisible, setDropdownVisible] = useState(false);
+
   return (
     <ScrollView style={styles.container}>
       {/* Header */}
       <Text style={styles.header}>Create Account</Text>
 
-      {/* Role Selection */}
+      {/* Role Selection Dropdown */}
       <View style={styles.roleBox}>
-        <Text style={styles.roleText}>STUDENT ▼</Text>
+        <TouchableOpacity
+          style={styles.dropdownSelector}
+          onPress={() => setDropdownVisible(!dropdownVisible)}
+        >
+          <Text style={styles.roleText}>{role} ▼</Text>
+        </TouchableOpacity>
+        {dropdownVisible && (
+          <View style={styles.dropdown}>
+            <TouchableOpacity
+              style={[
+                styles.dropdownItem,
+                role === "STUDENT" && styles.dropdownSelected,
+              ]}
+              onPress={() => {
+                setRole("STUDENT");
+                setDropdownVisible(false);
+              }}
+            >
+              <Text style={styles.dropdownText}>STUDENT</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.dropdownItem,
+                role === "TEACHER" && styles.dropdownSelected,
+              ]}
+              onPress={() => {
+                setRole("TEACHER");
+                setDropdownVisible(false);
+              }}
+            >
+              <Text style={styles.dropdownText}>TEACHER</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* First and Last Name */}
@@ -107,11 +143,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginBottom: 24,
+    position: "relative",
+  },
+  dropdownSelector: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: "#2C2251",
+    alignItems: "flex-start",
+    borderWidth: 1,
+    borderColor: "#3A2E5A",
   },
   roleText: {
     color: "#fff",
     fontSize: 14,
     fontWeight: "500",
+  },
+  dropdown: {
+    backgroundColor: "#2C2251",
+    borderRadius: 12,
+    marginTop: 8,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: "#3A2E5A",
+    overflow: "hidden",
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  dropdownText: {
+    color: "#fff",
+    fontSize: 14,
+  },
+  dropdownSelected: {
+    backgroundColor: "#6B26D9",
   },
   row: {
     flexDirection: "row",
