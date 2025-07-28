@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, Modal, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 
 export default function LiveSessions() {
   const router = useRouter();
+  const pathname = usePathname();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -21,6 +22,15 @@ export default function LiveSessions() {
   const handleSettings = () => {
     router.push('/settings');
   };
+
+  // Determine active tab
+  const getActiveTab = () => {
+    if (pathname.includes('/teacher-dashboard')) return 'Overview';
+    if (pathname.includes('/teacher-community')) return 'Community';
+    if (pathname.includes('/teacher-live-sessions')) return 'Live Sessions';
+    return '';
+  };
+  const activeTab = getActiveTab();
 
   // Animate profile popup
   useEffect(() => {
@@ -113,20 +123,25 @@ export default function LiveSessions() {
           </TouchableOpacity>
         </Modal>
 
-        {/* Tab Bar (no active highlight) */}
+        {/* Tab Bar with Active Highlight */}
         <View className="flex-row bg-black/40 rounded-xl mb-6 p-1">
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/home-page')}>
-            <Text className="text-white/80">Overview</Text>
-          </TouchableOpacity>
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/exercise-speaking')}>
-            <Text className="text-white/80">Speaking</Text>
-          </TouchableOpacity>
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/exercise-reading')}>
-            <Text className="text-white/80">Reading</Text>
-          </TouchableOpacity>
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/community-page')}>
-            <Text className="text-white/80">Community</Text>
-          </TouchableOpacity>
+          {[
+            { label: 'Overview', path: '/teacher-dashboard' },
+            { label: 'Community', path: '/teacher-community' },
+            { label: 'Live Sessions', path: '/teacher-live-sessions' },
+          ].map((tab) => (
+            <TouchableOpacity
+              key={tab.label}
+              className={`flex-1 items-center py-2 rounded-lg ${activeTab === tab.label ? 'bg-white' : ''}`}
+              onPress={() => handleNavigation(tab.path)}
+            >
+              <Text
+                className={`font-semibold ${activeTab === tab.label ? 'text-purple-500' : 'text-white/80'}`}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* Title & Subtitle */}
@@ -142,7 +157,7 @@ export default function LiveSessions() {
         </View>
 
         {/* Session Cards */}
-        {[ 
+        {[
           { name: 'Sarah Chen', title: 'Voice Warm-Up and Articulation', level: 'Basic' },
           { name: 'David Kim', title: 'Advanced Debate Practice', level: 'Advanced' },
           { name: 'Lisa Park', title: 'Eye Contact and Facial Expression', level: 'Basic' }
@@ -163,9 +178,9 @@ export default function LiveSessions() {
             <View className="flex-row items-center mb-2">
               <Text className="bg-[#4F4FFF33] text-[#4F4FFF] text-xs font-bold rounded px-2 py-0.5 mr-2">{session.level}</Text>
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               className="bg-[#6C47FF] rounded-xl px-4 py-2 self-start mt-1"
-              onPress={() => handleNavigation('/live-session')} // <-- Redirect to live-session.tsx
+              onPress={() => handleNavigation('/teacher-live-session')} // <-- Redirect to live-session.tsx
             >
               <Text className="text-white text-xs font-bold">Join Session</Text>
             </TouchableOpacity>

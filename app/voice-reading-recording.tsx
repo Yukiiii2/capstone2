@@ -1,109 +1,94 @@
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function VoiceReadingRecording() {
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#0A0A1E', padding: 20 }}>
-      {/* Header */}
-      <View style={{ marginBottom: 20 }}>
-        <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>Reading Confidence Assessment</Text>
-        <Text style={{ color: '#ccc', fontSize: 14, marginTop: 4 }}>
-          Read the following passage aloud to help us evaluate your reading confidence level
-        </Text>
-      </View>
+    <View className="flex-1 bg-[#0A0A1E]">
+      {/* Decorative Circles */}
+      <View className="absolute top-[-60px] left-[-50px] w-40 h-40 rounded-full bg-violet-600 opacity-15" />
+      <View className="absolute top-[100px] right-[-40px] w-24 h-24 rounded-full bg-blue-600 opacity-10" />
+      <View className="absolute bottom-[100px] left-[50px] w-9 h-9 rounded-full bg-cyan-300 opacity-10" />
+      <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
+      <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
 
-      {/* Assessment Card */}
-      <View
-        style={{
-          backgroundColor: '#1C1C3A',
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 20,
-        }}
-      >
-        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16, marginBottom: 6 }}>
-          Reading Assessment
-        </Text>
-        <Text style={{ color: '#aaa', fontSize: 14, marginBottom: 12 }}>
-          Please read the following passage aloud:
-        </Text>
-
-        <View
-          style={{
-            backgroundColor: '#2E2E4D',
-            padding: 14,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: '#8A5CFF55',
-            marginBottom: 12,
-          }}
-        >
-          <Text style={{ color: '#fff', fontSize: 15, lineHeight: 22 }}>
-            AI is changing many areas, like health care and driving. It helps doctors, guides cars, and
-            suggests things online. As AI becomes more part of our lives, we need to think about its
-            advantages and problems.
-          </Text>
+      <ScrollView className="flex-1" contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View className="flex-row items-center justify-between px-4 pt-8 pb-3">
+          <View className="flex-row items-center">
+            <View className="w-7 h-7 rounded-full bg-purple-500 mr-2" />
+            <Text className="text-white text-xl font-bold">Fluentech</Text>
+          </View>
+          <View className="flex-row items-center space-x-2">
+            <TouchableOpacity className="bg-[#231942] px-2 py-1 rounded-xl">
+              <Ionicons name="search" size={18} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity className="bg-[#231942] px-2 py-1 rounded-xl">
+              <Ionicons name="notifications-outline" size={18} color="#fff" />
+            </TouchableOpacity>
+            <View className="w-8 h-8 rounded-full ml-1 bg-white/20 border border-white/10 items-center justify-center">
+              <Image source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }} className="w-7 h-7 rounded-full" />
+            </View>
+          </View>
         </View>
 
-        <Text style={{ color: '#aaa', fontSize: 12, marginBottom: 10 }}>
-          Click the microphone button and read the passage clearly. You have up to 60 seconds to complete the reading.
-        </Text>
-
-        {/* Dots */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16 }}>
-          {[0, 1, 2, 3, 4].map((dot) => (
-            <View
-              key={dot}
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 99,
-                backgroundColor: dot === 0 ? '#8A5CFF' : '#555',
-                marginHorizontal: 4,
-              }}
-            />
-          ))}
+        {/* Tabs */}
+        <View className="flex-row px-4 mb-5">
+          <View className="px-3 py-1 rounded-lg mr-2 bg-[#231942]">
+            <Text className="text-purple-400 font-bold">Exercise Speaking</Text>
+          </View>
+          <View className="px-3 py-1 rounded-lg mr-2 bg-[#18182A]">
+            <Text className="text-white/80 font-semibold">Exercise Reading</Text>
+          </View>
+          <View className="px-3 py-1 rounded-lg bg-[#18182A]">
+            <Text className="text-white/80 font-semibold">Community</Text>
+          </View>
         </View>
 
-        {/* Mic Button */}
-        <View style={{ alignItems: 'center' }}>
-          <TouchableOpacity
-            style={{
-              backgroundColor: '#8A5CFF',
-              padding: 16,
-              borderRadius: 99,
-            }}
-          >
-            <Ionicons name="mic-outline" size={28} color="#fff" />
+        {/* Main Title & Subtitle */}
+        <View className="px-4 mb-2">
+          <Text className="text-white text-lg font-bold mb-1">Reading Confidence Assessment</Text>
+          <Text className="text-gray-300 text-xs">Read the following passage aloud to help us evaluate your reading confidence level</Text>
+        </View>
+
+        {/* Assessment Card */}
+        <View className="mx-4 bg-[#232345] rounded-2xl p-5 mb-4">
+          <Text className="text-white font-bold text-base mb-1">Reading Assessment</Text>
+          <Text className="text-gray-300 text-xs mb-2">Please read the following passage aloud:</Text>
+          <View className="bg-[#E5E7EB] rounded-xl border border-[#8A5CFF44] px-4 py-3 mb-3">
+            <Text className="text-[#232345] text-base leading-6 font-medium">
+              AI is changing many areas, like health care and driving. It helps doctors, guides cars, and suggests things online. As AI becomes more part of our lives, we need to think about its advantages and problems.
+            </Text>
+          </View>
+
+          <Text className="text-gray-400 text-xs mb-3">Click the microphone button and read the passage clearly. You have up to 60 seconds to complete the reading.</Text>
+          {/* Progress Dots */}
+          <View className="flex-row justify-center items-center mb-5 space-x-2">
+            <View className="w-2 h-2 rounded-full bg-blue-400" />
+            <View className="w-2 h-2 rounded-full bg-white/30" />
+            <View className="w-2 h-2 rounded-full bg-white/30" />
+            <View className="w-2 h-2 rounded-full bg-white/30" />
+            <View className="w-2 h-2 rounded-full bg-white/30" />
+          </View>
+          {/* Mic Button */}
+          <View className="items-center mb-2">
+            <TouchableOpacity className="w-16 h-16 rounded-full bg-[#8A5CFF] items-center justify-center shadow-lg">
+              <Ionicons name="mic" size={38} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Bottom Buttons */}
+        <View className="flex-row justify-between px-4 mb-8">
+          <TouchableOpacity className="flex-1 bg-white/10 rounded-xl py-3 items-center mr-2">
+            <Text className="text-white font-bold">Previous</Text>
+          </TouchableOpacity>
+          <TouchableOpacity className="flex-1 bg-[#8A5CFF] rounded-xl py-3 items-center ml-2">
+            <Text className="text-white font-bold">See Results</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Navigation Buttons */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <TouchableOpacity
-          style={{
-            backgroundColor: '#5E5CE6',
-            flex: 1,
-            paddingVertical: 12,
-            borderRadius: 10,
-            marginRight: 8,
-          }}
-        >
-          <Text style={{ color: '#fff', textAlign: 'center', fontWeight: 'bold' }}>Previous</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={{
-            backgroundColor: '#8A5CFF',
-            flex: 1,
-            paddingVertical: 12,
-            borderRadius: 10,
-            marginLeft: 8,
-          }}
-        >
-          <Text style={{ color: '#fff', textAlign: 'center', fontWeight: 'bold' }}>See Results</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
+     

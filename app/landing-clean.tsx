@@ -90,35 +90,93 @@ const PricingCard = ({
         </View>
       ))}
     </View>
-    <Link href="/create-account" asChild>
-      <TouchableOpacity 
-        className={`py-3 px-6 rounded-lg ${isPopular ? 'bg-purple-500' : 'bg-white/10'} items-center`}
-      >
-        <Text className="font-medium text-white">{buttonText}</Text>
-      </TouchableOpacity>
-    </Link>
+    <TouchableOpacity 
+      className={`py-3 px-6 rounded-lg ${isPopular ? 'bg-purple-500' : 'bg-white/10'} items-center`}
+    >
+      <Text className="font-medium text-white">{buttonText}</Text>
+    </TouchableOpacity>
   </View>
 );
 
 export default function Landing() {
   // Data
   const features: FeatureCardProps[] = [
-    { icon: 'book-outline', title: 'Reading Comprehension', description: 'Enhance your ability to understand and analyze complex texts.' },
-    { icon: 'headset-outline', title: 'Listening Practice', description: 'Improve your listening skills with authentic audio materials.' },
-    { icon: 'chatbubbles-outline', title: 'Speaking Exercises', description: 'Practice speaking with AI-powered feedback and pronunciation analysis.' },
-    { icon: 'create-outline', title: 'Writing Feedback', description: 'Get detailed feedback on your writing from language experts.' },
-    { icon: 'globe-outline', title: 'Vocabulary Builder', description: 'Expand your vocabulary with smart flashcards and spaced repetition.' },
-    { icon: 'stats-chart-outline', title: 'Progress Tracking', description: 'Monitor your improvement with detailed analytics and insights.' }
+    {
+      icon: 'book-outline',
+      title: 'Reading Comprehension',
+      description: 'Enhance your ability to understand and analyze complex texts.'
+    },
+    {
+      icon: 'headset-outline',
+      title: 'Listening Practice',
+      description: 'Improve your listening skills with authentic audio materials.'
+    },
+    {
+      icon: 'chatbubbles-outline',
+      title: 'Speaking Exercises',
+      description: 'Practice speaking with AI-powered feedback and pronunciation analysis.'
+    },
+    {
+      icon: 'create-outline',
+      title: 'Writing Feedback',
+      description: 'Get detailed feedback on your writing from language experts.'
+    },
+    {
+      icon: 'globe-outline',
+      title: 'Vocabulary Builder',
+      description: 'Expand your vocabulary with smart flashcards and spaced repetition.'
+    },
+    {
+      icon: 'stats-chart-outline',
+      title: 'Progress Tracking',
+      description: 'Monitor your improvement with detailed analytics and insights.'
+    }
   ];
 
   const testimonials: TestimonialCardProps[] = [
-    { name: 'Alex Johnson', role: 'Student', content: 'Fluentech has completely transformed my English learning journey. The interactive exercises and personalized feedback helped me become more confident in my speaking and writing.', rating: 5 },
-    { name: 'Maria Garcia', role: 'Professional', content: 'As a non-native speaker, I struggled with business English. Fluentech\'s targeted lessons and real-world scenarios were exactly what I needed to advance my career.', rating: 5 }
+    {
+      name: 'Alex Johnson',
+      role: 'Student',
+      content: 'Fluentech has completely transformed my English learning journey. The interactive exercises and personalized feedback helped me become more confident in my speaking and writing.',
+      rating: 5
+    },
+    {
+      name: 'Maria Garcia',
+      role: 'Professional',
+      content: 'As a non-native speaker, I struggled with business English. Fluentech\'s targeted lessons and real-world scenarios were exactly what I needed to advance my career.',
+      rating: 5
+    }
   ];
 
   const pricingPlans: PricingCardProps[] = [
-    { title: 'Free', price: '$0', period: 'month', features: ['Basic vocabulary exercises', 'Limited grammar lessons', 'Community support', 'Basic progress tracking'], buttonText: 'Get Started', isPopular: false },
-    { title: 'Premium', price: '$19', period: 'month', features: ['Unlimited vocabulary exercises', 'All grammar lessons', 'AI-powered speaking practice', 'Writing feedback from experts', 'Advanced progress analytics', 'Priority support'], buttonText: 'Start Free Trial', isPopular: true }
+    {
+      title: 'Free',
+      price: '$0',
+      period: 'month',
+      features: [
+        'Basic vocabulary exercises',
+        'Limited grammar lessons',
+        'Community support',
+        'Basic progress tracking'
+      ],
+      buttonText: 'Get Started',
+      isPopular: false
+    },
+    {
+      title: 'Premium',
+      price: '$19',
+      period: 'month',
+      features: [
+        'Unlimited vocabulary exercises',
+        'All grammar lessons',
+        'AI-powered speaking practice',
+        'Writing feedback from experts',
+        'Advanced progress analytics',
+        'Priority support'
+      ],
+      buttonText: 'Start Free Trial',
+      isPopular: true
+    }
   ];
 
   return (
@@ -144,14 +202,14 @@ export default function Landing() {
               <Text className="text-white text-xl font-bold">Fluentech</Text>
             </View>
             <View className="flex-row space-x-3">
-              <Link href="/role-selection" asChild>
+              <Link href="/login" asChild>
                 <TouchableOpacity className="px-4 py-2">
                   <Text className="text-white">Log in</Text>
                 </TouchableOpacity>
               </Link>
-              <Link href="/create-account" asChild>
+              <Link href="/signup" asChild>
                 <TouchableOpacity className="bg-purple-500 px-4 py-2 rounded-lg">
-                  <Text className="text-white font-medium">Get Started</Text>
+                  <Text className="text-white font-medium">Sign up</Text>
                 </TouchableOpacity>
               </Link>
             </View>
@@ -168,7 +226,7 @@ export default function Landing() {
             </Text>
             
             <View className="flex-row space-x-4 mb-8">
-              <Link href="/create-account" asChild>
+              <Link href="/signup" asChild>
                 <TouchableOpacity className="bg-purple-500 px-6 py-3 rounded-lg flex-1 items-center">
                   <Text className="text-white font-medium">Start Learning Free</Text>
                 </TouchableOpacity>
@@ -208,6 +266,7 @@ export default function Landing() {
           <View className="mb-16">
             <Text className="text-2xl font-bold text-white mb-2">Everything You Need to Excel</Text>
             <Text className="text-gray-400 mb-8">Our comprehensive platform helps you master English through various interactive methods.</Text>
+            
             <View className="space-y-4">
               {features.map((feature, index) => (
                 <FeatureCard key={index} {...feature} />
@@ -219,6 +278,7 @@ export default function Landing() {
           <View className="mb-16">
             <Text className="text-2xl font-bold text-white mb-2">What Our Learners Say</Text>
             <Text className="text-gray-400 mb-8">Join thousands of satisfied users who have improved their English with Fluentech.</Text>
+            
             <View className="space-y-4">
               {testimonials.map((testimonial, index) => (
                 <TestimonialCard key={index} {...testimonial} />
@@ -230,6 +290,7 @@ export default function Landing() {
           <View className="mb-16">
             <Text className="text-2xl font-bold text-white mb-2">Simple, Transparent Pricing</Text>
             <Text className="text-gray-400 mb-8">Choose the plan that fits your learning goals and budget.</Text>
+            
             <View className="space-y-6">
               {pricingPlans.map((plan, index) => (
                 <PricingCard key={index} {...plan} />
@@ -245,7 +306,7 @@ export default function Landing() {
               </View>
               <Text className="text-white text-xl font-bold mb-2">Ready to get started?</Text>
               <Text className="text-gray-400 text-center mb-6">Join Fluentech today and start your journey to English fluency.</Text>
-              <Link href="/create-account" asChild>
+              <Link href="/signup" asChild>
                 <TouchableOpacity className="bg-purple-500 px-8 py-3 rounded-lg">
                   <Text className="text-white font-medium">Start Learning Now</Text>
                 </TouchableOpacity>

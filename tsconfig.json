@@ -1,9 +1,30 @@
 {
-  "expo": {
-    "web": {
-      "bundler": "metro"
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "target": "ESNext",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "allowJs": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "types": [
+      "expo",
+      "nativewind/types"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
     }
   },
-  "compilerOptions": {},
+  "include": [
+    "app",
+    "**/*.d.ts"
+  ],
   "extends": "expo/tsconfig.base"
 }

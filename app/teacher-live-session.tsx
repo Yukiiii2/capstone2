@@ -4,23 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
-export default function LiveSessions() {
+export default function LiveSession() {
   const router = useRouter();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  const handleNavigation = (page: string) => {
-    router.push(page);
-  };
-
-  const handleLogout = () => {
-    router.replace('/login-page');
-  };
-
-  const handleSettings = () => {
-    router.push('/settings');
-  };
+  const handleNavigation = (page: string) => router.push(page);
+  const handleLogout = () => router.replace('/login-page');
+  const handleSettings = () => router.push('/settings');
 
   // Animate profile popup
   useEffect(() => {
@@ -49,10 +41,10 @@ export default function LiveSessions() {
         pointerEvents="none"
       >
         <View style={{ position: 'absolute', top: -60, left: -50, width: 160, height: 160, borderRadius: 80, backgroundColor: '#7c3aed', opacity: 0.13 }} />
-        <View style={{ position: 'absolute', top: 100, right: -40, width: 90, height: 90, borderRadius: 45, backgroundColor: '#2563eb', opacity: 0.10 }} />
+        <View style={{ position: 'absolute', top: 100, right: -40, width: 90, height: 90, borderRadius: 45, backgroundColor: '#2563eb', opacity: 0.1 }} />
         <View style={{ position: 'absolute', bottom: 100, left: 50, width: 36, height: 36, borderRadius: 18, backgroundColor: '#43e6ff', opacity: 0.09 }} />
         <View style={{ position: 'absolute', bottom: 20, right: 40, width: 60, height: 60, borderRadius: 30, backgroundColor: '#a259ff', opacity: 0.09 }} />
-        <View style={{ position: 'absolute', top: 200, left: 90, width: 22, height: 22, borderRadius: 11, backgroundColor: '#43e6ff', opacity: 0.10 }} />
+        <View style={{ position: 'absolute', top: 200, left: 90, width: 22, height: 22, borderRadius: 11, backgroundColor: '#43e6ff', opacity: 0.1 }} />
       </LinearGradient>
 
       <ScrollView className="flex-1 px-4 pt-8">
@@ -74,7 +66,7 @@ export default function LiveSessions() {
             <TouchableOpacity onPress={() => setIsProfileMenuVisible(true)}>
               <View className="w-9 h-9 rounded-full ml-2 overflow-hidden border-2 border-white">
                 <Image
-                  source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
+                  source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }}
                   style={{ width: '100%', height: '100%' }}
                 />
               </View>
@@ -113,64 +105,82 @@ export default function LiveSessions() {
           </TouchableOpacity>
         </Modal>
 
-        {/* Tab Bar (no active highlight) */}
+        {/* Tab Bar (Live Session Active) */}
         <View className="flex-row bg-black/40 rounded-xl mb-6 p-1">
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/home-page')}>
+          <TouchableOpacity
+            className="flex-1 items-center py-2 rounded-lg"
+            onPress={() => handleNavigation('/teacher-dashboard')}
+          >
             <Text className="text-white/80">Overview</Text>
           </TouchableOpacity>
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/exercise-speaking')}>
-            <Text className="text-white/80">Speaking</Text>
-          </TouchableOpacity>
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/exercise-reading')}>
-            <Text className="text-white/80">Reading</Text>
-          </TouchableOpacity>
-          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/community-page')}>
+          <TouchableOpacity
+            className="flex-1 items-center py-2 rounded-lg"
+            onPress={() => handleNavigation('/teacher-community')}
+          >
             <Text className="text-white/80">Community</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-1 items-center py-2 rounded-lg bg-white"
+            onPress={() => handleNavigation('/teacher-live-sessions')}
+          >
+            <Text className="text-purple-600 font-bold">Live Sessions</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Title & Subtitle */}
-        <View className="mt-2 mb-2">
-          <Text className="text-white text-2xl font-bold mb-1">Join Live Sessions</Text>
-          <Text className="text-gray-400 text-xs">Connect with experts and learn in real-time</Text>
-        </View>
+        {/* Session Info */}
+        <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 6 }}>
+          Live Session
+        </Text>
 
-        {/* Info Banner */}
-        <View className="mb-4 flex-row items-center bg-[#231942] rounded-xl px-4 py-3">
-          <Ionicons name="information-circle-outline" size={18} color="#a855f7" />
-          <Text className="text-white text-xs ml-2">Live sessions update in real-time</Text>
-        </View>
-
-        {/* Session Cards */}
-        {[ 
-          { name: 'Sarah Chen', title: 'Voice Warm-Up and Articulation', level: 'Basic' },
-          { name: 'David Kim', title: 'Advanced Debate Practice', level: 'Advanced' },
-          { name: 'Lisa Park', title: 'Eye Contact and Facial Expression', level: 'Basic' }
-        ].map((session, i) => (
-          <View key={i} className="mb-4 bg-[#232345] rounded-2xl p-4">
-            <View className="flex-row items-center justify-between mb-2">
-              <View className="flex-row items-center">
-                <Text className="bg-[#FF4F4F] text-white text-[11px] font-bold rounded px-2 py-0.5 mr-2">LIVE</Text>
-                <Ionicons name="person-circle-outline" size={20} color="#8A5CFF" />
-                <Text className="text-white font-bold ml-2">{session.name}</Text>
-              </View>
-              <View className="flex-row items-center">
-                <Ionicons name="eye-outline" size={14} color="#aaa" />
-                <Text className="text-gray-400 text-xs ml-1">127</Text>
-              </View>
-            </View>
-            <Text className="text-white/90 font-semibold mb-1">{session.title}</Text>
-            <View className="flex-row items-center mb-2">
-              <Text className="bg-[#4F4FFF33] text-[#4F4FFF] text-xs font-bold rounded px-2 py-0.5 mr-2">{session.level}</Text>
-            </View>
-            <TouchableOpacity 
-              className="bg-[#6C47FF] rounded-xl px-4 py-2 self-start mt-1"
-              onPress={() => handleNavigation('/live-session')} // <-- Redirect to live-session.tsx
-            >
-              <Text className="text-white text-xs font-bold">Join Session</Text>
-            </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+          <View style={{ backgroundColor: '#FF4F4F', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginRight: 10 }}>
+            <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>LIVE</Text>
           </View>
-        ))}
+          <Ionicons name="eye-outline" size={16} color="#aaa" />
+          <Text style={{ color: '#aaa', fontSize: 13, marginLeft: 4 }}>127 viewers</Text>
+        </View>
+
+        <Image
+          source={{ uri: 'https://images.unsplash.com/photo-1646243425301-d733db6f5821' }}
+          style={{ width: '100%', height: 200, borderRadius: 14, marginBottom: 16 }}
+          resizeMode="cover"
+        />
+
+        <View style={{ backgroundColor: '#1C1C3A', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#34D399', justifyContent: 'center', alignItems: 'center', marginRight: 14 }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>MC</Text>
+          </View>
+          <View>
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Dr. Michael Chen</Text>
+            <Text style={{ color: '#aaa', fontSize: 13 }}>Professor of Computer Science</Text>
+          </View>
+        </View>
+
+        {/* Reactions */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 24 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="heart" size={20} color="#FF4F4F" />
+            <Text style={{ color: '#fff', marginLeft: 6, fontSize: 14 }}>26</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="happy" size={20} color="#FACC15" />
+            <Text style={{ color: '#fff', marginLeft: 6, fontSize: 14 }}>19</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="bulb" size={20} color="#8A5CFF" />
+            <Text style={{ color: '#fff', marginLeft: 6, fontSize: 14 }}>17</Text>
+          </View>
+        </View>
+
+        {/* CTA */}
+        <TouchableOpacity
+          style={{ backgroundColor: '#8A5CFF', borderRadius: 10, paddingVertical: 14, marginBottom: 30 }}
+          onPress={() => handleNavigation('/teacher-live-sessions')}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: 15 }}>
+            More Live Sessions
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );

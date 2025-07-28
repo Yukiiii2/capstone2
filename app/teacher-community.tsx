@@ -15,17 +15,15 @@ export default function CommunityPage() {
   const handleLogout = () => router.replace('/login-page');
 
   const handleTabNavigation = (tab: string) => {
-    if (tab === 'Overview') router.push('/home-page');
-    if (tab === 'Speaking') router.push('/exercise-speaking');
-    if (tab === 'Reading') router.push('/exercise-reading');
+    if (tab === 'Overview') router.push('/teacher-dashboard');
     if (tab === 'Community') router.push('/community-page');
+    if (tab === 'Live Session') router.push('/teacher-live-sessions');
   };
 
   // Determine active tab based on route
   const getActiveTab = () => {
-    if (pathname.includes('exercise-speaking')) return 'Speaking';
-    if (pathname.includes('exercise-reading')) return 'Reading';
-    if (pathname.includes('community-page')) return 'Community';
+    if (pathname.includes('teacher-community')) return 'Community';
+    if (pathname.includes('teacher-live-sessions')) return 'Live Session';
     return 'Overview';
   };
   const activeTab = getActiveTab();
@@ -102,7 +100,7 @@ export default function CommunityPage() {
 
         {/* Tab Bar */}
         <View className="flex-row mt-5 bg-[#23233b] rounded-xl p-1">
-          {['Overview', 'Speaking', 'Reading', 'Community'].map((tab) => (
+          {['Overview', 'Community', 'Live Session'].map((tab) => (
             <TouchableOpacity
               key={tab}
               onPress={() => handleTabNavigation(tab)}

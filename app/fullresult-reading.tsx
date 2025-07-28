@@ -1,228 +1,104 @@
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import React from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function ExerciseReading() {
-  const router = useRouter();
-
+export default function FullResultReading() {
   return (
-    <ScrollView style={styles.container}>
-      {/* Top Nav */}
-      <View style={styles.topNav}>
-        <Text style={styles.brand}>Fluentech</Text>
-        <View style={styles.topNavIcons}>
-          <Ionicons name="notifications-outline" size={20} color="#fff" />
-          <Ionicons name="person-circle-outline" size={24} color="#fff" />
-        </View>
-      </View>
+    <View className="flex-1 bg-[#0A0A1E]">
+      {/* Decorative Circles */}
+      <View className="absolute top-[-60px] left-[-50px] w-40 h-40 rounded-full bg-violet-600 opacity-15" />
+      <View className="absolute top-[100px] right-[-40px] w-24 h-24 rounded-full bg-blue-600 opacity-10" />
+      <View className="absolute bottom-[100px] left-[50px] w-9 h-9 rounded-full bg-cyan-300 opacity-10" />
+      <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
+      <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
 
-      {/* Tabs */}
-      <View style={styles.tabs}>
-        <Text style={styles.tabInactive}>Exercise Speaking</Text>
-        <Text style={styles.tabActive}>Exercise Reading</Text>
-        <Text style={styles.tabInactive}>Community</Text>
-      </View>
-
-      {/* Section Title */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Basic Reading Practice Modules</Text>
-        <Text style={styles.sectionSubtitle}>
-          Start your reading journey with foundational skills and techniques
-        </Text>
-        <TouchableOpacity style={styles.startLearningBtn}>
-          <Text style={styles.startLearningText}>Start Learning</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Modules */}
-      <View style={styles.modules}>
-        {/* Module 1 */}
-        <View style={styles.moduleCard}>
-          <Text style={styles.moduleLevelBasic}>BASIC</Text>
-          <Text style={styles.moduleTitle}>Reading Fundamentals</Text>
-          <Text style={styles.moduleDesc}>
-            Master the basics of effective reading with foundational techniques and comprehension strategies.
-          </Text>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: '75%' }]} />
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View className="flex-row items-center justify-between px-4 pt-8 pb-3">
+          <View className="flex-row items-center">
+            <View className="w-7 h-7 rounded-full bg-purple-500 mr-2" />
+            <Text className="text-white text-xl font-bold">Fluentech</Text>
           </View>
-          <TouchableOpacity style={styles.selectModuleBtn}>
-            <Text style={styles.selectModuleText}>Select Module</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Module 2 */}
-        <View style={styles.moduleCard}>
-          <Text style={styles.moduleLevelAdvance}>ADVANCE</Text>
-          <Text style={styles.moduleTitle}>Vocabulary Building Basics</Text>
-          <Text style={styles.moduleDesc}>
-            Build your vocabulary foundation with essential words and context clues for better comprehension.
-          </Text>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: '40%' }]} />
+          <View className="flex-row items-center space-x-2">
+            <TouchableOpacity className="bg-[#231942] px-2 py-1 rounded-xl">
+              <Ionicons name="search" size={18} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity className="bg-[#231942] px-2 py-1 rounded-xl">
+              <Ionicons name="notifications-outline" size={18} color="#fff" />
+            </TouchableOpacity>
+            <View className="w-8 h-8 rounded-full ml-1 bg-white/20 border border-white/10 items-center justify-center">
+              <Image source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }} className="w-7 h-7 rounded-full" />
+            </View>
           </View>
-          <TouchableOpacity style={styles.selectModuleBtn}>
-            <Text style={styles.selectModuleText}>Select Module</Text>
-          </TouchableOpacity>
         </View>
 
-        {/* Module 3 */}
-        <View style={styles.moduleCard}>
-          <Text style={styles.moduleLevelAdvance}>ADVANCE</Text>
-          <Text style={styles.moduleTitle}>Sentence Structure & Grammar</Text>
-          <Text style={styles.moduleDesc}>
-            Understand basic sentence patterns and grammar rules to improve reading comprehension.
-          </Text>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: '40%' }]} />
+        {/* Tabs */}
+        <View className="flex-row px-4 mb-5">
+          <View className="px-3 py-1 rounded-lg mr-2 bg-[#231942]">
+            <Text className="text-purple-400 font-bold">Overview</Text>
           </View>
-          <TouchableOpacity style={styles.selectModuleBtn}>
-            <Text style={styles.selectModuleText}>Select Module</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Recent Sessions */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Training Sessions</Text>
-
-        <View style={styles.moduleCard}>
-          <Text style={styles.moduleTitle}>Reading Fundamentals - Chapter 2</Text>
-          <Text style={styles.moduleDesc}>Completed with 85% comprehension rate</Text>
+          <View className="px-3 py-1 rounded-lg mr-2 bg-[#18182A]">
+            <Text className="text-white/80 font-semibold">Exercise Speaking</Text>
+          </View>
+          <View className="px-3 py-1 rounded-lg mr-2 bg-[#18182A]">
+            <Text className="text-white/80 font-semibold">Exercise Reading</Text>
+          </View>
+          <View className="px-3 py-1 rounded-lg bg-[#18182A]">
+            <Text className="text-white/80 font-semibold">Community</Text>
+          </View>
         </View>
 
-        <View style={styles.moduleCard}>
-          <Text style={styles.moduleTitle}>Vocabulary Quiz – Basic Level</Text>
-          <Text style={styles.moduleDesc}>Perfect score on 20 vocabulary items</Text>
+        {/* Confidence Card */}
+        <View className="mx-4 bg-[#232345] rounded-2xl p-5 mb-4 flex-row items-center">
+          {/* Circular Progress (static) */}
+          <View className="w-20 h-20 rounded-full border-8 border-[#8A5CFF] border-opacity-60 items-center justify-center mr-4 bg-[#18182A]">
+            <Text className="text-purple-400 font-bold text-lg">78%</Text>
+            <Text className="text-xs text-gray-400">Confidence</Text>
+          </View>
+          <View className="flex-1">
+            <Text className="text-white font-bold text-base mb-1">You're a Confident Speaker!</Text>
+            <Text className="text-gray-300 text-xs">Your voice is strong, clear, confident, and friendly.</Text>
+          </View>
         </View>
 
-        <View style={styles.moduleCard}>
-          <Text style={styles.moduleTitle}>Audience Engagement Basics – Next</Text>
-          <Text style={styles.moduleDesc}>Completed sentence structure exercises</Text>
+        {/* Strengths & Improvements */}
+        <View className="mx-4 flex-row space-x-3 mb-4">
+          <View className="flex-1 bg-[#232345] rounded-2xl p-4">
+            <Text className="text-white font-bold text-sm mb-2">Your Strengths</Text>
+            <View className="flex-row items-center mb-1"><Ionicons name="star" size={16} color="#8A5CFF" /><Text className="ml-2 text-gray-200 text-xs">Clear Articulation</Text></View>
+            <View className="flex-row items-center mb-1"><Ionicons name="star" size={16} color="#8A5CFF" /><Text className="ml-2 text-gray-200 text-xs">Good Pacing</Text></View>
+            <View className="flex-row items-center mb-1"><Ionicons name="star" size={16} color="#8A5CFF" /><Text className="ml-2 text-gray-200 text-xs">Voice Projection</Text></View>
+            <View className="flex-row items-center mb-1"><Ionicons name="star" size={16} color="#8A5CFF" /><Text className="ml-2 text-gray-200 text-xs">Engagement</Text></View>
+          </View>
+          <View className="flex-1 bg-[#232345] rounded-2xl p-4">
+            <Text className="text-white font-bold text-sm mb-2">Areas for Improvement</Text>
+            <View className="flex-row items-center mb-1"><Ionicons name="alert-circle" size={16} color="#FACC15" /><Text className="ml-2 text-gray-200 text-xs">Clear Articulation</Text></View>
+            <View className="flex-row items-center mb-1"><Ionicons name="alert-circle" size={16} color="#FACC15" /><Text className="ml-2 text-gray-200 text-xs">Voice Clarity</Text></View>
+            <View className="flex-row items-center mb-1"><Ionicons name="alert-circle" size={16} color="#FACC15" /><Text className="ml-2 text-gray-200 text-xs">Voice Projection</Text></View>
+            <View className="flex-row items-center mb-1"><Ionicons name="alert-circle" size={16} color="#FACC15" /><Text className="ml-2 text-gray-200 text-xs">Response Speed</Text></View>
+          </View>
         </View>
-      </View>
-    </ScrollView>
+
+        {/* Performance Breakdown */}
+        <View className="mx-4 bg-[#232345] rounded-2xl p-5 mb-4">
+          <Text className="text-white font-bold text-base mb-3">Performance Breakdown</Text>
+          <View className="mb-2"><Text className="text-gray-200 text-xs mb-1">Overall Confidence</Text><View className="w-full h-2 rounded-full bg-[#3B3B5C] mb-1"><View className="h-2 rounded-full bg-[#8A5CFF] w-[3/4]" style={{width:'75%'}} /></View><Text className="text-purple-400 text-xs font-bold">75%</Text></View>
+          <View className="mb-2"><Text className="text-gray-200 text-xs mb-1">Voice Clarity</Text><View className="w-full h-2 rounded-full bg-[#3B3B5C] mb-1"><View className="h-2 rounded-full bg-[#8A5CFF] w-[4/5]" style={{width:'82%'}} /></View><Text className="text-purple-400 text-xs font-bold">82%</Text></View>
+          <View className="mb-2"><Text className="text-gray-200 text-xs mb-1">Response Time</Text><View className="w-full h-2 rounded-full bg-[#3B3B5C] mb-1"><View className="h-2 rounded-full bg-[#8A5CFF] w-[3/4]" style={{width:'76%'}} /></View><Text className="text-purple-400 text-xs font-bold">76%</Text></View>
+          <View className="mb-2"><Text className="text-gray-200 text-xs mb-1">Fluency</Text><View className="w-full h-2 rounded-full bg-[#3B3B5C] mb-1"><View className="h-2 rounded-full bg-[#8A5CFF] w-[2/3]" style={{width:'73%'}} /></View><Text className="text-purple-400 text-xs font-bold">73%</Text></View>
+        </View>
+
+        {/* Callout Card */}
+        <View className="mx-4 bg-[#18182A] rounded-2xl p-5 mb-10 items-center">
+          <Text className="text-white font-bold text-base mb-2 text-center">Ready to Improve Your Confidence?</Text>
+          <Text className="text-gray-300 text-xs mb-5 text-center">Based on your assessment, we've created a personalized learning path to help you reach the next level.</Text>
+          <View className="flex-row space-x-3">
+            <TouchableOpacity className="flex-1 bg-white rounded-lg px-4 py-3 items-center mr-2"><Text className="text-[#8A5CFF] font-bold">Retake Assessment</Text></TouchableOpacity>
+            <TouchableOpacity className="flex-1 bg-[#8A5CFF] rounded-lg px-4 py-3 items-center"><Text className="text-white font-bold">Go back</Text></TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A0A1E',
-    paddingHorizontal: 20,
-    paddingVertical: 32,
-  },
-  topNav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  brand: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 20,
-  },
-  topNavIcons: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  tabs: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
-  },
-  tabActive: {
-    color: '#fff',
-    fontWeight: '600',
-    borderBottomWidth: 2,
-    borderBottomColor: '#fff',
-    paddingBottom: 4,
-  },
-  tabInactive: {
-    color: '#6B7280',
-    fontWeight: '600',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 18,
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    color: '#9CA3AF',
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  startLearningBtn: {
-    backgroundColor: '#8A5CFF',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    alignSelf: 'flex-start',
-  },
-  startLearningText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  modules: {
-    gap: 24,
-  },
-  moduleCard: {
-    backgroundColor: '#1C1C3A',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  moduleLevelBasic: {
-    color: '#D1B3FF',
-    fontWeight: '600',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  moduleLevelAdvance: {
-    color: '#D1B3FF',
-    fontWeight: '600',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  moduleTitle: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  moduleDesc: {
-    color: '#9CA3AF',
-    fontSize: 12,
-    marginBottom: 12,
-  },
-  progressBarBg: {
-    height: 8,
-    backgroundColor: '#4B5563',
-    borderRadius: 999,
-    marginBottom: 8,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: 8,
-    backgroundColor: '#8A5CFF',
-    borderRadius: 999,
-  },
-  selectModuleBtn: {
-    backgroundColor: '#8A5CFF',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginTop: 4,
-  },
-  selectModuleText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-});
