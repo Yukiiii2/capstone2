@@ -1,0 +1,396 @@
+import React, { useRef, useState, useCallback, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, Image, useWindowDimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Video, AVPlaybackStatus, ResizeMode } from 'expo-av';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Link, useFocusEffect } from 'expo-router';
+
+// Type declarations are now in src/types/react-native.d.ts
+
+// Type Definitions
+type FeatureCardProps = {
+  icon: string;
+  emoji: string;
+  title: string;
+  description: string;
+};
+
+type TestimonialCardProps = {
+  name: string;
+  role: string;
+  content: string;
+  rating: number;
+};
+
+type PricingCardProps = {
+  title: string;
+  price: string;
+  period: string;
+  features: string[];
+  isPopular?: boolean;
+  buttonText: string;
+};
+
+// Reusable Components
+const FeatureCard = ({ icon, emoji, title, description }: FeatureCardProps) => (
+  <View className="bg-white/40 rounded-lg p-3 h-40 border border-white/30">
+    <View className="w-10 h-10 bg-purple-500/20 rounded-lg items-center justify-center mb-2 mx-auto">
+      <Text className="text-xl">{emoji}</Text>
+    </View>
+    <Text className="text-white text-sm text-center font-bold mb-1">{title}</Text>
+    <Text className="text-gray-300 text-[10px] text-center leading-tight">{description}</Text>
+  </View>
+);
+
+const TestimonialCard = ({ name, role, content, rating }: TestimonialCardProps) => (
+  <View className="bg-white/10 rounded-2xl p-3 mb-6 border border-white/30">
+    <View className="flex-row items-center mb-6">
+      <View className="w-14 h-14 bg-purple-500/50 rounded-full items-center justify-center mr-4">
+        <Text className="text-white font-bold text-lg">{name.charAt(0)}</Text>
+      </View>
+      <View>
+        <Text className="text-white font-semibold text-base">{name}</Text>
+        <Text className="text-gray-300 text-sm mt-1">{role}</Text>
+      </View>
+    </View>
+    <Text className="text-gray-200 italic text-base leading-6 mb-6">"{content}"</Text>
+    <View className="flex-row">
+      {[...Array(5)].map((_, i) => (
+        <Ionicons 
+          key={i}
+          name={i < rating ? 'star' : 'star-outline'}
+          size={16}
+          color="#c29a35ff"
+          style={{ marginRight: 2 }}
+        />
+      ))}
+    </View>
+  </View>
+);
+
+const PricingCard = ({ 
+  title, 
+  price, 
+  period,
+  features, 
+  isPopular = false, 
+  buttonText 
+}: PricingCardProps) => (
+  <View className={`bg-white/20 rounded-2xl p-6 relative border border-white/30 ${isPopular ? 'border-2 border-purple-500' : 'mb-8'}`}>
+    {isPopular && (
+      <View className="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-500 px-4 py-1 rounded-full">
+        <Text className="text-white text-xs font-medium">MOST POPULAR</Text>
+      </View>
+    )}
+    <Text className="text-white text-xl font-bold mb-1">{title}</Text>
+    <Text className="text-3xl font-bold text-white mb-1">
+      {price}
+      <Text className="text-base font-normal text-gray-400">/{period}</Text>
+    </Text>
+    <View className="space-y-3 my-6">
+      {features.map((feature, index) => (
+        <View key={index} className="flex-row items-start">
+          <Ionicons name="checkmark-circle" size={20} color="#a855f7" style={{ marginTop: 2, marginRight: 8 }} />
+          <Text className="text-gray-300 flex-1">{feature}</Text>
+        </View>
+      ))}
+    </View>
+    <Link href="/create-account" asChild>
+      <TouchableOpacity 
+        className={`py-3 px-6 rounded-lg ${isPopular ? 'bg-purple-500' : 'bg-white/10'} items-center`}
+      >
+        <Text className="font-medium text-white">{buttonText}</Text>
+      </TouchableOpacity>
+    </Link>
+  </View>
+);
+
+export default function LandingPage() {
+  // Video player state
+  const video = useRef<Video>(null);
+  const [status, setStatus] = useState<AVPlaybackStatus>();
+  const [showPlayButton, setShowPlayButton] = useState(true);
+  const videoContainerRef = useRef<View>(null);
+
+  // Handle play button press
+  const handlePlayPress = useCallback(() => {
+    video.current?.playAsync();
+    setShowPlayButton(false);
+  }, []);
+
+  // Handle video play/pause when it enters/leaves viewport
+  const handleScroll = useCallback(() => {
+    if (!videoContainerRef.current || !status?.isLoaded) return;
+    
+    videoContainerRef.current.measure((x, y, width, height, pageX, pageY) => {
+      const isVisible = pageY + height >= 0;
+      
+      if (!isVisible) {
+        video.current?.pauseAsync();
+      }
+    });
+  }, [status]);
+
+  // Pause video when component is not focused
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        video.current?.pauseAsync();
+      };
+    }, [])
+  );
+
+
+
+  // Data
+  const features: FeatureCardProps[] = [
+    { icon: 'book-outline', emoji: '📚', title: 'Reading Comprehension', description: 'AI-powered reading analysis with real-time comprehension tracking' },
+    { icon: 'globe-outline', emoji: '💬', title: 'Conversation Practice', description: 'AI chat partners for practicing real-world conversation scenarios.' },
+    { icon: 'headset-outline', emoji: '🎤', title: 'Speech Training', description: 'Voice analysis and pronunciation improvement with instant feedback' },
+    { icon: 'chatbubbles-outline', emoji: '⚡', title: 'Boost Confidence', description: 'Developing confidence by controlling your tone and managing anxiety and fear when speaking' },
+    { icon: 'create-outline', emoji: '🧠', title: 'Critical Thinking', description: 'Logical and analytical reasoning to develop critical thinking skills.' },
+    { icon: 'stats-chart-outline', emoji: '📖', title: 'Speed Reading', description: 'Techniques to increase reading speed while maintaining comprehension' }
+  ];
+
+  const testimonials: TestimonialCardProps[] = [
+    { name: 'Alex Johnson', role: 'Student', content: 'Voclaria has completely transformed my English learning journey. The interactive exercises and personalized feedback helped me become more confident in my speaking and writing.', rating: 5 },
+    { name: 'Maria Garcia', role: 'Student', content: 'As a non-native speaker, I struggled with business English. Voclaria\'s targeted lessons and real-world scenarios were exactly what I needed to advance my career.', rating: 5 }
+  ];
+
+  const pricingPlans: PricingCardProps[] = [
+    { title: 'Free', price: '₱0', period: 'month', features: ['Basic vocabulary exercises', 'Limited grammar lessons', 'Community support', 'Basic progress tracking'], buttonText: 'Get Started', isPopular: false },
+    { title: 'Premium', price: '₱250', period: 'month', features: ['Unlimited vocabulary exercises', 'All grammar lessons', 'AI-powered speaking practice', 'Writing feedback from experts', 'Advanced progress analytics', 'Priority support'], buttonText: 'Start Free Trial', isPopular: true }
+  ];
+
+  return (
+    <View className="flex-1 bg-gray-900">
+      {/* Gradient Background */}
+      <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
+        <LinearGradient
+          colors={['#0F172A', '#1E293B', '#0F172A']}
+          style={{ flex: 1 }}
+        />
+      </View>
+      
+      {/* Decorative Circles */}
+      <View className="absolute w-40 h-40 bg-purple-500/10 rounded-full -top-20 -left-20" />
+      <View className="absolute w-24 h-24 bg-blue-500/10 rounded-full top-1/4 -right-12" />
+      <View className="absolute w-32 h-32 bg-pink-500/5 rounded-full top-1/3 -left-16" />
+      <View className="absolute w-48 h-48 bg-indigo-500/5 rounded-full bottom-1/4 -right-24" />
+      <View className="absolute w-28 h-28 bg-cyan-500/5 rounded-full bottom-0.5 right-8" />
+      <View className="absolute w-28 h-28 bg-purple-500/5 rounded-full top-15 right-12" />
+      <View className="absolute w-32 h-32 bg-pink-500/5 rounded-full bottom-24 left-1/6" />
+
+      
+      <ScrollView 
+        className="flex-1"
+        onScroll={handleScroll}
+        scrollEventThrottle={200}
+      >
+        <View className="px-6 py-8 max-w-md mx-auto w-full">
+          {/* Header */}
+          <View className="flex-row justify-between items-center mb-2">
+            <View className="flex-row items-center">
+              <View className="w-12 h-12 items-center justify-center mb-3 -ml-4">
+                <Image source={require('../assets/Speaksy.png')} className="w-full -mb-3 h-full" resizeMode="contain" />
+              </View>
+              <Text className="text-white ml-0.1 text-3xl font-bold">Voclaria</Text>
+            </View>
+          </View>
+
+          {/* Hero Section */}
+          <View className="mb-8">
+            <View className="space-y-2 mb-4">
+              <Text className="text-4xl font-bold text-white">Master</Text>
+              <Text className="text-4xl font-bold text-white">Communication &</Text>
+              <Text className="text-4xl font-bold text-purple-400">Reading Skills</Text>
+            </View>
+            <Text className="text-gray-200 text-sm mb-6 mt-0.1">
+              Join thousands of learners worldwide and achieve fluency with our AI-powered language platform.
+            </Text>
+            
+            <View className="flex-row space-x-4 mb-6">
+              <Link href="/role-selection" asChild>
+                <TouchableOpacity className=" bg-purple-500/70 border border-white/40 px-4 mb-2 py-3 rounded-lg flex-1 items-center">
+                  <Text className="text-white text-sm font-bold">LOG IN</Text>
+                </TouchableOpacity>
+              </Link>
+              <Link href="/create-account" asChild>
+                <TouchableOpacity className="bg-white/30 border border-white/40 px-4 mb-2 py-3 rounded-lg flex-1 items-center">
+                  <Text className="text-white text-sm font-bold">GET STARTED</Text>
+                </TouchableOpacity>
+              </Link>
+            </View>
+            
+            <View className="flex-row items-center justify-center w-full">
+              <View className="flex-row space-x-0.1">
+                {['X', 'E', 'Y', 'F'].map((initial, i) => (
+                  <View 
+                    key={i}
+                    className="w-8 h-8 rounded-full bg-purple-500/20 items-center justify-center mx-1"
+                  >
+                    <Text className="text-white/80 font-bold text-sm">{initial}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text className="text-gray-400 text-sm ml-1">
+                <Text className="text-white font-medium">10,000 +</Text> Active Learners
+              </Text>
+            </View>
+          </View>
+
+          {/* Video Preview */}
+          <View ref={videoContainerRef} className="mb-8 px-4">
+            <Text className="text-2xl font-bold text-white mb-2 text-center">Public Speaking</Text>
+            <Text className="text-gray-300 mb-4 text-center">Here is an example of how to speak confidently</Text>
+            
+            <View className="w-full h-60 rounded-xl overflow-hidden bg-black">
+              <View className="w-full h-full">
+                <Video
+                  ref={video}
+                  source={require('../assets/speech-video.mp4')}
+                  className="w-full h-full"
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}
+                  isLooping
+                  shouldPlay={false}
+                  onPlaybackStatusUpdate={status => setStatus(() => status)}
+                />
+                {showPlayButton && (
+                  <TouchableOpacity 
+                    className="absolute top-0 left-0 right-0 bottom-0 justify-center items-center bg-black/20"
+                    onPress={handlePlayPress}
+                    activeOpacity={0.8}
+                  >
+                  <View className="w-20 h-20 rounded-full justify-center items-center" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+
+          {/* Features Section */}
+          <View className="mb-16">
+            <Text className="text-2xl font-bold text-white mb-2 text-center">Everything You Need to Excel</Text>
+            <Text className="text-gray-300 mb-8 text-center px-4">Comprehensive tools and features designed to accelerate your communication and literacy journey</Text>
+            <View className="flex-row flex-wrap -mx-2">
+              {features.map((feature, index) => (
+                <View key={index} className="w-1/2 px-2 mb-4">
+                  <FeatureCard {...feature} />
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Testimonials */}
+          <View className="mb-16">
+            <Text className="text-3xl font-bold text-white text-center mb-1 -mt-5">What Our Learners Say</Text>
+            <Text className="text-gray-300 text-center mb-8">Join thousands of satisfied users who have improved their English with Fluentech.</Text>
+            <View className="space-y-1">
+              
+              
+              {testimonials.map((testimonial, index) => (
+                <TestimonialCard key={index} {...testimonial} />
+              ))}
+            </View>
+          </View>
+
+          {/* Pricing */}
+          <View className="mb-16">
+            <Text className="text-2xl font-bold text-white mb-2 -mt-8 text-center">Simple, Transparent Pricing</Text>
+            <Text className="text-gray-300 mb-5 text-center text-sm">Select the plan that aligns best with your learning objectives and budget</Text>
+            <View className="space-y-6">
+              {pricingPlans.map((plan, index) => (
+                <PricingCard key={index} {...plan} />
+              ))}
+            </View>
+          </View>
+
+          {/* CTA Section */}
+          <View className="bg-white/50 border border-white/30 rounded-2xl p-6 mb-8">
+            <View className="items-center mb-6">
+              <View className="w-16 h-16 rounded-2xl items-center justify-center mb-2">
+                <Ionicons name="rocket-outline" size={50} color="#a855f7" />
+              </View>
+              <Text className="text-white text-2xl font-bold mb-4 mt-1">Ready to get started?</Text>
+              <Text className="text-gray-300 text-center mb-6">Join Voclaria today and start your journey to English fluency.</Text>
+              <Link href="/create-account" asChild>
+                <TouchableOpacity className="bg-purple-500 px-8 py-3 rounded-lg">
+                  <Text className="text-white font-medium">Start Learning Now</Text>
+                </TouchableOpacity>
+              </Link>
+            </View>
+          </View>
+
+          {/* Footer */}
+          <View className="pt-5 border-t border-white/30">
+            <View className="flex-row justify-between items-center mb-8">
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 rounded-lg items-center justify-center -mr-1 overflow-hidden">
+                  <Image 
+                    source={require('../assets/Speaksy.png')}
+                    className="w-full h-full -ml-4"
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text className="text-white text-xl font-bold -ml-2">Voclaria</Text>
+              </View>
+            </View>
+            
+            <View className="flex-row flex-wrap justify-between mb-8">
+              <View className="w-1/2 mb-6">
+                <Text className="text-white font-medium mb-3">Product</Text>
+                <View className="space-y-2">
+                  <Text className="text-gray-400">Features</Text>
+                  <Text className="text-gray-400">Pricing</Text>
+                  <Text className="text-gray-400">Testimonials</Text>
+                </View>
+              </View>
+              <View className="w-1/2 mb-6">
+                <Text className="text-white font-medium mb-3">Company</Text>
+                <View className="space-y-2">
+                  <Text className="text-gray-400">About Us</Text>
+                  <Text className="text-gray-400">Careers</Text>
+                  <Text className="text-gray-400">Contact</Text>
+                </View>
+              </View>
+              <View className="w-1/2">
+                <Text className="text-white font-medium mb-3">Resources</Text>
+                <View className="space-y-2">
+                  <Text className="text-gray-400">Blog</Text>
+                  <Text className="text-gray-400">Help Center</Text>
+                  <Text className="text-gray-400">Tutorials</Text>
+                </View>
+              </View>
+              <View className="w-1/2">
+                <Text className="text-white font-medium mb-3">Legal</Text>
+                <View className="space-y-2">
+                  <Text className="text-gray-400">Privacy Policy</Text>
+                  <Text className="text-gray-400">Terms of Service</Text>
+                  <Text className="text-gray-400">Cookie Policy</Text>
+                </View>
+              </View>
+            </View>
+            <View className="flex-row space-x-4 mr-24">
+            <TouchableOpacity>
+                  <Ionicons name="logo-twitter" size={20} color="#f4f8ffff" />
+                </TouchableOpacity>
+                <TouchableOpacity>
+                  <Ionicons name="logo-facebook" size={20} color="#f4f8ffff" />
+                </TouchableOpacity>
+                <TouchableOpacity>
+                  <Ionicons name="logo-instagram" size={20} color="#f4f8ffff" />
+                </TouchableOpacity>
+                </View>
+
+            <View className="pt-3 border-t border-white/30 -bottom-6">
+              <Text className="text-gray-500 text-sm text-center">
+                © {new Date().getFullYear()} Voclaria. All rights reserved.
+              </Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};

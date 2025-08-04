@@ -10,7 +10,6 @@ export default function LiveVidSelection() {
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  // Animate profile menu
   useEffect(() => {
     if (isProfileMenuVisible) {
       Animated.parallel([
@@ -25,7 +24,6 @@ export default function LiveVidSelection() {
     }
   }, [isProfileMenuVisible]);
 
-  // Tab navigation
   const handleTabNavigation = (tab: string) => {
     if (tab === "Overview") router.push("/home-page");
     if (tab === "Speaking") router.push("/exercise-speaking");
@@ -36,7 +34,7 @@ export default function LiveVidSelection() {
   const handleLogout = () => router.replace("/login-page");
   const handleSettings = () => router.push("/settings");
 
-  const activeTab = pathname.includes("exercise-speaking") ? "Speaking" : 
+  const activeTab = pathname.includes("exercise-speaking") ? "Speaking" :
                     pathname.includes("exercise-reading") ? "Reading" :
                     pathname.includes("community-page") ? "Community" : "Overview";
 
@@ -49,8 +47,8 @@ export default function LiveVidSelection() {
       <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
       <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
 
-      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        {/* Functional Header */}
+      <ScrollView className="flex-1" contentContainerClassName="pb-10" showsVerticalScrollIndicator={false}>
+        {/* Header */}
         <View className="flex-row justify-between items-center px-4 pt-8 pb-4">
           <View className="flex-row items-center">
             <View className="w-7 h-7 rounded-full bg-purple-500 mr-2" />
@@ -74,32 +72,35 @@ export default function LiveVidSelection() {
 
         {/* Profile Menu Modal */}
         <Modal visible={isProfileMenuVisible} transparent animationType="none" onRequestClose={() => setIsProfileMenuVisible(false)}>
-          <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.3)" }} activeOpacity={1} onPressOut={() => setIsProfileMenuVisible(false)}>
-            <Animated.View style={{ position: "absolute", top: 55, right: 16, transform: [{ translateY: slideAnim }], opacity: opacityAnim }}>
-              <View style={{ backgroundColor: "#1E1E2E", borderRadius: 10, padding: 10, width: 180 }}>
-                <Text style={{ color: "white", fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>Sarah Johnson</Text>
-                <TouchableOpacity onPress={handleSettings} style={{ paddingVertical: 8 }}>
-                  <Text style={{ color: "white", fontSize: 14 }}>Settings</Text>
+          <TouchableOpacity className="flex-1 bg-black/30" activeOpacity={1} onPressOut={() => setIsProfileMenuVisible(false)}>
+            <Animated.View
+              style={{ transform: [{ translateY: slideAnim }], opacity: opacityAnim }}
+              className="absolute top-[55px] right-4"
+            >
+              <View className="bg-[#1E1E2E] rounded-lg p-3 w-[180px]">
+                <Text className="text-white text-lg font-bold mb-3">Sarah Johnson</Text>
+                <TouchableOpacity onPress={handleSettings} className="py-2">
+                  <Text className="text-white text-sm">Settings</Text>
                 </TouchableOpacity>
               </View>
             </Animated.View>
           </TouchableOpacity>
         </Modal>
 
-        {/* Tabs - No active highlighting */}
-<View className="flex-row bg-white/5 rounded-xl p-1 mx-4 mb-6">
-  {["Overview", "Speaking", "Reading", "Community"].map((tab) => (
-    <TouchableOpacity
-      key={tab}
-      onPress={() => handleTabNavigation(tab)}
-      className="flex-1 px-3 py-2 rounded-lg"
-    >
-      <Text className="text-xs font-bold text-center text-white/80">{tab}</Text>
-    </TouchableOpacity>
-  ))}
-</View>
+        {/* Tabs */}
+        <View className="flex-row bg-white/5 rounded-xl p-1 mx-4 mb-6">
+          {["Overview", "Speaking", "Reading", "Community"].map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => handleTabNavigation(tab)}
+              className="flex-1 px-3 py-2 rounded-lg"
+            >
+              <Text className="text-xs font-bold text-center text-white/80">{tab}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        {/* Main Title */}
+        {/* Title */}
         <Text className="text-white text-2xl font-bold px-4 mb-1">Ready to Go Live?</Text>
         <Text className="text-gray-300 px-4 mb-4">Stream live and get real-time feedback from your audience</Text>
 
@@ -112,7 +113,7 @@ export default function LiveVidSelection() {
             <Text className="font-bold text-lg text-gray-900 mb-1">Interactive Live Session</Text>
             <Text className="text-center text-gray-500 text-xs mb-4">Engage live with feedback to improve your speaking.</Text>
           </View>
-          {/* Features List */}
+          
           <View className="space-y-3 mb-2">
             {[
               { title: "Real-time Audience Interaction", desc: "Engage with participants through live comments and instant reactions" },
@@ -141,7 +142,7 @@ export default function LiveVidSelection() {
           </TouchableOpacity>
         </View>
 
-        {/* Quick Tips Card */}
+        {/* Quick Tips */}
         <View className="mx-4 bg-white rounded-2xl p-5 mb-10">
           <View className="flex-row items-center mb-2">
             <Ionicons name="bulb-outline" size={20} color="#FACC15" className="mr-2" />

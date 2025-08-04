@@ -14,7 +14,7 @@ export default function Index() {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      router.replace("/landing");
+      router.replace("/landing-page");
     }, 500); // Redirect after 0.5s
     return () => clearTimeout(timeout);
   }, []);

@@ -20,7 +20,6 @@ export default function CommunityPage() {
     if (tab === 'Live Session') router.push('/teacher-live-sessions');
   };
 
-  // Determine active tab based on route
   const getActiveTab = () => {
     if (pathname.includes('teacher-community')) return 'Community';
     if (pathname.includes('teacher-live-sessions')) return 'Live Session';
@@ -28,7 +27,6 @@ export default function CommunityPage() {
   };
   const activeTab = getActiveTab();
 
-  // Animate profile menu
   useEffect(() => {
     if (isProfileMenuVisible) {
       Animated.parallel([
@@ -44,7 +42,11 @@ export default function CommunityPage() {
   }, [isProfileMenuVisible]);
 
   return (
-    <ScrollView className="flex-1 bg-[#0A0A1E]" showsVerticalScrollIndicator={false}>
+    <ScrollView
+      className="flex-1 bg-[#0A0A1E]"
+      contentContainerClassName="pb-10"
+      showsVerticalScrollIndicator={false}
+    >
       {/* Header with Profile Menu */}
       <View className="bg-[#18182a] px-4 pt-8 pb-4">
         <View className="flex-row items-center justify-between">
@@ -75,25 +77,21 @@ export default function CommunityPage() {
           onRequestClose={() => setIsProfileMenuVisible(false)}
         >
           <TouchableOpacity
-            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}
+            className="flex-1 bg-black/30"
             activeOpacity={1}
             onPressOut={() => setIsProfileMenuVisible(false)}
           >
             <Animated.View
+              className="absolute top-14 right-4 bg-[#1E1E2E] rounded-xl p-3 w-44"
               style={{
-                position: 'absolute',
-                top: 55,
-                right: 16,
                 transform: [{ translateY: slideAnim }],
                 opacity: opacityAnim,
               }}
             >
-              <View style={{ backgroundColor: '#1E1E2E', borderRadius: 10, padding: 10, width: 180 }}>
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Sarah Johnson</Text>
-                <TouchableOpacity onPress={handleSettings} style={{ paddingVertical: 8 }}>
-                  <Text style={{ color: 'white', fontSize: 14 }}>Settings</Text>
-                </TouchableOpacity>
-              </View>
+              <Text className="text-white text-base font-bold mb-3">Sarah Johnson</Text>
+              <TouchableOpacity onPress={handleSettings} className="py-2">
+                <Text className="text-white text-sm">Settings</Text>
+              </TouchableOpacity>
             </Animated.View>
           </TouchableOpacity>
         </Modal>
@@ -106,7 +104,11 @@ export default function CommunityPage() {
               onPress={() => handleTabNavigation(tab)}
               className={`flex-1 py-2 rounded-xl ${activeTab === tab ? 'bg-white/10' : ''}`}
             >
-              <Text className={`text-center font-semibold ${activeTab === tab ? 'text-purple-400' : 'text-white/80'}`}>
+              <Text
+                className={`text-center font-semibold ${
+                  activeTab === tab ? 'text-purple-400' : 'text-white/80'
+                }`}
+              >
                 {tab}
               </Text>
             </TouchableOpacity>
@@ -116,9 +118,9 @@ export default function CommunityPage() {
 
       {/* Title & Subtitle */}
       <View className="mx-4 mt-4 mb-2">
-        <Text className="text-white text-lg font-bold">VR and Video Peer Review</Text>
+        <Text className="text-white text-lg font-bold">Video Peer Review</Text>
         <Text className="text-gray-400 text-xs mt-1">
-          Review and provide feedback on community VR and video recordings
+          Review and provide feedback on community video recordings
         </Text>
       </View>
 
@@ -127,28 +129,34 @@ export default function CommunityPage() {
         <Text className="text-gray-300 text-xs mb-1">Overall Rating</Text>
         <View className="flex-row items-center">
           <Text className="text-white font-bold text-2xl">4.2</Text>
-          <Ionicons name="star" size={18} color="#FFD700" style={{ marginLeft: 8 }} />
+          <Ionicons name="star" size={18} color="#FFD700" className="ml-2" />
           <Text className="text-gray-400 ml-2 text-xs">Based on 18 reviews</Text>
         </View>
       </View>
 
       {/* Video Recording Card */}
       <View className="mx-4 bg-[#232346] rounded-2xl overflow-hidden mb-4">
-        {/* Tag */}
         <View className="bg-purple-500 px-3 py-1 rounded-br-lg absolute top-0 left-0 z-10">
           <Text className="text-white text-xs font-bold">VIDEO RECORDING</Text>
         </View>
-        {/* Video Thumbnail */}
         <View className="w-full h-40 bg-[#b0aef7] items-center justify-center relative">
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=400&q=80' }} className="w-full h-full" resizeMode="cover" />
+          <Image
+            source={{
+              uri: 'https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=400&q=80',
+            }}
+            className="w-full h-full"
+            resizeMode="cover"
+          />
           <View className="absolute inset-0 items-center justify-center flex-row">
             <View className="bg-white/80 w-12 h-12 rounded-full items-center justify-center">
               <Ionicons name="play" size={30} color="#a855f7" />
             </View>
           </View>
-          {/* User info overlay */}
           <View className="absolute bottom-2 left-2 flex-row items-center">
-            <Image source={{ uri: 'https://randomuser.me/api/portraits/women/32.jpg' }} className="w-8 h-8 rounded-full border-2 border-white" />
+            <Image
+              source={{ uri: 'https://randomuser.me/api/portraits/women/32.jpg' }}
+              className="w-8 h-8 rounded-full border-2 border-white"
+            />
             <View className="ml-2">
               <Text className="text-white font-semibold text-xs">Sarah Johnson</Text>
               <Text className="text-white/70 text-xs">Quarterly Presentation Practice</Text>
@@ -159,7 +167,9 @@ export default function CommunityPage() {
 
       {/* Main Session Card */}
       <View className="mx-4 bg-white rounded-2xl p-4 mb-4">
-        <Text className="text-black font-bold text-base mb-1">Quarterly Sales Presentation - Practice Session</Text>
+        <Text className="text-black font-bold text-base mb-1">
+          Quarterly Sales Presentation - Practice Session
+        </Text>
         <View className="flex-row items-center mb-2">
           <Ionicons name="eye-outline" size={14} color="#a3a3a3" />
           <Text className="text-gray-500 text-xs ml-1">127 views</Text>
@@ -168,11 +178,13 @@ export default function CommunityPage() {
           <Ionicons name="thumbs-up-outline" size={14} color="#34d399" className="ml-4" />
           <Text className="text-emerald-500 text-xs ml-1">24</Text>
         </View>
-        {/* More from Community */}
         <Text className="text-black font-semibold text-xs mb-2">More from Community</Text>
         <View className="flex-row mb-2">
           <View className="flex-1 bg-gray-100 rounded-xl flex-row items-center p-2 mr-2">
-            <Image source={{ uri: 'https://randomuser.me/api/portraits/men/44.jpg' }} className="w-7 h-7 rounded-full mr-2" />
+            <Image
+              source={{ uri: 'https://randomuser.me/api/portraits/men/44.jpg' }}
+              className="w-7 h-7 rounded-full mr-2"
+            />
             <View className="flex-1">
               <Text className="text-black text-xs font-bold">Interview Practice Session</Text>
               <View className="flex-row items-center mt-1">
@@ -184,7 +196,10 @@ export default function CommunityPage() {
             </View>
           </View>
           <View className="flex-1 bg-gray-100 rounded-xl flex-row items-center p-2">
-            <Image source={{ uri: 'https://randomuser.me/api/portraits/men/47.jpg' }} className="w-7 h-7 rounded-full mr-2" />
+            <Image
+              source={{ uri: 'https://randomuser.me/api/portraits/men/47.jpg' }}
+              className="w-7 h-7 rounded-full mr-2"
+            />
             <View className="flex-1">
               <Text className="text-black text-xs font-bold">Spanish Conversation Practice</Text>
               <View className="flex-row items-center mt-1">
@@ -196,7 +211,6 @@ export default function CommunityPage() {
             </View>
           </View>
         </View>
-        {/* Pagination dots */}
         <View className="flex-row justify-center items-center mt-1">
           <View className="w-2 h-2 rounded-full bg-purple-500 mx-1" />
           <View className="w-2 h-2 rounded-full bg-gray-300 mx-1" />
@@ -207,7 +221,6 @@ export default function CommunityPage() {
       {/* Comments & Reviews Section */}
       <View className="mx-4 mb-6">
         <Text className="text-black font-bold text-base mb-2">Comments & Reviews</Text>
-        {/* Input */}
         <View className="flex-row items-center bg-gray-100 rounded-xl px-3 py-2 mb-3">
           <Ionicons name="chatbubble-ellipses-outline" size={18} color="#a855f7" />
           <TextInput
@@ -219,14 +232,18 @@ export default function CommunityPage() {
             <Ionicons name="send" size={18} color="#a855f7" />
           </TouchableOpacity>
         </View>
-        {/* Rate This Recording */}
         <View className="bg-gray-100 rounded-xl p-3 mb-3">
           <Text className="text-black font-semibold text-xs mb-1">Rate This Recording</Text>
           <View className="flex-row items-center mb-1">
             <Text className="text-gray-500 text-xs">Delivery</Text>
             <View className="flex-row ml-2">
               {[...Array(5)].map((_, i) => (
-                <Ionicons key={i} name={i < 4 ? 'star' : 'star-outline'} size={16} color="#FFD700" />
+                <Ionicons
+                  key={i}
+                  name={i < 4 ? 'star' : 'star-outline'}
+                  size={16}
+                  color="#FFD700"
+                />
               ))}
             </View>
           </View>
@@ -234,7 +251,12 @@ export default function CommunityPage() {
             <Text className="text-gray-500 text-xs">Confidence</Text>
             <View className="flex-row ml-2">
               {[...Array(5)].map((_, i) => (
-                <Ionicons key={i} name={i < 4 ? 'star' : 'star-outline'} size={16} color="#FFD700" />
+                <Ionicons
+                  key={i}
+                  name={i < 4 ? 'star' : 'star-outline'}
+                  size={16}
+                  color="#FFD700"
+                />
               ))}
             </View>
           </View>
@@ -250,7 +272,6 @@ export default function CommunityPage() {
             <Text className="text-white font-bold text-xs text-center">Post Review</Text>
           </TouchableOpacity>
         </View>
-        {/* Example Review Card */}
         <View className="bg-gray-100 rounded-xl p-3 flex-row items-start">
           <View className="w-8 h-8 bg-purple-500/20 rounded-full items-center justify-center mr-3 mt-1">
             <Ionicons name="person" size={18} color="#a855f7" />
@@ -265,7 +286,9 @@ export default function CommunityPage() {
               <Ionicons name="star-outline" size={14} color="#FFD700" />
               <Text className="text-gray-400 text-xs ml-2">1 hour ago</Text>
             </View>
-            <Text className="text-gray-600 text-xs">Excellent presentation! Your confidence shows, and the slide visuals were clear. My only suggestion: maintain constant eye contact during your opening.</Text>
+            <Text className="text-gray-600 text-xs">
+              Excellent presentation! Your confidence shows, and the slide visuals were clear. My only suggestion: maintain constant eye contact during your opening.
+            </Text>
           </View>
         </View>
       </View>

@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, Modal, Animated } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, Modal, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
-export default function LiveSession() {
+export default function TeacherLiveSession() {
   const router = useRouter();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-50)).current;
@@ -14,7 +14,6 @@ export default function LiveSession() {
   const handleLogout = () => router.replace('/login-page');
   const handleSettings = () => router.push('/settings');
 
-  // Animate profile popup
   useEffect(() => {
     if (isProfileMenuVisible) {
       Animated.parallel([
@@ -30,21 +29,21 @@ export default function LiveSession() {
   }, [isProfileMenuVisible]);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View className="flex-1">
       {/* Gradient Background */}
       <LinearGradient
         colors={['#0A0A0F', '#1A1A2E', '#16213E']}
         locations={[0, 0.5, 1]}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
-        style={StyleSheet.absoluteFillObject}
+        className="absolute top-0 left-0 right-0 bottom-0"
         pointerEvents="none"
       >
-        <View style={{ position: 'absolute', top: -60, left: -50, width: 160, height: 160, borderRadius: 80, backgroundColor: '#7c3aed', opacity: 0.13 }} />
-        <View style={{ position: 'absolute', top: 100, right: -40, width: 90, height: 90, borderRadius: 45, backgroundColor: '#2563eb', opacity: 0.1 }} />
-        <View style={{ position: 'absolute', bottom: 100, left: 50, width: 36, height: 36, borderRadius: 18, backgroundColor: '#43e6ff', opacity: 0.09 }} />
-        <View style={{ position: 'absolute', bottom: 20, right: 40, width: 60, height: 60, borderRadius: 30, backgroundColor: '#a259ff', opacity: 0.09 }} />
-        <View style={{ position: 'absolute', top: 200, left: 90, width: 22, height: 22, borderRadius: 11, backgroundColor: '#43e6ff', opacity: 0.1 }} />
+        <View className="absolute top-[-60px] left-[-50px] w-40 h-40 rounded-full bg-purple-600 opacity-15" />
+        <View className="absolute top-[100px] right-[-40px] w-24 h-24 rounded-full bg-blue-600 opacity-10" />
+        <View className="absolute bottom-[100px] left-[50px] w-9 h-9 rounded-full bg-cyan-300 opacity-10" />
+        <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
+        <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
       </LinearGradient>
 
       <ScrollView className="flex-1 px-4 pt-8">
@@ -67,7 +66,7 @@ export default function LiveSession() {
               <View className="w-9 h-9 rounded-full ml-2 overflow-hidden border-2 border-white">
                 <Image
                   source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }}
-                  style={{ width: '100%', height: '100%' }}
+                  className="w-full h-full"
                 />
               </View>
             </TouchableOpacity>
@@ -82,104 +81,85 @@ export default function LiveSession() {
           onRequestClose={() => setIsProfileMenuVisible(false)}
         >
           <TouchableOpacity
-            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}
+            className="flex-1 bg-black/30"
             activeOpacity={1}
             onPressOut={() => setIsProfileMenuVisible(false)}
           >
             <Animated.View
+              className="absolute top-14 right-4"
               style={{
-                position: 'absolute',
-                top: 55,
-                right: 16,
                 transform: [{ translateY: slideAnim }],
                 opacity: opacityAnim,
               }}
             >
-              <View style={{ backgroundColor: '#1E1E2E', borderRadius: 10, padding: 10, width: 180 }}>
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Sarah Johnson</Text>
-                <TouchableOpacity onPress={handleSettings} style={{ paddingVertical: 8 }}>
-                  <Text style={{ color: 'white', fontSize: 14 }}>Settings</Text>
+              <View className="bg-[#1E1E2E] rounded-lg p-3 w-44">
+                <Text className="text-white text-base font-bold mb-3">Sarah Johnson</Text>
+                <TouchableOpacity onPress={handleSettings} className="py-2">
+                  <Text className="text-white text-sm">Settings</Text>
                 </TouchableOpacity>
               </View>
             </Animated.View>
           </TouchableOpacity>
         </Modal>
 
-        {/* Tab Bar (Live Session Active) */}
+        {/* Tab Bar */}
         <View className="flex-row bg-black/40 rounded-xl mb-6 p-1">
-          <TouchableOpacity
-            className="flex-1 items-center py-2 rounded-lg"
-            onPress={() => handleNavigation('/teacher-dashboard')}
-          >
+          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/teacher-dashboard')}>
             <Text className="text-white/80">Overview</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            className="flex-1 items-center py-2 rounded-lg"
-            onPress={() => handleNavigation('/teacher-community')}
-          >
+          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg" onPress={() => handleNavigation('/teacher-community')}>
             <Text className="text-white/80">Community</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            className="flex-1 items-center py-2 rounded-lg bg-white"
-            onPress={() => handleNavigation('/teacher-live-sessions')}
-          >
+          <TouchableOpacity className="flex-1 items-center py-2 rounded-lg bg-white" onPress={() => handleNavigation('/teacher-live-sessions')}>
             <Text className="text-purple-600 font-bold">Live Sessions</Text>
           </TouchableOpacity>
         </View>
 
         {/* Session Info */}
-        <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 6 }}>
-          Live Session
-        </Text>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-          <View style={{ backgroundColor: '#FF4F4F', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginRight: 10 }}>
-            <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>LIVE</Text>
+        <Text className="text-white text-xl font-bold mb-2">Live Session</Text>
+        <View className="flex-row items-center mb-4">
+          <View className="bg-red-500 px-2 py-0.5 rounded mr-2">
+            <Text className="text-white text-[11px] font-bold">LIVE</Text>
           </View>
           <Ionicons name="eye-outline" size={16} color="#aaa" />
-          <Text style={{ color: '#aaa', fontSize: 13, marginLeft: 4 }}>127 viewers</Text>
+          <Text className="text-gray-400 text-sm ml-1">127 viewers</Text>
         </View>
 
         <Image
           source={{ uri: 'https://images.unsplash.com/photo-1646243425301-d733db6f5821' }}
-          style={{ width: '100%', height: 200, borderRadius: 14, marginBottom: 16 }}
+          className="w-full h-52 rounded-xl mb-4"
           resizeMode="cover"
         />
 
-        <View style={{ backgroundColor: '#1C1C3A', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#34D399', justifyContent: 'center', alignItems: 'center', marginRight: 14 }}>
-            <Text style={{ color: '#fff', fontWeight: 'bold' }}>MC</Text>
+        <View className="bg-[#1C1C3A] rounded-xl p-4 flex-row items-center mb-6">
+          <View className="w-12 h-12 rounded-full bg-green-400 items-center justify-center mr-4">
+            <Text className="text-white font-bold">MC</Text>
           </View>
           <View>
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Dr. Michael Chen</Text>
-            <Text style={{ color: '#aaa', fontSize: 13 }}>Professor of Computer Science</Text>
+            <Text className="text-white font-bold text-base">Dr. Michael Chen</Text>
+            <Text className="text-gray-400 text-sm">Professor of Computer Science</Text>
           </View>
         </View>
 
         {/* Reactions */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 24 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View className="flex-row justify-around mb-6">
+          <View className="flex-row items-center">
             <Ionicons name="heart" size={20} color="#FF4F4F" />
-            <Text style={{ color: '#fff', marginLeft: 6, fontSize: 14 }}>26</Text>
+            <Text className="text-white ml-1">26</Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View className="flex-row items-center">
             <Ionicons name="happy" size={20} color="#FACC15" />
-            <Text style={{ color: '#fff', marginLeft: 6, fontSize: 14 }}>19</Text>
+            <Text className="text-white ml-1">19</Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View className="flex-row items-center">
             <Ionicons name="bulb" size={20} color="#8A5CFF" />
-            <Text style={{ color: '#fff', marginLeft: 6, fontSize: 14 }}>17</Text>
+            <Text className="text-white ml-1">17</Text>
           </View>
         </View>
 
         {/* CTA */}
-        <TouchableOpacity
-          style={{ backgroundColor: '#8A5CFF', borderRadius: 10, paddingVertical: 14, marginBottom: 30 }}
-          onPress={() => handleNavigation('/teacher-live-sessions')}
-        >
-          <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: 15 }}>
-            More Live Sessions
-          </Text>
+        <TouchableOpacity className="bg-[#8A5CFF] rounded-lg py-4 mb-8" onPress={() => handleNavigation('/teacher-live-sessions')}>
+          <Text className="text-white text-center font-bold text-base">More Live Sessions</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

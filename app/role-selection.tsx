@@ -1,12 +1,5 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  Image,
-  TouchableOpacity,
-  ScrollView,
-  Platform,
-} from 'react-native';
+import { View, Text, Image, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -29,55 +22,51 @@ const teacherFeatures = [
 export default function RoleSelection() {
   const router = useRouter();
 
-  // Navigate to login with role param
   const handleSelectRole = (role: 'student' | 'teacher') => {
-    console.log(`${role} selected`);
-    router.push({
-      pathname: '/login-page',
-      params: { role }, // Passing the role
-    });
+    if (role === 'student') {
+      router.push('/login-student');
+    } else {
+      router.push('/login-teacher');
+    }
   };
 
   return (
-    <View className="flex-1 bg-[#0A0A0F] relative">
-      {/* Background Gradient */}
+    <View className="flex-1 bg-gray-900">
+      {/* Gradient Background */}
       <LinearGradient
-        colors={['#0A0A0F', '#1A1A2E', '#16213E']}
-        locations={[0, 0.5, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        className="absolute inset-0 z-[-1]"
+        colors={['#0F172A', '#1E293B', '#0F172A']}
+        className="absolute inset-0"
       />
 
-      {/* Decorative Blobs */}
-      {[
-        'top-[-60px] left-[-50px] w-40 h-40 bg-[#7c3aed] opacity-10',
-        'top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#2563eb] opacity-10',
-        'bottom-[80px] left-[50px] w-9 h-9 bg-[#43e6ff] opacity-10',
-        'bottom-5 right-10 w-15 h-15 bg-[#a259ff] opacity-10',
-        'top-[200px] left-[90px] w-5 h-5 bg-[#43e6ff] opacity-10',
-      ].map((style, i) => (
-        <View key={i} className={`absolute rounded-full ${style}`} />
-      ))}
+      {/* Decorative Circles */}
+      <View className="absolute w-40 h-40 bg-purple-500/10 rounded-full -top-20 -left-20" />
+      <View className="absolute w-24 h-24 bg-blue-500/10 rounded-full top-1/4 -right-12" />
+      <View className="absolute w-28 h-28 bg-purple-500/5 rounded-full top-15 right-12" />
+      <View className="absolute w-32 h-32 bg-pink-500/5 rounded-full bottom-24 left-1/6" />
+      <View className="absolute w-36 h-36 bg-purple-400/5 rounded-full -bottom-5 -right-8 z-10" />
 
       {/* Header */}
-      <View className="flex-row items-center pt-10 pb-4 px-4 z-10">
+      <TouchableOpacity
+        className="flex-row items-center pt-10 pb-4 px-4 z-10"
+        onPress={() => router.push('/landing-page')}
+        activeOpacity={0.8}
+      >
         <Image
           source={require('../assets/Speaksy.png')}
           className="w-12 h-12 rounded-2xl"
           resizeMode="contain"
         />
-        <Text className="text-white text-2xl font-bold tracking-wider ml-0.1">
+        <Text className="text-white text-3xl font-bold tracking-wider ml-0.5">
           Voclaria
         </Text>
-      </View>
+      </TouchableOpacity>
 
       {/* Scrollable Cards */}
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView contentContainerClassName="pb-10">
         <View className="px-4 w-full max-w-[400px] self-center">
           {/* Title */}
           <View className="items-center mb-4">
-            <View className="rounded-xl border border-white/20 bg-white/5 px-4 py-2 mb-1">
+            <View className="rounded-xl border border-white/30 bg-white/5 px-4 py-2 mb-1">
               <Text className="text-white font-bold text-2xl tracking-wide">
                 Choose Your Path
               </Text>
@@ -90,7 +79,7 @@ export default function RoleSelection() {
           </View>
 
           {/* Student Card */}
-          <BlurView intensity={40} tint="dark" className="rounded-xl p-3 mb-4 bg-[#2c2c46]/50">
+          <BlurView intensity={10} tint="dark" className="rounded-xl p-3 mb-4 bg-[white]/10 border border-white/30">
             <View className="flex-row items-center justify-between mb-3">
               <TouchableOpacity activeOpacity={0.9} onPress={() => handleSelectRole('student')}>
                 <LinearGradient
@@ -113,7 +102,7 @@ export default function RoleSelection() {
             {studentFeatures.map((f) => (
               <View
                 key={f}
-                className="flex-row items-center bg-[#1e1e3cb3] rounded-xl py-2.5 px-5 mb-2.5 border border-white/5"
+                className="flex-row items-center bg-[white]/10 rounded-xl py-2.5 px-5 mb-2.5 border border-white/20"
               >
                 <View className="w-2.5 h-2.5 rounded-full mr-2.5 bg-[#a78bfa]" />
                 <Text className="text-[#bfc9e0] text-xs">{f}</Text>
@@ -122,7 +111,7 @@ export default function RoleSelection() {
           </BlurView>
 
           {/* Teacher Card */}
-          <BlurView intensity={40} tint="dark" className="rounded-xl p-3 mb-4 bg-[#2c2c46]/50">
+          <BlurView intensity={10} tint="dark" className="rounded-xl p-3 mb-4 bg-[white]/10 border border-white/30">
             <View className="flex-row items-center justify-between mb-3">
               <TouchableOpacity activeOpacity={0.9} onPress={() => handleSelectRole('teacher')}>
                 <LinearGradient
@@ -145,7 +134,7 @@ export default function RoleSelection() {
             {teacherFeatures.map((f) => (
               <View
                 key={f}
-                className="flex-row items-center bg-[#1e1e3cb3] rounded-xl py-2.5 px-5 mb-2.5 border border-white/5"
+                className="flex-row items-center bg-[white]/10 rounded-xl py-2.5 px-5 mb-2.5 border border-white/20"
               >
                 <View className="w-2.5 h-2.5 rounded-full mr-2.5 bg-[#a78bfa]" />
                 <Text className="text-[#bfc9e0] text-xs">{f}</Text>

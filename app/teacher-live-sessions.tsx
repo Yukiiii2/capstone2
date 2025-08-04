@@ -1,29 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, Modal, Animated } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, Modal, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, usePathname } from 'expo-router';
 
-export default function LiveSessions() {
+export default function TeacherLiveSessions() {
   const router = useRouter();
   const pathname = usePathname();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  const handleNavigation = (page: string) => {
-    router.push(page);
-  };
+  const handleNavigation = (page: string) => router.push(page);
+  const handleLogout = () => router.replace('/login-page');
+  const handleSettings = () => router.push('/settings');
 
-  const handleLogout = () => {
-    router.replace('/login-page');
-  };
-
-  const handleSettings = () => {
-    router.push('/settings');
-  };
-
-  // Determine active tab
   const getActiveTab = () => {
     if (pathname.includes('/teacher-dashboard')) return 'Overview';
     if (pathname.includes('/teacher-community')) return 'Community';
@@ -32,7 +23,6 @@ export default function LiveSessions() {
   };
   const activeTab = getActiveTab();
 
-  // Animate profile popup
   useEffect(() => {
     if (isProfileMenuVisible) {
       Animated.parallel([
@@ -48,21 +38,21 @@ export default function LiveSessions() {
   }, [isProfileMenuVisible]);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View className="flex-1">
       {/* Gradient Background */}
       <LinearGradient
         colors={['#0A0A0F', '#1A1A2E', '#16213E']}
         locations={[0, 0.5, 1]}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
-        style={StyleSheet.absoluteFillObject}
+        className="absolute top-0 left-0 right-0 bottom-0"
         pointerEvents="none"
       >
-        <View style={{ position: 'absolute', top: -60, left: -50, width: 160, height: 160, borderRadius: 80, backgroundColor: '#7c3aed', opacity: 0.13 }} />
-        <View style={{ position: 'absolute', top: 100, right: -40, width: 90, height: 90, borderRadius: 45, backgroundColor: '#2563eb', opacity: 0.10 }} />
-        <View style={{ position: 'absolute', bottom: 100, left: 50, width: 36, height: 36, borderRadius: 18, backgroundColor: '#43e6ff', opacity: 0.09 }} />
-        <View style={{ position: 'absolute', bottom: 20, right: 40, width: 60, height: 60, borderRadius: 30, backgroundColor: '#a259ff', opacity: 0.09 }} />
-        <View style={{ position: 'absolute', top: 200, left: 90, width: 22, height: 22, borderRadius: 11, backgroundColor: '#43e6ff', opacity: 0.10 }} />
+        <View className="absolute top-[-60px] left-[-50px] w-40 h-40 rounded-full bg-purple-600 opacity-15" />
+        <View className="absolute top-[100px] right-[-40px] w-24 h-24 rounded-full bg-blue-600 opacity-10" />
+        <View className="absolute bottom-[100px] left-[50px] w-9 h-9 rounded-full bg-cyan-300 opacity-10" />
+        <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
+        <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
       </LinearGradient>
 
       <ScrollView className="flex-1 px-4 pt-8">
@@ -84,8 +74,8 @@ export default function LiveSessions() {
             <TouchableOpacity onPress={() => setIsProfileMenuVisible(true)}>
               <View className="w-9 h-9 rounded-full ml-2 overflow-hidden border-2 border-white">
                 <Image
-                  source={{ uri: "https://randomuser.me/api/portraits/women/44.jpg" }}
-                  style={{ width: '100%', height: '100%' }}
+                  source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }}
+                  className="w-full h-full"
                 />
               </View>
             </TouchableOpacity>
@@ -100,30 +90,28 @@ export default function LiveSessions() {
           onRequestClose={() => setIsProfileMenuVisible(false)}
         >
           <TouchableOpacity
-            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}
+            className="flex-1 bg-black/30"
             activeOpacity={1}
             onPressOut={() => setIsProfileMenuVisible(false)}
           >
             <Animated.View
+              className="absolute top-14 right-4"
               style={{
-                position: 'absolute',
-                top: 55,
-                right: 16,
                 transform: [{ translateY: slideAnim }],
                 opacity: opacityAnim,
               }}
             >
-              <View style={{ backgroundColor: '#1E1E2E', borderRadius: 10, padding: 10, width: 180 }}>
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Sarah Johnson</Text>
-                <TouchableOpacity onPress={handleSettings} style={{ paddingVertical: 8 }}>
-                  <Text style={{ color: 'white', fontSize: 14 }}>Settings</Text>
+              <View className="bg-[#1E1E2E] rounded-lg p-3 w-44">
+                <Text className="text-white text-base font-bold mb-3">Sarah Johnson</Text>
+                <TouchableOpacity onPress={handleSettings} className="py-2">
+                  <Text className="text-white text-sm">Settings</Text>
                 </TouchableOpacity>
               </View>
             </Animated.View>
           </TouchableOpacity>
         </Modal>
 
-        {/* Tab Bar with Active Highlight */}
+        {/* Tab Bar */}
         <View className="flex-row bg-black/40 rounded-xl mb-6 p-1">
           {[
             { label: 'Overview', path: '/teacher-dashboard' },
@@ -135,9 +123,7 @@ export default function LiveSessions() {
               className={`flex-1 items-center py-2 rounded-lg ${activeTab === tab.label ? 'bg-white' : ''}`}
               onPress={() => handleNavigation(tab.path)}
             >
-              <Text
-                className={`font-semibold ${activeTab === tab.label ? 'text-purple-500' : 'text-white/80'}`}
-              >
+              <Text className={`font-semibold ${activeTab === tab.label ? 'text-purple-500' : 'text-white/80'}`}>
                 {tab.label}
               </Text>
             </TouchableOpacity>
@@ -160,12 +146,12 @@ export default function LiveSessions() {
         {[
           { name: 'Sarah Chen', title: 'Voice Warm-Up and Articulation', level: 'Basic' },
           { name: 'David Kim', title: 'Advanced Debate Practice', level: 'Advanced' },
-          { name: 'Lisa Park', title: 'Eye Contact and Facial Expression', level: 'Basic' }
+          { name: 'Lisa Park', title: 'Eye Contact and Facial Expression', level: 'Basic' },
         ].map((session, i) => (
           <View key={i} className="mb-4 bg-[#232345] rounded-2xl p-4">
             <View className="flex-row items-center justify-between mb-2">
               <View className="flex-row items-center">
-                <Text className="bg-[#FF4F4F] text-white text-[11px] font-bold rounded px-2 py-0.5 mr-2">LIVE</Text>
+                <Text className="bg-red-500 text-white text-[11px] font-bold rounded px-2 py-0.5 mr-2">LIVE</Text>
                 <Ionicons name="person-circle-outline" size={20} color="#8A5CFF" />
                 <Text className="text-white font-bold ml-2">{session.name}</Text>
               </View>
@@ -180,7 +166,7 @@ export default function LiveSessions() {
             </View>
             <TouchableOpacity
               className="bg-[#6C47FF] rounded-xl px-4 py-2 self-start mt-1"
-              onPress={() => handleNavigation('/teacher-live-session')} // <-- Redirect to live-session.tsx
+              onPress={() => handleNavigation('/teacher-live-session')}
             >
               <Text className="text-white text-xs font-bold">Join Session</Text>
             </TouchableOpacity>

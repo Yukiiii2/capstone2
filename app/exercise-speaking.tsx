@@ -1,198 +1,353 @@
-import React, { useState, useRef, useEffect } from "react";
-import { View, Text, TouchableOpacity, Image, ScrollView, Modal, Animated } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Image, ScrollView, Modal, Animated } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter, usePathname } from 'expo-router';
 
-const profilePic = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
+// Constants
+const PROFILE_PIC = { uri: 'https://randomuser.me/api/portraits/women/44.jpg' };
 
-const modules = [
+const MODULES = [
   {
-    key: "Basic",
-    label: "BASIC",
-    title: "Foundation Speaking Skills",
-    desc: "Master essential self-introduction techniques and learn to manage speaking anxiety in a supportive virtual classroom environment.",
-    progress: 0.75,
-    color: "#7c3aed",
-    navigateTo: "/basic-contents",
+    key: 'Basic',
+    label: 'BASIC',
+    title: 'Foundation Public Speaking Skills',
+    desc: 'Master essential self-introduction techniques and learn to manage speaking anxiety in a supportive virtual classroom environment.',
+    progress: 75/100, // 75% progress
+    color: '#a78bfa',
+    navigateTo: '/basic-contents',
   },
   {
-    key: "Advanced",
-    label: "ADVANCE",
-    title: "Advanced Public Speaking Mastery",
-    desc: "Deliver compelling presentations to large audiences while handling complex Q&A sessions and unexpected challenges.",
-    progress: 0.4,
-    color: "#7c3aed",
-    navigateTo: "/advanced-contents",
+    key: 'Advanced',
+    label: 'ADVANCED',
+    title: 'Advanced Public Speaking Mastery',
+    desc: 'Deliver compelling presentations to large audiences while handling complex Q&A sessions and unexpected challenges.',
+    progress: 40/100, // 40% progress
+    color: '#a78bfa',
+    navigateTo: '/advanced-contents',
   },
 ];
 
-export default function HomeScreen() {
+const TABS = ['Overview', 'Speaking', 'Reading', 'Community'] as const;
+
+type TabType = typeof TABS[number];
+
+type ModuleType = {
+  key: string;
+  label: string;
+  title: string;
+  desc: string;
+  progress: number;
+  color: string;
+  navigateTo: string;
+  isActive?: boolean;
+};
+
+const HomeScreen = () => {
+  // Hooks
   const router = useRouter();
   const pathname = usePathname();
-  const [selectedModule, setSelectedModule] = useState("Basic");
-  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
+  
+  // State
+  const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState<boolean>(false);
+  
+  // Animation refs
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  const handleModuleSelect = (moduleKey: string, navigateTo: string) => {
+  // Navigation handlers
+  const navigateToModule = (moduleKey: string, navigateTo: string) => {
     setSelectedModule(moduleKey);
     router.push(navigateTo);
   };
 
   const handleIconPress = (iconName: string) => {
-    if (iconName === "log-out-outline") router.replace("/login-page");
-  };
-  const handleSettings = () => router.push("/settings");
-
-  const handleTabNavigation = (tab: string) => {
-    if (tab === "Overview") router.push("/home-page");
-    if (tab === "Speaking") router.push("/exercise-speaking");
-    if (tab === "Reading") router.push("/exercise-reading");
-    if (tab === "Community") router.push("/community-page");
-  };
-
-  useEffect(() => {
-    if (isProfileMenuVisible) {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: -50, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start();
+    if (iconName === 'log-out-outline') {
+      router.replace('/login-page');
     }
+  };
+
+  const navigateToSettings = () => router.push('/settings');
+
+  const navigateToTab = (tab: TabType) => {
+    const routes: Record<TabType, string> = {
+      'Overview': '/home-page',
+      'Speaking': '/exercise-speaking',
+      'Reading': '/exercise-reading',
+      'Community': '/community-page'
+    };
+    router.push(routes[tab]);
+  };
+
+  // Animation effects
+  useEffect(() => {
+    const animations = isProfileMenuVisible
+      ? [
+          Animated.timing(slideAnim, { 
+            toValue: 0, 
+            duration: 200, 
+            useNativeDriver: true 
+          }),
+          Animated.timing(opacityAnim, { 
+            toValue: 1, 
+            duration: 200, 
+            useNativeDriver: true 
+          })
+        ]
+      : [
+          Animated.timing(slideAnim, { 
+            toValue: -50, 
+            duration: 200, 
+            useNativeDriver: true 
+          }),
+          Animated.timing(opacityAnim, { 
+            toValue: 0, 
+            duration: 200, 
+            useNativeDriver: true 
+          })
+        ];
+
+    Animated.parallel(animations).start();
   }, [isProfileMenuVisible]);
 
-  const getActiveTab = () => {
-    if (pathname.includes("exercise-speaking")) return "Speaking";
-    if (pathname.includes("exercise-reading")) return "Reading";
-    if (pathname.includes("community-page")) return "Community";
-    return "Overview";
+  // Tab management
+  const getActiveTab = (): TabType => {
+    if (pathname.includes('exercise-speaking')) return 'Speaking';
+    if (pathname.includes('exercise-reading')) return 'Reading';
+    if (pathname.includes('community-page')) return 'Community';
+    return 'Overview';
   };
 
   const activeTab = getActiveTab();
 
-  return (
-    <View className="flex-1 bg-[#0A0A0F] relative">
-      <LinearGradient
-        colors={["#0A0A0F", "#1A1A2E", "#16213E"]}
-        locations={[0, 0.5, 1]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        className="absolute inset-0 z-[-1]"
-      />
+  // Header component
+  const Header = () => (
+    <View className="flex-row justify-between items-center mt-4 mb-2 w-full">
+      <View className="flex-row items-center">
+        <Image 
+          source={require("../assets/Speaksy.png")} 
+          className="w-12 h-12 rounded-full" 
+          resizeMode="contain"
+        />
+        <Text className="text-white font-bold text-2xl ml-2 -left-3">Voclaria</Text>
+      </View>
 
-      {[{ style: "top-[-60px] left-[-50px] w-40 h-40 bg-violet-500 opacity-10" },
-        { style: "top-[100px] right-[-40px] w-[90px] h-[90px] bg-blue-600 opacity-10" },
-        { style: "bottom-[100px] left-[50px] w-9 h-9 bg-cyan-300 opacity-10" },
-        { style: "bottom-5 right-10 w-15 h-15 bg-purple-400 opacity-10" },
-        { style: "top-[200px] left-[90px] w-5 h-5 bg-cyan-300 opacity-10" }].map((orb, index) => (
-        <View key={index} className={`absolute rounded-full ${orb.style}`} />
-      ))}
-
-      <ScrollView keyboardShouldPersistTaps="handled">
-        <View className="flex-grow items-center p-4 w-full max-w-[400px] mx-auto">
-          <View className="flex-row justify-between items-center mt-4 mb-2 w-full">
-            <View className="flex-row items-center">
-              <Image source={require("../assets/Speaksy.png")} className="w-12 h-12 rounded-full mr-0.1" />
-              <Text className="text-white font-bold text-2xl mr-12">Vocaria</Text>
-            </View>
-
-            <View className="flex-row items-center">
-              {[{ icon: "robot-excited-outline", lib: MaterialCommunityIcons },
-                { icon: "notifications-outline", lib: Ionicons },
-                { icon: "log-out-outline", lib: Ionicons }].map((item, index) => {
-                const IconLib = item.lib;
-                return (
-                  <TouchableOpacity key={index} className="mx-1 p-1" onPress={() => handleIconPress(item.icon)}>
-                    <IconLib name={item.icon as any} size={22} color="#fff" />
-                  </TouchableOpacity>
-                );
-              })}
-              <TouchableOpacity onPress={() => setIsProfileMenuVisible(true)}>
-                <Image source={profilePic} className="w-9 h-9 rounded-full border-2 border-white ml-2" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <Modal
-            visible={isProfileMenuVisible}
-            transparent
-            animationType="none"
-            onRequestClose={() => setIsProfileMenuVisible(false)}
+      <View className="flex-row items-center space-x-2">
+        {[
+          { icon: "robot-excited-outline", lib: MaterialCommunityIcons },
+          { icon: "notifications-outline", lib: Ionicons },
+          { icon: "log-out-outline", lib: Ionicons }
+        ].map((item, index) => (
+          <TouchableOpacity 
+            key={index} 
+            className="p-2" 
+            onPress={() => handleIconPress(item.icon)}
+            activeOpacity={0.7}
           >
-            <TouchableOpacity
-              style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.3)" }}
-              activeOpacity={1}
-              onPressOut={() => setIsProfileMenuVisible(false)}
-            >
-              <Animated.View
-                style={{
-                  position: "absolute",
-                  top: 55,
-                  right: 16,
-                  transform: [{ translateY: slideAnim }],
-                  opacity: opacityAnim,
-                }}
-              >
-                <View style={{ backgroundColor: "#1E1E2E", borderRadius: 10, padding: 10, width: 180 }}>
-                  <Text style={{ color: "white", fontSize: 16, fontWeight: "bold", marginBottom: 10 }}>Sarah Johnson</Text>
-                  <TouchableOpacity onPress={handleSettings} style={{ paddingVertical: 8 }}>
-                    <Text style={{ color: "white", fontSize: 14 }}>Settings</Text>
-                  </TouchableOpacity>
-                </View>
-              </Animated.View>
-            </TouchableOpacity>
-          </Modal>
+            <item.lib name={item.icon as any} size={22} color="#fff" />
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity 
+          onPress={() => setIsProfileMenuVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Image 
+            source={PROFILE_PIC} 
+            className="w-9 h-9 rounded-full border-2 border-white/80"
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
-          <View className="flex-row bg-white/5 rounded-xl p-1 mb-5 w-full">
-            {["Overview", "Speaking", "Reading", "Community"].map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                onPress={() => handleTabNavigation(tab)}
-                className={`flex-1 px-3 py-2 rounded-lg ${activeTab === tab ? "bg-white/80" : ""}`}
-              >
-                <Text className={`text-xs font-bold text-center ${activeTab === tab ? "text-violet-600" : "text-white/80"}`}>{tab}</Text>
-              </TouchableOpacity>
+  // Background decorator component
+  const BackgroundDecor = () => (
+    <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
+      <View className="absolute left-0 right-0 top-0 bottom-0">
+        <LinearGradient
+          colors={['#0F172A', '#1E293B', '#0F172A']}
+          className="flex-1"
+        />
+      </View>
+      <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
+      <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
+      <View className="absolute bottom-[100px] left-[50px] w-9 h-9 bg-[#a78bfa]/10 rounded-full" />
+      <View className="absolute bottom-5 right-10 w-12 h-12 bg-[#a78bfa]/10 rounded-full" />
+      <View className="absolute top-[200px] left-[90px] w-5 h-5 bg-[#a78bfa]/10 rounded-full" />
+    </View>
+  );
+
+  // Profile menu modal
+  const ProfileMenu = () => (
+    <Modal
+      visible={isProfileMenuVisible}
+      transparent
+      animationType="none"
+      onRequestClose={() => setIsProfileMenuVisible(false)}
+    >
+      <TouchableOpacity
+        className="flex-1 bg-black/30"
+        activeOpacity={1}
+        onPressOut={() => setIsProfileMenuVisible(false)}
+      >
+        <Animated.View 
+          className="absolute top-14 right-4 bg-[#1E1E2E] rounded-xl p-4 w-48"
+          style={{
+            transform: [{ translateY: slideAnim }],
+            opacity: opacityAnim,
+          }}
+        >
+          <Text className="text-white text-base font-semibold mb-3">Sarah Johnson</Text>
+          <TouchableOpacity 
+            onPress={navigateToSettings} 
+            className="py-2 flex-row items-center"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={18} color="white" />
+            <Text className="text-white text-sm ml-2">Settings</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </TouchableOpacity>
+    </Modal>
+  );
+
+  // Module card component with glassmorphism design
+  const ModuleCard = ({ mod }: { mod: ModuleType }) => (
+    <View className="bg-white/10 backdrop-blur-lg border border-white/30 rounded-2xl p-6 mb-4 w-full shadow-lg shadow-violet-900/20">
+      {/* Header with label and progress indicator */}
+      <View className="mb-4">
+        <Text className="text-violet-300 font-bold text-xs tracking-wider uppercase mb-1 -mt-2">
+          {mod.label}
+        </Text>
+        <View className="flex-row items-center">
+          <Text className="text-white font-bold text-xl flex-1">
+            {mod.title}
+          </Text>
+          <View className="bg-violet-500/10 px-3 py-1.5 rounded-full ml-3 -mt-10">
+            <Text className="text-violet-300 text-xs font-medium">
+              {Math.round(mod.progress * 100)}%
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Description */}
+      <Text className="text-white/80 text-sm leading-6 mb-5">
+        {mod.desc}
+      </Text>
+
+      {/* Progress bar */}
+      <View className="mb-5">
+        <View className="flex-row justify-between items-center mb-2">
+          <Text className="text-white/80 text-xs">
+            Module Progress
+          </Text>
+          <Text className="text-violet-300 text-xs font-medium">
+            {mod.progress < 0.3 ? 'Getting Started' : mod.progress < 0.7 ? 'In Progress' : 'Almost There'}
+          </Text>
+        </View>
+        <View className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+          <View 
+            className="h-full rounded-full bg-[#a78bfa]" 
+            style={{ 
+              width: `${mod.progress * 100}%`
+            }} 
+          />
+        </View>
+      </View>
+
+      {/* Action Button */}
+      <TouchableOpacity
+        onPress={() => navigateToModule(mod.key, mod.navigateTo)}
+        className={`py-3.5 rounded-xl border border-violet-400/30 ${
+          mod.isActive 
+            ? 'bg-violet-500/80' // Lighter color when active
+            : 'bg-violet-600/70 active:bg-violet-500/80' // Lighter active state
+        }`}
+        activeOpacity={0.7} // More visible press effect
+      >
+        <Text className={`font-semibold text-center text-base ${
+          mod.isActive ? 'text-white' : 'text-white/90'
+        }`}>
+          {mod.isActive ? 'Continue Learning' : 'Start Module'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Tab navigation component
+  const TabNavigation = () => (
+    <View className="bg-white/10 rounded-xl p-1 mb-6 w-full">
+      <View className="flex-row">
+        {TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            onPress={() => navigateToTab(tab)}
+            className={`flex-1 py-2 rounded-lg ${activeTab === tab ? 'bg-white/90' : ''}`}
+            activeOpacity={0.7}
+          >
+            <Text 
+              className={`text-xs font-semibold text-center ${
+                activeTab === tab ? 'text-violet-700' : 'text-white/80'
+              }`}
+            >
+              {tab}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  // Live practice section component
+  const LivePracticeSection = () => (
+    <View className="mb-8 w-full">
+      <Text className="text-white text-2xl font-bold mb-2">Live Video Practice</Text>
+      <Text className="text-gray-300 text-sm mb-4">
+        Sharpen your speaking skills through live video practice with real audience feedback.
+      </Text>
+
+      <View className="py-2 px-6 bg-white/20 rounded-lg self-start mt-2">
+        <Text className="text-base text-white font-semibold">Start Learning</Text>
+      </View>
+
+    </View>
+  );
+
+  return (
+    <View className="flex-1 bg-[#0F172A] relative">
+      <BackgroundDecor />
+      
+      <ScrollView 
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        className="flex-1"
+      >
+        <View className="flex-1 items-center p-5 w-full max-w-md mx-auto">
+          <Header />
+          <ProfileMenu />
+          <TabNavigation />
+          
+          <LivePracticeSection />
+          
+          <View className="w-full -top-2">
+            <Text className="text-white text-2xl font-bold mb-4">Learning Paths</Text>
+            {MODULES.map((mod) => (
+              <ModuleCard 
+                key={mod.key} 
+                mod={{
+                  ...mod,
+                  isActive: selectedModule === mod.key
+                }} 
+              />
             ))}
           </View>
-
-          <View className="mb-6 w-full">
-            <Text className="text-white text-xl font-bold mb-1">Live Video Practice</Text>
-            <Text className="text-white/80 text-base">
-              Sharpen your speaking skills through live video practice with real audience feedback.
-            </Text>
-            <View className="mt-4 bg-violet-500 rounded-lg py-2 px-4 w-40 self-start">
-              <Text className="text-white text-center font-bold">Start Learning</Text>
-            </View>
-          </View>
-
-          {modules.map((mod) => (
-            <View key={mod.key} className="bg-white/10 rounded-2xl p-4 mb-4 w-full">
-              <Text className="text-violet-500 font-bold text-xs mb-1">{mod.label}</Text>
-              <Text className="text-white font-semibold text-lg mb-1">{mod.title}</Text>
-              <Text className="text-white/70 text-sm mb-3">{mod.desc}</Text>
-
-              <View className="flex-row items-center mb-2">
-                <Text className="text-white/80 text-xs mr-2">{Math.round(mod.progress * 100)}% Complete</Text>
-                <View className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
-                  <View className="h-2 rounded-full" style={{ width: `${mod.progress * 100}%`, backgroundColor: mod.color }} />
-                </View>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => handleModuleSelect(mod.key, mod.navigateTo)}
-                className={`mt-2 py-2 px-4 rounded-lg ${selectedModule === mod.key ? "bg-violet-500" : "bg-violet-400/80"}`}
-              >
-                <Text className="text-white font-bold text-center">Select Module</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
         </View>
       </ScrollView>
     </View>
   );
 }
+
+// Add type safety for the component
+export default React.memo(HomeScreen);

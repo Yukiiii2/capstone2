@@ -12,7 +12,7 @@ export default function VoiceReadingRecording() {
       <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
       <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
 
-      <ScrollView className="flex-1" contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>
+      <ScrollView className="flex-1" contentContainerClassName="flex-grow" showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View className="flex-row items-center justify-between px-4 pt-8 pb-3">
           <View className="flex-row items-center">
@@ -27,28 +27,42 @@ export default function VoiceReadingRecording() {
               <Ionicons name="notifications-outline" size={18} color="#fff" />
             </TouchableOpacity>
             <View className="w-8 h-8 rounded-full ml-1 bg-white/20 border border-white/10 items-center justify-center">
-              <Image source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }} className="w-7 h-7 rounded-full" />
+              <Image
+                source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }}
+                className="w-7 h-7 rounded-full"
+              />
             </View>
           </View>
         </View>
 
         {/* Tabs */}
         <View className="flex-row px-4 mb-5">
-          <View className="px-3 py-1 rounded-lg mr-2 bg-[#231942]">
-            <Text className="text-purple-400 font-bold">Exercise Speaking</Text>
-          </View>
-          <View className="px-3 py-1 rounded-lg mr-2 bg-[#18182A]">
-            <Text className="text-white/80 font-semibold">Exercise Reading</Text>
-          </View>
-          <View className="px-3 py-1 rounded-lg bg-[#18182A]">
-            <Text className="text-white/80 font-semibold">Community</Text>
-          </View>
+          {['Exercise Speaking', 'Exercise Reading', 'Community'].map((tab, index) => (
+            <View
+              key={index}
+              className={`px-3 py-1 rounded-lg mr-2 ${
+                index === 0 ? 'bg-[#231942]' : 'bg-[#18182A]'
+              }`}
+            >
+              <Text
+                className={`font-semibold ${
+                  index === 0 ? 'text-purple-400 font-bold' : 'text-white/80'
+                }`}
+              >
+                {tab}
+              </Text>
+            </View>
+          ))}
         </View>
 
         {/* Main Title & Subtitle */}
         <View className="px-4 mb-2">
-          <Text className="text-white text-lg font-bold mb-1">Reading Confidence Assessment</Text>
-          <Text className="text-gray-300 text-xs">Read the following passage aloud to help us evaluate your reading confidence level</Text>
+          <Text className="text-white text-lg font-bold mb-1">
+            Reading Confidence Assessment
+          </Text>
+          <Text className="text-gray-300 text-xs">
+            Read the following passage aloud to help us evaluate your reading confidence level
+          </Text>
         </View>
 
         {/* Assessment Card */}
@@ -57,18 +71,26 @@ export default function VoiceReadingRecording() {
           <Text className="text-gray-300 text-xs mb-2">Please read the following passage aloud:</Text>
           <View className="bg-[#E5E7EB] rounded-xl border border-[#8A5CFF44] px-4 py-3 mb-3">
             <Text className="text-[#232345] text-base leading-6 font-medium">
-              AI is changing many areas, like health care and driving. It helps doctors, guides cars, and suggests things online. As AI becomes more part of our lives, we need to think about its advantages and problems.
+              AI is changing many areas, like health care and driving. It helps doctors, guides cars,
+              and suggests things online. As AI becomes more part of our lives, we need to think
+              about its advantages and problems.
             </Text>
           </View>
 
-          <Text className="text-gray-400 text-xs mb-3">Click the microphone button and read the passage clearly. You have up to 60 seconds to complete the reading.</Text>
+          <Text className="text-gray-400 text-xs mb-3">
+            Click the microphone button and read the passage clearly. You have up to 60 seconds to
+            complete the reading.
+          </Text>
           {/* Progress Dots */}
           <View className="flex-row justify-center items-center mb-5 space-x-2">
-            <View className="w-2 h-2 rounded-full bg-blue-400" />
-            <View className="w-2 h-2 rounded-full bg-white/30" />
-            <View className="w-2 h-2 rounded-full bg-white/30" />
-            <View className="w-2 h-2 rounded-full bg-white/30" />
-            <View className="w-2 h-2 rounded-full bg-white/30" />
+            {[0, 1, 2, 3, 4].map((i) => (
+              <View
+                key={i}
+                className={`w-2 h-2 rounded-full ${
+                  i === 0 ? 'bg-blue-400' : 'bg-white/30'
+                }`}
+              />
+            ))}
           </View>
           {/* Mic Button */}
           <View className="items-center mb-2">
@@ -91,4 +113,3 @@ export default function VoiceReadingRecording() {
     </View>
   );
 }
-     

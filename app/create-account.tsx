@@ -9,55 +9,12 @@ import {
   Platform,
   ScrollView,
   Image,
-  StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
 const roles = ['STUDENT', 'TEACHER'];
-
-const styles = StyleSheet.create({
-  circle: {
-    position: 'absolute',
-    borderRadius: 9999,
-  },
-  circle1: {
-    top: -64,
-    left: -48,
-    width: 160,
-    height: 160,
-    backgroundColor: 'rgba(124, 58, 237, 0.3)',
-  },
-  circle2: {
-    top: 96,
-    right: -40,
-    width: 96,
-    height: 96,
-    backgroundColor: 'rgba(37, 99, 235, 0.3)',
-  },
-  circle3: {
-    bottom: 96,
-    left: 48,
-    width: 36,
-    height: 36,
-    backgroundColor: 'rgba(103, 232, 249, 0.3)',
-  },
-  circle4: {
-    bottom: 20,
-    right: 40,
-    width: 60,
-    height: 60,
-    backgroundColor: 'rgba(168, 85, 247, 0.3)',
-  },
-  circle5: {
-    top: 208,
-    left: 96,
-    width: 24,
-    height: 24,
-    backgroundColor: 'rgba(103, 232, 249, 0.3)',
-  },
-});
 
 export default function CreateAccount() {
   const router = useRouter();
@@ -116,30 +73,29 @@ export default function CreateAccount() {
   const isAgreementEnabled = allFieldsFilled && passwordsMatch;
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+    <View className="flex-1 bg-[#0A0A0F]">
       {/* Background */}
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
-        <LinearGradient
-          colors={['#0A0A0F', '#1A1A2E', '#16213E']}
-          locations={[0, 0.5, 1]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-        />
-        <View style={[styles.circle, styles.circle1]} />
-        <View style={[styles.circle, styles.circle2]} />
-        <View style={[styles.circle, styles.circle3]} />
-        <View style={[styles.circle, styles.circle4]} />
-        <View style={[styles.circle, styles.circle5]} />
-      </View>
+      <LinearGradient
+        colors={['#0A0A0F', '#1A1A2E', '#16213E']}
+        locations={[0, 0.5, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        className="absolute top-0 left-0 right-0 bottom-0"
+      />
+      {/* Circles */}
+      <View className="absolute top-[-64px] left-[-48px] w-40 h-40 rounded-full bg-purple-600/30" />
+      <View className="absolute top-24 right-[-40px] w-24 h-24 rounded-full bg-blue-600/30" />
+      <View className="absolute bottom-24 left-12 w-9 h-9 rounded-full bg-cyan-400/30" />
+      <View className="absolute bottom-5 right-10 w-16 h-16 rounded-full bg-purple-500/30" />
+      <View className="absolute top-52 left-24 w-6 h-6 rounded-full bg-cyan-400/30" />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, zIndex: 1 }} className="px-4 py-8">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="flex-grow z-1 px-4 py-8">
           <View className="w-full max-w-xl mx-auto">
             {/* Header */}
             <View className="flex-row items-center mb-4">
               <View className="w-10 h-10 rounded-2xl items-center justify-center mr-2 overflow-hidden">
-                <Image source={require('../assets/Speaksy.png')} style={{ width: 52, height: 95, resizeMode: 'contain' }} />
+                <Image source={require('../assets/Speaksy.png')} className="w-[52px] h-[95px]" resizeMode="contain" />
               </View>
               <Text className="text-white text-2xl font-bold">Voclaria</Text>
             </View>
@@ -285,7 +241,7 @@ export default function CreateAccount() {
               {/* Alt Login */}
               <Text className="text-gray-400 text-center my-4 text-sm">or continue with</Text>
               <TouchableOpacity className="flex-row items-center justify-center bg-white/10 rounded-lg py-2 mb-3" onPress={() => console.log('Google Sign In pressed')}>
-                <Image source={require('../assets/Google.png')} style={{ width: 18, height: 18, resizeMode: 'contain', marginRight: 8 }} />
+                <Image source={require('../assets/Google.png')} className="w-[18px] h-[18px] mr-2" resizeMode="contain" />
                 <Text className="text-white text-base">Google</Text>
               </TouchableOpacity>
 
