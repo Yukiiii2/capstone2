@@ -57,6 +57,10 @@ const LiveSessions = () => {
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
     } else if (iconName === "menu-outline") {
       // Handle menu press if needed
     }
@@ -431,7 +435,7 @@ const LiveSessions = () => {
             {
               icon: "book-outline",
               label: "Reading",
-              route: "exercise-reading",
+              route: "basic-exercise-reading",
               onPress: () => setShowLevelModal(true),
             },
             {

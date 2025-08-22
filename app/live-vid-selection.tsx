@@ -86,6 +86,10 @@ export default function LiveVidSelection() {
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
     }
   };
 

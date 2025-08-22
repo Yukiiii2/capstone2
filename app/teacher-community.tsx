@@ -388,7 +388,7 @@ const CommunityPage: React.FC = () => {
 
   const initialTab = useMemo<TabKey>(() => {
     if (pathname?.includes("exercise-speaking")) return "Speaking";
-    if (pathname?.includes("exercise-reading")) return "Reading";
+    if (pathname?.includes("basic-exercise-reading") || pathname?.includes("advance-execise-reading")) return "Reading";
     // Default to 'Community' as the main tab
     return "Community";
   }, [pathname]);

@@ -26,7 +26,11 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1A1F2E"
+      },
+      "navigationBar": {
+        "backgroundColor": "#1A1F2E",
+        "barStyle": "light"
       },
       "permissions": [
         "android.permission.CAMERA",
@@ -36,7 +40,8 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
-      "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "pan",
+      "windowSoftInputMode": "adjustResize",
       "package": "com.yourcompany.capstone2"
     },
     "web": {

@@ -193,7 +193,13 @@ const BackgroundDecor = () => (
 );
 
 // Header Component
-const Header = ({ onProfilePress }: { onProfilePress: () => void }) => {
+const Header = ({ 
+  onProfilePress,
+  onIconPress 
+}: { 
+  onProfilePress: () => void;
+  onIconPress: (iconName: string) => void;
+}) => {
   const router = useRouter();
 
   return (
@@ -215,6 +221,7 @@ const Header = ({ onProfilePress }: { onProfilePress: () => void }) => {
       <View className="flex-row items-center right-4 space-x-3">
         <TouchableOpacity
           className="p-2 bg-white/5 rounded-full active:bg-white/10"
+          onPress={() => onIconPress("chatbot")}
           activeOpacity={0.7}
         >
           <Image
@@ -226,6 +233,7 @@ const Header = ({ onProfilePress }: { onProfilePress: () => void }) => {
         </TouchableOpacity>
         <TouchableOpacity
           className="p-2 bg-white/5 rounded-full active:bg-white/10"
+          onPress={() => onIconPress("notifications")}
           activeOpacity={0.7}
         >
           <Ionicons name="notifications-outline" size={22} color="white" />
@@ -256,6 +264,16 @@ export default function BasicContents() {
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [filteredLessons, setFilteredLessons] = useState<Lesson[]>(lessons);
+
+  const handleIconPress = (iconName: string) => {
+    if (iconName === "log-out-outline") {
+      router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
+    }
+  };
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
 
   const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
@@ -350,7 +368,10 @@ export default function BasicContents() {
           className="flex-1"
         >
           <View className="w-full max-w-[400px] self-center pt-4">
-            <Header onProfilePress={() => setIsProfileMenuVisible(true)} />
+            <Header 
+            onProfilePress={() => setIsProfileMenuVisible(true)}
+            onIconPress={handleIconPress}
+          />
 
             <View className="mb-4 bottom-6">
               <View className="flex-row justify-betweenitems-start mb-2">

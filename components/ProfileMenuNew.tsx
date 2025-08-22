@@ -40,26 +40,26 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
   const router = useRouter();
   const sheetY = useRef(new Animated.Value(0)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
-  const pan = useRef(new Animated.ValueXY()).current;
+  const pan = useRef<Animated.ValueXY>(new Animated.ValueXY()).current;
 
   // Use ref to track if we're closing to prevent multiple calls
   const isClosing = useRef(false);
 
-  // Initialize PanResponder
+  // Initialize PanResponder with proper types
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: (): boolean => true,
       onMoveShouldSetPanResponder: (
         _: GestureResponderEvent,
         gestureState: PanResponderGestureState
-      ) => {
+      ): boolean => {
         // Only respond to vertical swipes
         return Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3);
       },
       onPanResponderMove: (
         _: GestureResponderEvent,
         gestureState: PanResponderGestureState
-      ) => {
+      ): void => {
         // Only allow dragging downward with resistance
         if (gestureState.dy > 0) {
           // Add resistance to the drag
@@ -73,9 +73,9 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
       onPanResponderRelease: (
         _: GestureResponderEvent,
         gestureState: PanResponderGestureState
-      ) => {
+      ): void => {
         // Close if dragged down more than 100px or if the velocity is high enough
-        if (gestureState.dy > 100 || gestureState.vy > 0.2) {
+        if (gestureState.dy > 100 || (gestureState.vy ?? 0) > 0.2) {
           handleClose();
         } else {
           // Return to original position with a spring animation
@@ -170,15 +170,13 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
           onPress={handleClose}
         />
         <Animated.View
-          className="absolute bottom-0 left-0 right-0 bg-[#1A1F2E]/95 backdrop-blur-2xl rounded-t-3xl p-6 pt-4 pb-8 shadow-2xl"
-          style={[
-            {
-              borderTopWidth: 1,
-              borderColor: 'rgba(255, 255, 255, 0.15)',
-              paddingBottom: 40,
-              transform: [{ translateY: pan.y }],
-            },
-          ]}
+          className="absolute bottom-0 left-0 right-0 bg-[#1A1F2E]/95 rounded-t-3xl p-6 pt-4 pb-8"
+          style={{
+            borderTopWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.15)',
+            paddingBottom: 40,
+            transform: [{ translateY: pan.y }],
+          }}
           {...panResponder.panHandlers}
         >
           {/* Handle bar */}
@@ -265,7 +263,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
 
             <TouchableOpacity
               className="flex-row items-center p-4 rounded-xl active:bg-white/5"
-              onPress={handleSignOut}
+              onPress={() => router.push('/logout')}
               activeOpacity={0.7}
             >
               <View className="w-10 h-10 bg-[#2D3748] rounded-xl items-center justify-center mr-3">

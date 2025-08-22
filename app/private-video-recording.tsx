@@ -209,7 +209,6 @@ export default function PrivateVideoRecording() {
     )
       return "Speaking";
     if (
-      pathname.includes("exercise-reading") ||
       pathname.includes("basic-exercise-reading") ||
       pathname.includes("advance-execise-reading")
     )
@@ -235,7 +234,7 @@ export default function PrivateVideoRecording() {
     const routes: Record<TabType, string> = {
       Overview: "/home-page",
       Speaking: "/exercise-speaking",
-      Reading: "/exercise-reading",
+      Reading: "/basic-exercise-reading",
       Community: "/community-selection",
     };
 
@@ -255,7 +254,13 @@ export default function PrivateVideoRecording() {
 
   // Handle icon press
   const handleIconPress = (iconName: string) => {
-    if (iconName === "log-out-outline") router.replace("/login-page");
+    if (iconName === "log-out-outline") {
+      router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
+    }
   };
 
   // Handle AI analysis view

@@ -40,21 +40,21 @@ interface FloatingParticleProps {
 export default function Index() {
   const router = useRouter();
   
-  // Animation values - set initial values to 1 for immediate visibility
-  const logoScale = useRef(new Animated.Value(1)).current;
-  const logoRotate = useRef(new Animated.Value(1)).current;
-  const textOpacity = useRef(new Animated.Value(1)).current;
-  const glowIntensity = useRef(new Animated.Value(1)).current;
+  // Animation values - properly set up with initial values
+  const logoScale = useRef(new Animated.Value(0)).current;
+  const logoRotate = useRef(new Animated.Value(0)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
+  const glowIntensity = useRef(new Animated.Value(0)).current;
   const backgroundMove = useRef(new Animated.Value(0)).current;
-  const rippleEffect = useRef(new Animated.Value(1)).current;
-  const subtitleOpacity = useRef(new Animated.Value(1)).current;
+  const rippleEffect = useRef(new Animated.Value(0)).current;
+  const subtitleOpacity = useRef(new Animated.Value(0)).current;
   
   // Neural network connection animation
-  const neuralNodes = useRef(Array(16).fill(0).map(() => new Animated.Value(1))).current;
-  const neuralConnections = useRef(Array(12).fill(0).map(() => new Animated.Value(1))).current;
+  const neuralNodes = useRef(Array(16).fill(0).map(() => new Animated.Value(0))).current;
+  const neuralConnections = useRef(Array(12).fill(0).map(() => new Animated.Value(0))).current;
 
   useEffect(() => {
-    // Start all animations immediately
+    // Start all animations
     Animated.parallel([
       // Background movement
       Animated.timing(backgroundMove, {
@@ -127,10 +127,11 @@ export default function Index() {
           }),
         ]),
         
-        // Final pause before navigation (0.8s)
-        Animated.delay(800),
+        // Final pause before navigation (2s)
+        Animated.delay(2000),
       ]),
     ]).start(() => {
+      // Navigate after the full animation completes
       router.replace("/landing-page");
     });
   }, []);
@@ -139,8 +140,8 @@ export default function Index() {
   const NeuralNode = ({ index, size, left, top, color = '#8A5CFF' }: NeuralNodeProps) => {
     return (
       <Animated.View
+        className="absolute"
         style={{
-          position: 'absolute',
           left,
           top,
           width: size,
@@ -160,17 +161,18 @@ export default function Index() {
           shadowOffset: { width: 0, height: 0 },
           shadowOpacity: 0.8,
           shadowRadius: 4,
+          elevation: 4,
         }}
       />
     );
   };
 
-  // Neural connection component
+  // Neural connection component - FIXED
   const NeuralConnection = ({ index, width: connWidth, height: connHeight, left, top, rotate, color = '#8A5CFF' }: NeuralConnectionProps) => {
     return (
       <Animated.View
+        className="absolute"
         style={{
-          position: 'absolute',
           left,
           top,
           width: connWidth,
@@ -180,10 +182,7 @@ export default function Index() {
           transform: [
             { rotate: `${rotate}deg` },
             {
-              scaleX: neuralConnections[index].interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 1]
-              })
+              scaleX: neuralConnections[index] // Fixed: removed incorrect interpolate
             }
           ],
           borderRadius: 1,
@@ -219,8 +218,8 @@ export default function Index() {
 
     return (
       <Animated.View
+        className="absolute"
         style={{
-          position: 'absolute',
           left,
           top,
           width: size,
@@ -243,6 +242,7 @@ export default function Index() {
           shadowOffset: { width: 0, height: 0 },
           shadowOpacity: 0.6,
           shadowRadius: 3,
+          elevation: 3,
         }}
       />
     );
@@ -267,37 +267,27 @@ export default function Index() {
   };
 
   return (
-    <View className="flex-1 bg-[#0A0A0F] overflow-hidden">
+    <View className="flex-1 bg-gray-950 overflow-hidden">
       {/* Animated background with deeper gradient */}
       <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
-        <LinearGradient
-          colors={["#0F172A", "#1E293B", "#0F172A"]}
-          style={[{
-            width: '100%',
-            height: '100%',
-            transform: [
-              {
-                translateX: backgroundMove.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, -width/3]
-                })
-              },
-              {
-                translateY: backgroundMove.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, -height/4]
-                })
-              }
-            ]
-          }]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
+        <Animated.View className="w-[150%] h-[150%]" style={animatedBackground}>
+          <LinearGradient
+            colors={["#0F172A", "#1E293B", "#0F172A"]}
+            className="w-full h-full"
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+        </Animated.View>
       </View>
 
       {/* Multi-layered glow effects */}
       <Animated.View 
+        className="absolute w-80 h-80 rounded-full bg-purple-500"
         style={{ 
+          top: '50%',
+          left: '50%',
+          marginLeft: -160,
+          marginTop: -160,
           opacity: glowIntensity.interpolate({
             inputRange: [0, 1],
             outputRange: [0, 0.4]
@@ -311,10 +301,14 @@ export default function Index() {
             }
           ]
         }}
-        className="absolute w-80 h-80 rounded-full bg-purple-500/30"
       />
       <Animated.View 
+        className="absolute w-96 h-96 rounded-full bg-blue-500"
         style={{ 
+          top: '50%',
+          left: '50%',
+          marginLeft: -192,
+          marginTop: -192,
           opacity: glowIntensity.interpolate({
             inputRange: [0, 1],
             outputRange: [0, 0.2]
@@ -328,7 +322,6 @@ export default function Index() {
             }
           ]
         }}
-        className="absolute w-96 h-96 rounded-full bg-blue-400/20"
       />
 
       {/* Enhanced neural network connections */}
@@ -352,16 +345,14 @@ export default function Index() {
       <FloatingParticle size={5} left={width * 0.6} top={height * 0.8} delay={600} duration={1900} color="#EC4899" />
 
       {/* Main content with enhanced blur effect */}
-      <BlurView intensity={25} tint="dark" className="flex-1 justify-center items-center">
+      <BlurView intensity={25} tint="dark" className="flex-1 justify-center items-center p-5">
         {/* Logo with advanced animation */}
         <Animated.View 
+          className="items-center justify-center mb-6 z-10"
           style={{ 
             transform: [
               { 
-                scale: logoScale.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1]
-                })
+                scale: logoScale
               },
               {
                 rotate: logoRotate.interpolate({
@@ -381,7 +372,6 @@ export default function Index() {
               outputRange: [0, 40]
             }),
           }}
-          className="items-center justify-center mb-6 z-10"
         >
           <Image
             source={require("../assets/Speaksy.png")}
@@ -391,13 +381,8 @@ export default function Index() {
           
           {/* Multi-layered ripple effects */}
           <Animated.View 
+            className="absolute w-56 h-56 rounded-full border-2 border-purple-500"
             style={{
-              position: 'absolute',
-              width: 220,
-              height: 220,
-              borderRadius: 110,
-              borderWidth: 2,
-              borderColor: '#8A5CFF',
               opacity: rippleEffect.interpolate({
                 inputRange: [0, 1],
                 outputRange: [0.8, 0]
@@ -413,13 +398,8 @@ export default function Index() {
             }}
           />
           <Animated.View 
+            className="absolute w-60 h-60 rounded-full border border-indigo-500"
             style={{
-              position: 'absolute',
-              width: 240,
-              height: 240,
-              borderRadius: 120,
-              borderWidth: 1,
-              borderColor: '#6366F1',
               opacity: rippleEffect.interpolate({
                 inputRange: [0, 1],
                 outputRange: [0.6, 0]
@@ -437,26 +417,29 @@ export default function Index() {
         </Animated.View>
         
         {/* Enhanced text animations */}
-        <Animated.View 
-          style={{ 
-            opacity: textOpacity,
-            transform: [
-              {
-                translateY: textOpacity.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [30, 0]
-                })
-              }
-            ]
-          }}
-          className="items-center z-10 mb-2"
-        >
-          <Text className="text-white text-6xl font-black text-center mb-1 tracking-tight">
-            VOCLARIA <Text className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400">ANG</Text>
-          </Text>
-        </Animated.View>
+        <View className="w-full items-center">
+          <Animated.View 
+            className="z-10 mb-2"
+            style={{ 
+              opacity: textOpacity,
+              transform: [
+                {
+                  translateY: textOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [30, 0]
+                  })
+                }
+              ],
+            }}
+          >
+            <Text className="text-white text-4xl font-black text-center tracking-tight">
+              VOCLARIA <Text className="text-transparent bg-gradient-to-r from-purple-400 to-pink-400 to-blue-500 bg-clip-text">ANG</Text>
+            </Text>
+          </Animated.View>
+        </View>
 
         <Animated.View 
+          className="z-10 mb-6 items-center"
           style={{ 
             opacity: subtitleOpacity,
             transform: [
@@ -466,14 +449,13 @@ export default function Index() {
                   outputRange: [20, 0]
                 })
               }
-            ]
+            ],
           }}
-          className="items-center z-10 mb-6"
         >
-          <Text className="text-purple-200 text-xl font-semibold tracking-wider text-center mb-1">
-            AI-Powered Speaking & Reading Coach
+          <Text className="text-purple-200 text-xl font-semibold tracking-wide text-center mb-1">
+            AI-Powered Speaking & Reading Assistant
           </Text>
-          <Text className="text-blue-300 text-sm font-medium tracking-wide text-center">
+          <Text className="text-blue-200 text-sm font-medium tracking-wide text-center">
             Build Confidence • Reduce Anxiety • Master Communication
           </Text>
         </Animated.View>
@@ -481,6 +463,7 @@ export default function Index() {
         {/* Enhanced loading indicator */}
         <View className="flex-row justify-center mt-4">
           <Animated.View 
+            className="flex-row"
             style={{
               opacity: subtitleOpacity,
               transform: [
@@ -490,17 +473,12 @@ export default function Index() {
                     outputRange: [0, 1.3, 1]
                   })
                 }
-              ]
+              ],
             }}
-            className="flex-row"
           >
             <Animated.View 
+              className="w-3 h-3 rounded-full mx-1 bg-purple-500"
               style={{
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: '#8B5CF6',
-                marginHorizontal: 4,
                 opacity: subtitleOpacity.interpolate({
                   inputRange: [0, 0.5, 1],
                   outputRange: [0, 1, 1]
@@ -508,12 +486,8 @@ export default function Index() {
               }}
             />
             <Animated.View 
+              className="w-3 h-3 rounded-full mx-1 bg-blue-500"
               style={{
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: '#3B82F6',
-                marginHorizontal: 4,
                 opacity: subtitleOpacity.interpolate({
                   inputRange: [0, 0.5, 0.75, 1],
                   outputRange: [0, 0, 1, 1]
@@ -521,12 +495,8 @@ export default function Index() {
               }}
             />
             <Animated.View 
+              className="w-3 h-3 rounded-full mx-1 bg-pink-500"
               style={{
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: '#EC4899',
-                marginHorizontal: 4,
                 opacity: subtitleOpacity.interpolate({
                   inputRange: [0, 0.75, 1],
                   outputRange: [0, 0, 1]
@@ -538,15 +508,17 @@ export default function Index() {
 
         {/* Enhanced footer with more engaging text */}
         <Animated.View 
-          style={{ opacity: subtitleOpacity }}
           className="absolute bottom-12 items-center"
+          style={{ 
+            opacity: subtitleOpacity,
+          }}
         >
           <Text className="text-gray-400 text-sm font-medium mb-1">
             Powered by Advanced Neural Intelligence
           </Text>
           <View className="flex-row items-center">
             <Ionicons name="shield-checkmark" size={12} color="#10B981" />
-            <Text className="text-emerald-400 text-xs font-medium ml-1">
+            <Text className="text-emerald-500 text-xs font-medium ml-1">
               Student‑Focused Learning: Secure • Free • and Personalized
             </Text>
           </View>

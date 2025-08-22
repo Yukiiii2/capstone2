@@ -20,6 +20,7 @@
     visible: boolean;
     onDismiss: () => void;
     onSelectLevel: (level: "Basic" | "Advanced") => void;
+    title?: string; // Optional title prop
   };
 
   export const LevelSelectionModal: React.FC<LevelSelectionModalProps> = ({

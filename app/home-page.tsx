@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LevelSelectionModal } from "../components/LevelSelectionModal";
 import ProfileMenu, { UserProfile } from "../components/ProfileMenuNew";
 import LivesessionCommunityModal from "../components/LivesessionCommunityModal";
-import { useTransform } from "./_layout";
+import { useTransform } from "../hooks/useTransform";
 
 // ===== Constants =====
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
@@ -107,6 +107,10 @@ function HomePage() {
   const handleIconPress = useCallback((iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
     }
   }, [router]);
 

@@ -54,7 +54,7 @@ function BottomNav({
     {
       icon: "book-outline",
       label: "Reading",
-      route: "exercise-reading",
+      route: "exercise-reading", // Generic route that will be handled by the level selection
       onPress: () => setShowLevelModal(true),
     },
     {
@@ -75,7 +75,6 @@ function BottomNav({
     )
       return "Speaking";
     if (
-      path.includes("exercise-reading") ||
       path.includes("basic-exercise-reading") ||
       path.includes("advance-execise-reading")
     )
@@ -200,7 +199,13 @@ export default function LiveSession() {
   }, [isProfileMenuVisible]);
 
   const handleIconPress = (iconName: string) => {
-    if (iconName === "log-out-outline") router.replace("/login-page");
+    if (iconName === "log-out-outline") {
+      router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
+    }
   };
 
   const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
@@ -235,16 +240,28 @@ export default function LiveSession() {
     if (tab === "Community") {
       setShowCommunityModal(true);
       return;
+    } else if (tab === "Reading") {
+      setShowLevelModal(true);
+      return;
     }
-    const routes: Record<TabType, string> = {
+    
+    const routes: Record<Exclude<TabType, 'Reading'>, string> = {
       Home: "/home-page",
       Speaking: "/exercise-speaking",
-      Reading: "/exercise-reading",
       Community: "/community-selection",
     };
 
-    if (routes[tab]) {
-      router.push(routes[tab]);
+    if (routes[tab as Exclude<TabType, 'Reading'>]) {
+      router.push(routes[tab as Exclude<TabType, 'Reading'>]);
+    }
+  };
+  
+  const handleLevelSelect = (level: "Basic" | "Advanced") => {
+    setShowLevelModal(false);
+    if (level === "Advanced") {
+      router.push("/advance-execise-reading");
+    } else {
+      router.push("/basic-exercise-reading");
     }
   };
 
@@ -533,19 +550,10 @@ export default function LiveSession() {
           onDismiss={() => setShowCommunityModal(false)}
           onSelectOption={handleCommunitySelect}
         />
-
-        {/* Level Selection Modal */}
         <LevelSelectionModal
           visible={showLevelModal}
           onDismiss={() => setShowLevelModal(false)}
-          onSelectLevel={(level) => {
-            setShowLevelModal(false);
-            if (level === "Basic") {
-              router.push("/basic-exercise-reading");
-            } else {
-              router.push("/advance-exercise-reading");
-            }
-          }}
+          onSelectLevel={handleLevelSelect}
         />
       </View>
     </View>

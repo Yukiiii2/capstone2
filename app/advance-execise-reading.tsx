@@ -69,6 +69,7 @@ const HomeScreen = () => {
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
+  const [selectedLevel, setSelectedLevel] = useState<"Basic" | "Advanced">("Advanced");
 
   // ===== REFS =====
   const slideAnim = useRef(new Animated.Value(-50)).current;
@@ -83,6 +84,10 @@ const HomeScreen = () => {
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/notification");
     }
   };
 
@@ -98,6 +103,7 @@ const HomeScreen = () => {
   // Handle level selection
   const handleLevelSelect = useCallback(
     (level: "Basic" | "Advanced") => {
+      setSelectedLevel(level);
       setShowLevelModal(false);
       if (level === "Advanced") {
         router.push("/advance-execise-reading");
@@ -371,6 +377,11 @@ const HomeScreen = () => {
         visible={showCommunityModal}
         onDismiss={() => setShowCommunityModal(false)}
         onSelectOption={handleCommunitySelect}
+      />
+      <LevelSelectionModal
+        visible={showLevelModal}
+        onDismiss={() => setShowLevelModal(false)}
+        onSelectLevel={handleLevelSelect}
       />
 
       <ScrollView

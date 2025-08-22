@@ -389,13 +389,15 @@ const CommunityPage: React.FC = () => {
     router.replace('/login-page');
   };
 
-  const handleIconPress = (type: string) => {
-    if (type === "chatbot") {
-      // Handle chatbot press
-      console.log("Chatbot pressed");
-    } else if (type === "notifications") {
-      // Handle notifications press
-      console.log("Notifications pressed");
+  const handleIconPress = (iconName: string) => {
+    if (iconName === 'log-out-outline') {
+      handleSignOut();
+    } else if (iconName === 'chatbot') {
+      router.push('/chatbot');
+    } else if (iconName === 'notifications') {
+      router.push('/notification');
+    } else if (iconName === 'menu-outline') {
+      // Handle menu press
     }
   };
 

@@ -125,7 +125,7 @@ function StudentPresentation() {
     const routes: Record<TabType, string> = {
       Home: "/home-page",
       Speaking: "/exercise-speaking",
-      Reading: "/exercise-reading",
+      Reading: "/basic-exercise-reading",
       Community: "/community-selection",
     };
 
@@ -146,7 +146,7 @@ function StudentPresentation() {
 
   const getActiveTab = (): TabType => {
     if (pathname?.includes("exercise-speaking")) return "Speaking";
-    if (pathname?.includes("exercise-reading")) return "Reading";
+    if (pathname?.includes("basic-exercise-reading") || pathname?.includes("advance-execise-reading")) return "Reading";
     if (
       pathname?.includes("community-selection") ||
       pathname?.includes("community")

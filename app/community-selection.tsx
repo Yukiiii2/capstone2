@@ -43,6 +43,15 @@ type Student = {
   lastPractice: string;
   rating: number;
   isSelected?: boolean;
+  lesson?: {
+    id: number;
+    title: string;
+    subtitle: string;
+    desc: string;
+    type: "Review" | "Start" | "Continue" | "New";
+    progress: number;
+    difficulty: "Basic" | "Advanced";
+  };
 };
 
 // Mock student data
@@ -53,6 +62,15 @@ const STUDENTS: Student[] = [
     avatar: "https://randomuser.me/api/portraits/women/32.jpg",
     lastPractice: "2h ago",
     rating: 4.2,
+    lesson: {
+      id: 1,
+      title: "Persuasive Speech Building",
+      subtitle: "Lesson 1",
+      desc: "Master persuasive speech delivery",
+      type: "Review",
+      progress: 1,
+      difficulty: "Advanced"
+    }
   },
   {
     id: "2",
@@ -60,6 +78,15 @@ const STUDENTS: Student[] = [
     avatar: "https://randomuser.me/api/portraits/men/44.jpg",
     lastPractice: "1d ago",
     rating: 4.8,
+    lesson: {
+      id: 2,
+      title: "Effective Non-Verbal Communication",
+      subtitle: "Lesson 1",
+      desc: "Master gestures and visual cues",
+      type: "Review",
+      progress: 1,
+      difficulty: "Basic"
+    }
   },
   {
     id: "3",
@@ -67,6 +94,15 @@ const STUDENTS: Student[] = [
     avatar: "https://randomuser.me/api/portraits/women/68.jpg",
     lastPractice: "3h ago",
     rating: 3.9,
+    lesson: {
+      id: 3,
+      title: "Advanced Debate Practice",
+      subtitle: "Lesson 2",
+      desc: "Develop argumentation and rebuttal skills",
+      type: "Start",
+      progress: 0.5,
+      difficulty: "Advanced"
+    }
   },
   {
     id: "4",
@@ -74,6 +110,15 @@ const STUDENTS: Student[] = [
     avatar: "https://randomuser.me/api/portraits/men/67.jpg",
     lastPractice: "5h ago",
     rating: 4.1,
+    lesson: {
+      id: 4,
+      title: "Diaphragmatic Breathing Practice",
+      subtitle: "Lesson 2",
+      desc: "Control and project your voice",
+      type: "Start",
+      progress: 0.5,
+      difficulty: "Basic"
+    }
   },
   {
     id: "5",
@@ -81,6 +126,15 @@ const STUDENTS: Student[] = [
     avatar: "https://randomuser.me/api/portraits/women/12.jpg",
     lastPractice: "30m ago",
     rating: 4.5,
+    lesson: {
+      id: 5,
+      title: "Panel Interview Simulation",
+      subtitle: "Lesson 3",
+      desc: "Prepare effectively for interviews and Q&A",
+      type: "Review",
+      progress: 1,
+      difficulty: "Advanced"
+    }
   },
   {
     id: "6",
@@ -88,6 +142,15 @@ const STUDENTS: Student[] = [
     avatar: "https://randomuser.me/api/portraits/men/31.jpg",
     lastPractice: "4h ago",
     rating: 4.0,
+    lesson: {
+      id: 6,
+      title: "Voice Warm-up and Articulation",
+      subtitle: "Lesson 3",
+      desc: "Clarity and pronunciation",
+      type: "Review",
+      progress: 1,
+      difficulty: "Basic"
+    }
   },
 ];
 
@@ -109,8 +172,10 @@ function StudentPresentation() {
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
-    } else if (iconName === "notifications-outline") {
-      console.log("Notifications pressed");
+    } else if (iconName === "chatbot") {
+      router.push("/chatbot");
+    } else if (iconName === "notifications" || iconName === "notifications-outline") {
+      router.push("/notification");
     }
   };
 
@@ -127,7 +192,7 @@ function StudentPresentation() {
   // Determine active tab based on current path
   const getActiveTab = (): TabType => {
     if (pathname?.includes("exercise-speaking")) return "Speaking";
-    if (pathname?.includes("exercise-reading")) return "Reading";
+    if (pathname?.includes("basic-exercise-reading") || pathname?.includes("advance-execise-reading")) return "Reading";
     if (pathname?.includes("community-selection") || pathname?.includes("community"))
       return "Community";
     if (pathname?.includes("home-page")) return "Home";
@@ -350,15 +415,15 @@ function StudentPresentation() {
       <SafeAreaView className="flex-1 z-10">
         <ScrollView
           className="flex-1"
-          contentContainerStyle={{ paddingBottom: 80 }}
+          contentContainerStyle={{ paddingBottom: 80, maxWidth: 600, width: '100%', alignSelf: 'center' }}
           showsVerticalScrollIndicator={false}
         >
-          <View className="flex-1">
+          <View className="flex-1 px-1">
             {/* Header */}
             <Header />
 
             {/* Page Title */}
-            <View className="px-5 mb-4">
+            <View className="px-4 mb-3">
               <Text className="text-white text-2xl font-bold">
                 Student Speech Practice
               </Text>
@@ -368,7 +433,7 @@ function StudentPresentation() {
             </View>
 
             {/* Search Bar */}
-            <View className="mb-6 px-5">
+            <View className="mb-4 px-4">
               <View className="rounded-xl p-1 bg-white/5 border border-white/10 flex-row items-center">
                 <View className="ml-3">
                   <Ionicons name="search" size={20} color="#FFFFFF" />
@@ -386,7 +451,7 @@ function StudentPresentation() {
 
             {/* Selection Info */}
             {selectedStudents.length > 0 && (
-              <View className="mx-5 mb-4 bg-indigo-500/20 rounded-xl p-3 flex-row justify-between items-center border border-indigo-500/30">
+              <View className="mx-4 mb-3 bg-indigo-500/30 rounded-xl p-2 flex-row justify-between items-center border border-indigo-500/30">
                 <Text className="text-white font-medium">
                   {selectedStudents.length} selected
                 </Text>
@@ -397,7 +462,7 @@ function StudentPresentation() {
             )}
 
             {/* Students List */}
-            <View className="px-5">
+            <View className="px-4">
               {filteredStudents.length === 0 ? (
                 <View className="items-center justify-center py-10">
                   <Ionicons name="people-outline" size={48} color="#4B5563" />
@@ -416,31 +481,63 @@ function StudentPresentation() {
                         : "border-white/10 bg-white/5"
                     }`}
                   >
-                    <View className="p-4 flex-row items-center">
-                      <Image
-                        source={{ uri: student.avatar }}
-                        className="w-14 h-14 rounded-full border-2 border-white/20"
-                      />
-                      <View className="flex-1 ml-4">
-                        <Text className="text-white font-semibold text-lg">
-                          {student.name}
-                        </Text>
-                        <View className="flex-row items-center mt-1 space-x-4">
-                          <View className="flex-row items-center">
-                            <Ionicons name="star" size={14} color="#FBBF24" />
-                            <Text className="text-gray-300 text-sm ml-1">
-                              {student.rating}
+                    <View className="p-3">
+                      <View className="flex-row items-start">
+                        <Image
+                          source={{ uri: student.avatar }}
+                          className="w-14 h-14 rounded-full border-2 border-white/20"
+                        />
+                        <View className="flex-1 ml-3">
+                          <View className="flex-row justify-between items-start">
+                            <Text className="text-white font-semibold text-lg">
+                              {student.name}
                             </Text>
+                            <View>
+                              <Ionicons name="chevron-forward" size={30} color="#9ca3af" />
+                            </View>
                           </View>
-                          <View className="flex-row items-center">
-                            <Ionicons name="time-outline" size={14} color="#9ca3af" />
-                            <Text className="text-gray-400 text-sm ml-1">
-                              {student.lastPractice}
-                            </Text>
+                          <View className="flex-row items-center mt-1 space-x-4">
+                            <View className="flex-row items-center">
+                              <Ionicons name="star" size={14} color="#FBBF24" />
+                              <Text className="text-gray-300 text-sm ml-1">
+                                {student.rating}
+                              </Text>
+                            </View>
+                            <View className="flex-row items-center">
+                              <Ionicons name="time-outline" size={14} color="#9ca3af" />
+                              <Text className="text-gray-400 text-sm ml-1">
+                                {student.lastPractice}
+                              </Text>
+                            </View>
                           </View>
+                          
+                          {student.lesson && (
+                            <View className="mt-2">
+                              <View className="flex-row right-16 items-center justify-between">
+                                <Text className="text-violet-600 text-xs font-medium">
+                                  {student.lesson.title}
+                                </Text>
+                              </View>
+                              <Text className="text-gray-400 right-16 text-xs mt-1">
+                                {student.lesson.desc}
+                              </Text>
+                              <View className="mt-1 right-16">
+                                <View className="h-1 bg-white/10 rounded-full overflow-hidden">
+                                  <View 
+                                    className="h-full bg-violet-600 rounded-full" 
+                                    style={{ width: `${student.lesson.progress * 100}%` }}
+                                  />
+                                </View>
+                                <View className="flex-row justify-between mt-1">
+                                  <Text className="text-gray-400 text-xs">
+                                    {Math.round(student.lesson.progress * 100)}%
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          )}
                         </View>
                       </View>
-                      <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                     </View>
                   </TouchableOpacity>
                 ))

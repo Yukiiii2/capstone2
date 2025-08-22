@@ -1,5 +1,4 @@
-// app/_layout.tsx
-import React, { Component, ReactNode, useEffect, useState, createContext, useContext, useRef } from "react";
+import React, { Component, ReactNode, useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import {
   View,
@@ -7,75 +6,20 @@ import {
   TouchableOpacity,
   AppState,
   AppStateStatus,
-  Animated,
-  Dimensions,
+  Image
 } from "react-native";
-
 import { StatusBar } from "expo-status-bar";
+import { setStatusBarStyle, setStatusBarBackgroundColor } from 'expo-status-bar';
+import * as NavigationBar from 'expo-navigation-bar';
+import { Platform } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import { Ionicons } from "@expo/vector-icons";
 import * as ScreenOrientation from "expo-screen-orientation";
-import Logout from './logout';
+import * as SplashScreen from 'expo-splash-screen';
 
-// Transform Context for managing layout transforms
-interface TransformContextType {
-  translateX: Animated.Value;
-  resetTransform: () => void;
-  setTransform: (value: number) => void;
-}
-
-const TransformContext = createContext<TransformContextType | null>(null);
-
-export const useTransform = () => {
-  const context = useContext(TransformContext);
-  if (!context) {
-    throw new Error('useTransform must be used within TransformProvider');
-  }
-  return context;
-};
-
-// Transform Provider Component
-const TransformProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const translateX = useRef(new Animated.Value(0)).current;
-
-  const resetTransform = () => {
-    Animated.timing(translateX, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,  // Changed to true for better performance
-    }).start();
-  };
-
-  const setTransform = (value: number) => {
-    Animated.timing(translateX, {
-      toValue: value,
-      duration: 300,
-      useNativeDriver: true,  // Changed to true for better performance
-    }).start();
-  };
-
-  // Apply transform style to children
-  const animatedStyle = {
-    transform: [
-      {
-        translateX: translateX.interpolate({
-          inputRange: [-500, 0, 500],
-          outputRange: [-500, 0, 500],
-          extrapolate: 'clamp',
-        }),
-      },
-    ],
-  };
-
-  return (
-    <TransformContext.Provider value={{ translateX, resetTransform, setTransform }}>
-      <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-        {children}
-      </Animated.View>
-    </TransformContext.Provider>
-  );
-};
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
 
 // 1. Error Boundary for crash handling
 interface ErrorBoundaryState {
@@ -134,15 +78,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               paddingVertical: 16,
               borderRadius: 8,
               marginTop: 12,
-              minHeight: 48,
-              justifyContent: "center",
             }}
             onPress={this.handleRefresh}
             activeOpacity={0.7}
           >
             <Text
               style={{ color: "white", fontWeight: "600", fontSize: 16 }}
-              allowFontScaling={false}
             >
               Try Again
             </Text>
@@ -180,76 +121,89 @@ const NetworkStatus = () => {
 // 3. Initial loading screen
 const LoadingOverlay = () => (
   <View style={{flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#0A0A0F"}}>
-    <Ionicons name="chatbubbles" size={48} color="#8A5CFF" />
-    <Text style={{color: "white", marginTop: 16, fontSize: 16}}>Loading Speaksy...</Text>
+    <Image 
+      source={require('../assets/Speaksy.png')} 
+      style={{ width: 120, height: 120, marginBottom: 16 }}
+      resizeMode="contain"
+    />
+    <Text style={{color: "white", marginTop: 16, fontSize: 16}}>Voclaria is Ready</Text>
   </View>
 );
 
 // 4. Layout component
 export default function Layout() {
-  const [isLoading, setIsLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);
+
+  // Set up status bar style
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      setStatusBarStyle('light');
+    }
+  }, []);
 
   // Initialize app
   useEffect(() => {
+    let mounted = true;
+    
     async function prepare() {
       try {
         // Lock orientation
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
         
-        // Add any other initialization here
-        
         // Simulate loading time
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (e) {
-        console.warn(e);
+        console.warn('Initialization error:', e);
       } finally {
-        setIsLoading(false);
-        setIsReady(true);
+        if (mounted) {
+          setIsReady(true);
+          await SplashScreen.hideAsync();
+        }
       }
     }
 
     prepare();
+    
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // Simple screen options
-  const screenOptions = {
+  // Screen options for the stack navigator
+  const screenOptions = React.useMemo(() => ({
     headerShown: false,
-    animation: 'fade' as const,
-    contentStyle: { backgroundColor: 'transparent' },
-  };
+    animation: 'none' as const,
+    contentStyle: { backgroundColor: '#1A1F2E' },
+    statusBarStyle: 'light',
+  }), []);
 
   if (!isReady) {
     return <LoadingOverlay />;
   }
 
   return (
-    <TransformProvider>
-      <ErrorBoundary>
-        <View style={{ flex: 1, backgroundColor: '#1A1F2E' }}>
-          <StatusBar style="light" />
-          <NetworkStatus />
-          <SafeAreaView style={{ flex: 1 }} edges={['right', 'left', 'bottom'] as any}>
-            <Stack screenOptions={screenOptions}>
-              <Stack.Screen name="index" />
-              <Stack.Screen name="advanced-contents" options={{ animation: 'slide_from_right' as const }} />
-              <Stack.Screen name="teacher-dashboard" />
-              <Stack.Screen name="teacher-community" options={{ animation: 'slide_from_right' as const }} />
-              <Stack.Screen name="teacher-live-session" options={{ animation: 'slide_from_right' as const }} />
-              <Stack.Screen name="exercise-speaking" options={{ animation: 'slide_from_right' as const }} />
-              <Stack.Screen name="home-page" />
-              <Stack.Screen 
-                name="logout" 
-                options={{ 
-                  animation: 'slide_from_right' as const,
-                  headerShown: false,
-                  contentStyle: { backgroundColor: 'transparent' }
-                }}
-              />
-            </Stack>
-          </SafeAreaView>
-        </View>
-      </ErrorBoundary>
-    </TransformProvider>
+    <ErrorBoundary>
+      <View style={{ flex: 1, backgroundColor: '#1A1F2E' }}>
+        <StatusBar style="light" />
+        <NetworkStatus />
+        <SafeAreaView style={{ flex: 1 }} edges={['right', 'left', 'bottom'] as any}>
+          <Stack screenOptions={screenOptions}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="home-page" />
+            <Stack.Screen name="exercise-speaking" />
+            <Stack.Screen name="basic-exercise-reading" />
+            <Stack.Screen name="community-selection" />
+            <Stack.Screen name="live-sessions-select" />
+            <Stack.Screen name="create-account-student" />
+            <Stack.Screen name="create-account-teacher" />
+            <Stack.Screen name="advanced-contents" />
+            <Stack.Screen name="teacher-dashboard" />
+            <Stack.Screen name="teacher-community" />
+            <Stack.Screen name="teacher-live-session" />
+            <Stack.Screen name="logout" />
+          </Stack>
+        </SafeAreaView>
+      </View>
+    </ErrorBoundary>
   );
 }
