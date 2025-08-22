@@ -1,276 +1,986 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, TextInput, Modal, Animated } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter, usePathname } from 'expo-router';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  TextInput,
+  Modal,
+  Animated,
+  SafeAreaView,
+  Platform,
+  Alert,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useRouter, usePathname } from "expo-router";
+import ProfileMenuNew from "../components/ProfileMenuNew";
+import { LevelSelectionModal } from "../components/LevelSelectionModal";
+import LivesessionCommunityModal from "../components/LivesessionCommunityModal";
 
-export default function CommunityPage() {
+interface Review {
+  id: string;
+  role: "Teacher" | "Student" | "Peer" | "Reviewer";
+  name: string;
+  stars?: number;
+  time: string;
+  text: string;
+}
+
+type TabKey = "Overview" | "Speaking" | "Reading" | "Community";
+
+interface CommunityItem {
+  id: string;
+  user: string;
+  title: string;
+  views: number;
+  age: string;
+}
+
+const TABS: TabKey[] = ["Overview", "Speaking", "Reading", "Community"];
+const DEFAULT_TAB: TabKey = "Overview";
+
+// Helper function to map tab names to icons
+const getTabIcon = (tab: string): keyof typeof Ionicons.glyphMap => {
+  switch (tab) {
+    case "Overview":
+      return "home-outline";
+    case "Speaking":
+      return "mic-outline";
+    case "Reading":
+      return "book-outline";
+    case "Community":
+      return "people-outline";
+    default:
+      return "ellipse-outline";
+  }
+};
+
+// Helper function to generate unique IDs - only for React keys, not for rendering
+const generateUid = (prefix: string = ""): string =>
+  `${prefix}${Math.random().toString(36).slice(2, 9)}`;
+
+const MOCK_REVIEWS: Review[] = [
+  {
+    id: generateUid("r_"),
+    role: "Teacher",
+    name: "Teacher • Michael Chen",
+    time: "1 hour ago",
+    text: "Excellent presentation. Your confidence shows, and the visuals are clear. Keep steadier eye contact in the opening.",
+  },
+  {
+    id: generateUid("r_"),
+    role: "Student",
+    name: "Student • Anna Lee",
+    time: "3 hours ago",
+    text: "Loved your delivery and tone. Very engaging.",
+  },
+  {
+    id: generateUid("r_"),
+    role: "Student",
+    name: "Student • John Park",
+    time: "1 day ago",
+    text: "Good pace and clear slides. Maybe slow down during Q&A.",
+  },
+  {
+    id: generateUid("r_"),
+    role: "Student",
+    name: "Student • Mia Torres",
+    time: "2 days ago",
+    text: "Great job. Confident and well-structured.",
+  },
+  {
+    id: generateUid("r_"),
+    role: "Student",
+    name: "Student • Liam Cruz",
+    time: "3 days ago",
+    text: "Solid presentation. Improve transitions between topics.",
+  },
+];
+
+const MORE_COMMUNITY_SAMPLE: CommunityItem[] = [
+  {
+    id: "c1",
+    user: "https://randomuser.me/api/portraits/men/44.jpg",
+    title: "Interview Practice Session",
+    views: 130,
+    age: "3d",
+  },
+  {
+    id: "c2",
+    user: "https://randomuser.me/api/portraits/men/47.jpg",
+    title: "Spanish Conversation Practice",
+    views: 64,
+    age: "6d",
+  },
+  {
+    id: "c3",
+    user: "https://randomuser.me/api/portraits/women/12.jpg",
+    title: "Pitch Deck Rehearsal",
+    views: 88,
+    age: "1w",
+  },
+  {
+    id: "c4",
+    user: "https://randomuser.me/api/portraits/women/68.jpg",
+    title: "Toastmasters-style Practice",
+    views: 200,
+    age: "2w",
+  },
+  {
+    id: "c5",
+    user: "https://randomuser.me/api/portraits/men/31.jpg",
+    title: "Product Demo Run",
+    views: 64,
+    age: "3w",
+  },
+];
+
+const ReviewsService = {
+  store: [...MOCK_REVIEWS],
+
+  async list(): Promise<Review[]> {
+    await new Promise((res) => setTimeout(res, 220));
+    return [...this.store];
+  },
+
+  async post(rev: Omit<Review, "id" | "time">): Promise<Review> {
+    await new Promise((res) => setTimeout(res, 260));
+    const newRev: Review = {
+      id: generateUid("r_"),
+      time: "just now",
+      ...rev,
+    };
+    this.store = [newRev, ...this.store];
+    return newRev;
+  },
+
+  async overall(): Promise<number> {
+    const reviewsWithStars = this.store.filter((r) => r.stars !== undefined);
+    if (reviewsWithStars.length === 0) return 0;
+    const avg =
+      reviewsWithStars.reduce((s, r) => s + (r.stars || 0), 0) /
+      reviewsWithStars.length;
+    return Math.round(avg * 10) / 10;
+  },
+};
+
+const GlassContainer: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+}> = ({ children, className = "", ...props }) => (
+  <View
+    className={`rounded-2xl overflow-hidden ${className}`}
+    style={{
+      backgroundColor: "rgba(255, 255, 255, 0.06)",
+      borderWidth: 1,
+      borderColor: "rgba(255, 255, 255, 0.08)",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      elevation: 6,
+    }}
+    {...props}
+  >
+    {children}
+  </View>
+);
+
+const RowAction: React.FC<{
+  icon: string;
+  label: string;
+  onPress?: () => void;
+  destructive?: boolean;
+}> = ({ icon, label, onPress, destructive }) => (
+  <TouchableOpacity
+    onPress={onPress || (() => {})}
+    className={`flex-row items-center px-2 py-3 rounded-lg mb-2 ${destructive ? "bg-red-50" : ""}`}
+    activeOpacity={onPress ? 0.7 : 1}
+  >
+    <View
+      className={`w-10 h-10 rounded-lg items-center justify-center mr-3 ${destructive ? "bg-red-100" : "bg-white/6"}`}
+    >
+      <Ionicons
+        name={icon as any}
+        size={18}
+        color={destructive ? "#ef4444" : "#fff"}
+      />
+    </View>
+    <Text className={`text-white ${destructive ? "text-red-500" : ""}`}>
+      {label}
+    </Text>
+    <View className="flex-1" />
+    <Ionicons
+      name="chevron-forward"
+      size={18}
+      color={destructive ? "#ef4444" : "#9ca3af"}
+    />
+  </TouchableOpacity>
+);
+
+const Stars: React.FC<{
+  value: number;
+  size?: number;
+  onPress?: (v: number) => void;
+  disabled?: boolean;
+}> = ({ value, size = 22, onPress, disabled }) => (
+  <View className="flex-row items-center">
+    {[1, 2, 3, 4, 5].map((i) => (
+      <TouchableOpacity
+        key={i}
+        disabled={!onPress || disabled}
+        onPress={() => onPress?.(i)}
+        className="p-0.5"
+      >
+        <Ionicons
+          name={i <= value ? "star" : "star-outline"}
+          size={size}
+          color={disabled ? "#d1d5db" : "#FFD700"}
+        />
+      </TouchableOpacity>
+    ))}
+  </View>
+);
+
+const formatCount = (count: number): string => {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`.replace(".0", "");
+  }
+  return count.toString();
+};
+
+interface BottomNavProps {
+  setShowLevelModal: (show: boolean) => void;
+}
+
+interface BottomNavProps {
+  setShowLevelModal: (show: boolean) => void;
+}
+
+const BottomNav: React.FC<BottomNavProps & { onCommunityPress: () => void }> = ({ 
+  setShowLevelModal, 
+  onCommunityPress 
+}) => {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname?.() || "";
 
-  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-  const slideAnim = useRef(new Animated.Value(-50)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-
-  const handleSettings = () => router.push('/settings');
-  const handleLogout = () => router.replace('/login-page');
-
-  const handleTabNavigation = (tab: string) => {
-    if (tab === 'Overview') router.push('/home-page');
-    if (tab === 'Speaking') router.push('/exercise-speaking');
-    if (tab === 'Reading') router.push('/exercise-reading');
-    if (tab === 'Community') router.push('/community-page');
-  };
-
-  // Determine active tab based on route
-  const getActiveTab = () => {
-    if (pathname.includes('exercise-speaking')) return 'Speaking';
-    if (pathname.includes('exercise-reading')) return 'Reading';
-    if (pathname.includes('community-page')) return 'Community';
-    return 'Overview';
-  };
-  const activeTab = getActiveTab();
-
-  // Animate profile menu
-  useEffect(() => {
-    if (isProfileMenuVisible) {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: -50, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start();
-    }
-  }, [isProfileMenuVisible]);
+  const navItems = [
+    {
+      icon: "home-outline",
+      label: "Overview",
+      route: "/home-page",
+      onPress: () => router.push("/home-page"),
+    },
+    {
+      icon: "mic-outline",
+      label: "Speaking",
+      route: "/exercise-speaking",
+      onPress: () => router.push("/exercise-speaking"),
+    },
+    {
+      icon: "book-outline",
+      label: "Reading",
+      route: "/exercise-reading",
+      onPress: () => setShowLevelModal(true),
+    },
+    {
+      icon: "people-outline",
+      label: "Community",
+      route: "/community-page",
+      onPress: onCommunityPress,
+    },
+  ];
 
   return (
-    <ScrollView className="flex-1 bg-[#0A0A1E]" showsVerticalScrollIndicator={false}>
-      {/* Header with Profile Menu */}
-      <View className="bg-[#18182a] px-4 pt-8 pb-4">
-        <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center">
-            <View className="w-6 h-6 rounded-full bg-purple-500 mr-2" />
-            <Text className="text-white text-xl font-bold">Fluentech</Text>
-          </View>
-          <View className="flex-row items-center space-x-4">
-            <Ionicons name="trophy-outline" size={22} color="#fff" />
-            <Ionicons name="notifications-outline" size={22} color="#fff" />
-            <TouchableOpacity onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={22} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsProfileMenuVisible(true)}>
-              <Image
-                source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }}
-                className="w-9 h-9 rounded-full ml-2 border-2 border-white"
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Profile Menu Modal */}
-        <Modal
-          visible={isProfileMenuVisible}
-          transparent
-          animationType="none"
-          onRequestClose={() => setIsProfileMenuVisible(false)}
-        >
-          <TouchableOpacity
-            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }}
-            activeOpacity={1}
-            onPressOut={() => setIsProfileMenuVisible(false)}
-          >
-            <Animated.View
-              style={{
-                position: 'absolute',
-                top: 55,
-                right: 16,
-                transform: [{ translateY: slideAnim }],
-                opacity: opacityAnim,
-              }}
-            >
-              <View style={{ backgroundColor: '#1E1E2E', borderRadius: 10, padding: 10, width: 180 }}>
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>Sarah Johnson</Text>
-                <TouchableOpacity onPress={handleSettings} style={{ paddingVertical: 8 }}>
-                  <Text style={{ color: 'white', fontSize: 14 }}>Settings</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </TouchableOpacity>
-        </Modal>
-
-        {/* Tab Bar */}
-        <View className="flex-row mt-5 bg-[#23233b] rounded-xl p-1">
-          {['Overview', 'Speaking', 'Reading', 'Community'].map((tab) => (
+    <View className="absolute bottom-0 left-0 right-0 bg-[#0F172A]/90 backdrop-blur-lg rounded-t-3xl">
+      <View className="flex-row justify-around items-center py-2">
+        {navItems.map((item) => {
+          const isActive = pathname === item.route;
+          return (
             <TouchableOpacity
-              key={tab}
-              onPress={() => handleTabNavigation(tab)}
-              className={`flex-1 py-2 rounded-xl ${activeTab === tab ? 'bg-white/10' : ''}`}
+              key={item.route}
+              className="items-center py-2 px-1 rounded-xl"
+              style={{
+                backgroundColor: isActive
+                  ? "rgba(255, 255, 255, 0.14)"
+                  : "transparent",
+              }}
+              onPress={item.onPress}
             >
-              <Text className={`text-center font-semibold ${activeTab === tab ? 'text-purple-400' : 'text-white/80'}`}>
-                {tab}
+              <Ionicons
+                name={item.icon as any}
+                size={24}
+                color={isActive ? "#A78BFA" : "rgb(255, 255, 255)"}
+              />
+              <Text
+                className="text-xs mt-1"
+                style={{ color: isActive ? "#A78BFA" : "rgb(255, 255, 255)" }}
+              >
+                {item.label}
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
+          );
+        })}
       </View>
-
-      {/* Title & Subtitle */}
-      <View className="mx-4 mt-4 mb-2">
-        <Text className="text-white text-lg font-bold">VR and Video Peer Review</Text>
-        <Text className="text-gray-400 text-xs mt-1">
-          Review and provide feedback on community VR and video recordings
-        </Text>
-      </View>
-
-      {/* Overall Rating Card */}
-      <View className="mx-4 bg-[#232346] rounded-2xl p-4 mb-4">
-        <Text className="text-gray-300 text-xs mb-1">Overall Rating</Text>
-        <View className="flex-row items-center">
-          <Text className="text-white font-bold text-2xl">4.2</Text>
-          <Ionicons name="star" size={18} color="#FFD700" style={{ marginLeft: 8 }} />
-          <Text className="text-gray-400 ml-2 text-xs">Based on 18 reviews</Text>
-        </View>
-      </View>
-
-      {/* Video Recording Card */}
-      <View className="mx-4 bg-[#232346] rounded-2xl overflow-hidden mb-4">
-        {/* Tag */}
-        <View className="bg-purple-500 px-3 py-1 rounded-br-lg absolute top-0 left-0 z-10">
-          <Text className="text-white text-xs font-bold">VIDEO RECORDING</Text>
-        </View>
-        {/* Video Thumbnail */}
-        <View className="w-full h-40 bg-[#b0aef7] items-center justify-center relative">
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=400&q=80' }} className="w-full h-full" resizeMode="cover" />
-          <View className="absolute inset-0 items-center justify-center flex-row">
-            <View className="bg-white/80 w-12 h-12 rounded-full items-center justify-center">
-              <Ionicons name="play" size={30} color="#a855f7" />
-            </View>
-          </View>
-          {/* User info overlay */}
-          <View className="absolute bottom-2 left-2 flex-row items-center">
-            <Image source={{ uri: 'https://randomuser.me/api/portraits/women/32.jpg' }} className="w-8 h-8 rounded-full border-2 border-white" />
-            <View className="ml-2">
-              <Text className="text-white font-semibold text-xs">Sarah Johnson</Text>
-              <Text className="text-white/70 text-xs">Quarterly Presentation Practice</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      {/* Main Session Card */}
-      <View className="mx-4 bg-white rounded-2xl p-4 mb-4">
-        <Text className="text-black font-bold text-base mb-1">Quarterly Sales Presentation - Practice Session</Text>
-        <View className="flex-row items-center mb-2">
-          <Ionicons name="eye-outline" size={14} color="#a3a3a3" />
-          <Text className="text-gray-500 text-xs ml-1">127 views</Text>
-          <Ionicons name="time-outline" size={14} color="#a3a3a3" className="ml-4" />
-          <Text className="text-gray-500 text-xs ml-1">2 hours ago</Text>
-          <Ionicons name="thumbs-up-outline" size={14} color="#34d399" className="ml-4" />
-          <Text className="text-emerald-500 text-xs ml-1">24</Text>
-        </View>
-        {/* More from Community */}
-        <Text className="text-black font-semibold text-xs mb-2">More from Community</Text>
-        <View className="flex-row mb-2">
-          <View className="flex-1 bg-gray-100 rounded-xl flex-row items-center p-2 mr-2">
-            <Image source={{ uri: 'https://randomuser.me/api/portraits/men/44.jpg' }} className="w-7 h-7 rounded-full mr-2" />
-            <View className="flex-1">
-              <Text className="text-black text-xs font-bold">Interview Practice Session</Text>
-              <View className="flex-row items-center mt-1">
-                <Ionicons name="eye-outline" size={12} color="#a3a3a3" />
-                <Text className="text-gray-500 text-[10px] ml-1">130</Text>
-                <Ionicons name="time-outline" size={12} color="#a3a3a3" className="ml-2" />
-                <Text className="text-gray-500 text-[10px] ml-1">3d</Text>
-              </View>
-            </View>
-          </View>
-          <View className="flex-1 bg-gray-100 rounded-xl flex-row items-center p-2">
-            <Image source={{ uri: 'https://randomuser.me/api/portraits/men/47.jpg' }} className="w-7 h-7 rounded-full mr-2" />
-            <View className="flex-1">
-              <Text className="text-black text-xs font-bold">Spanish Conversation Practice</Text>
-              <View className="flex-row items-center mt-1">
-                <Ionicons name="eye-outline" size={12} color="#a3a3a3" />
-                <Text className="text-gray-500 text-[10px] ml-1">64</Text>
-                <Ionicons name="time-outline" size={12} color="#a3a3a3" className="ml-2" />
-                <Text className="text-gray-500 text-[10px] ml-1">6d</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-        {/* Pagination dots */}
-        <View className="flex-row justify-center items-center mt-1">
-          <View className="w-2 h-2 rounded-full bg-purple-500 mx-1" />
-          <View className="w-2 h-2 rounded-full bg-gray-300 mx-1" />
-          <View className="w-2 h-2 rounded-full bg-gray-300 mx-1" />
-        </View>
-      </View>
-
-      {/* Comments & Reviews Section */}
-      <View className="mx-4 mb-6">
-        <Text className="text-black font-bold text-base mb-2">Comments & Reviews</Text>
-        {/* Input */}
-        <View className="flex-row items-center bg-gray-100 rounded-xl px-3 py-2 mb-3">
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color="#a855f7" />
-          <TextInput
-            className="flex-1 ml-2 text-xs text-black"
-            placeholder="Share your feedback and review..."
-            placeholderTextColor="#888"
-          />
-          <TouchableOpacity className="ml-2">
-            <Ionicons name="send" size={18} color="#a855f7" />
-          </TouchableOpacity>
-        </View>
-        {/* Rate This Recording */}
-        <View className="bg-gray-100 rounded-xl p-3 mb-3">
-          <Text className="text-black font-semibold text-xs mb-1">Rate This Recording</Text>
-          <View className="flex-row items-center mb-1">
-            <Text className="text-gray-500 text-xs">Delivery</Text>
-            <View className="flex-row ml-2">
-              {[...Array(5)].map((_, i) => (
-                <Ionicons key={i} name={i < 4 ? 'star' : 'star-outline'} size={16} color="#FFD700" />
-              ))}
-            </View>
-          </View>
-          <View className="flex-row items-center mb-2">
-            <Text className="text-gray-500 text-xs">Confidence</Text>
-            <View className="flex-row ml-2">
-              {[...Array(5)].map((_, i) => (
-                <Ionicons key={i} name={i < 4 ? 'star' : 'star-outline'} size={16} color="#FFD700" />
-              ))}
-            </View>
-          </View>
-          <Text className="text-gray-500 text-xs mb-1">Overall Rating</Text>
-          <View className="flex-row items-center mb-2">
-            {[...Array(4)].map((_, i) => (
-              <Ionicons key={i} name="star" size={16} color="#FFD700" />
-            ))}
-            <Ionicons name="star-outline" size={16} color="#FFD700" />
-            <Text className="text-gray-500 text-xs ml-2">4 out of 5</Text>
-          </View>
-          <TouchableOpacity className="bg-purple-500 rounded-lg py-2 mt-1">
-            <Text className="text-white font-bold text-xs text-center">Post Review</Text>
-          </TouchableOpacity>
-        </View>
-        {/* Example Review Card */}
-        <View className="bg-gray-100 rounded-xl p-3 flex-row items-start">
-          <View className="w-8 h-8 bg-purple-500/20 rounded-full items-center justify-center mr-3 mt-1">
-            <Ionicons name="person" size={18} color="#a855f7" />
-          </View>
-          <View className="flex-1">
-            <View className="flex-row items-center mb-1">
-              <Text className="text-black font-bold text-xs mr-2">Teacher • Michael Chen</Text>
-              <Ionicons name="star" size={14} color="#FFD700" />
-              <Ionicons name="star" size={14} color="#FFD700" />
-              <Ionicons name="star" size={14} color="#FFD700" />
-              <Ionicons name="star" size={14} color="#FFD700" />
-              <Ionicons name="star-outline" size={14} color="#FFD700" />
-              <Text className="text-gray-400 text-xs ml-2">1 hour ago</Text>
-            </View>
-            <Text className="text-gray-600 text-xs">Excellent presentation! Your confidence shows, and the slide visuals were clear. My only suggestion: maintain constant eye contact during your opening.</Text>
-          </View>
-        </View>
-      </View>
-    </ScrollView>
+    </View>
   );
-}
+};
+
+const CommunityPage: React.FC = () => {
+  const router = useRouter?.() || { replace: () => {} };
+  const pathname = usePathname?.() || "";
+  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
+  const [activeTab, setActiveTab] = useState<TabKey>(DEFAULT_TAB);
+  const [showLevelModal, setShowLevelModal] = useState(false);
+  const [showCommunityModal, setShowCommunityModal] = useState(false);
+  const [level, setLevel] = useState<"Basic" | "Advanced">("Basic");
+  const [submitting, setSubmitting] = useState(false);
+  const [ratingDelivery, setRatingDelivery] = useState(0);
+  const [ratingConfidence, setRatingConfidence] = useState(0);
+  const [typed, setTyped] = useState("");
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(24);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [commentEntered, setCommentEntered] = useState("");
+  const [localOverall, setLocalOverall] = useState(0);
+  const [canSubmit, setCanSubmit] = useState(false);
+  const [overall, setOverall] = useState(0);
+
+  const handleCommunityPress = (item: CommunityItem) => {
+    // Handle community item press
+    console.log(`Pressed on ${item.title}`);
+  };
+
+  const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
+    setShowCommunityModal(false);
+    if (option === 'Live Session') {
+      router.push('/live-sessions-select');
+    } else if (option === 'Community Post') {
+      router.push('/community-selection');
+    }
+  };
+
+  const postReview = async () => {
+    // Implementation for posting a review
+    setSubmitting(true);
+    try {
+      // Your review posting logic here
+      setSubmitting(false);
+    } catch (error) {
+      console.error('Error posting review:', error);
+      setSubmitting(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    // Handle sign out logic
+    router.replace('/login-page');
+  };
+
+  const handleIconPress = (type: string) => {
+    if (type === "chatbot") {
+      // Handle chatbot press
+      console.log("Chatbot pressed");
+    } else if (type === "notifications") {
+      // Handle notifications press
+      console.log("Notifications pressed");
+    }
+  };
+
+  const handleLevelSelect = (selectedLevel: "Basic" | "Advanced") => {
+    setLevel(selectedLevel);
+    setShowLevelModal(false);
+  };
+
+  const handleTabPress = (tab: TabKey) => {
+    if (tab === 'Community') {
+      setShowCommunityModal(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  return (
+    <View className="flex-1 bg-slate-900">
+      {/* Background with gradient and decorative circles */}
+      <View className="absolute top-0 left-0 right-0 bottom-0">
+        <LinearGradient
+          colors={["#0F172A", "#1E293B", "#0F172A"]}
+          className="flex-1"
+        />
+        <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute bottom-[100px] left-[50px] w-9 h-9 bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute bottom-5 right-10 w-12 h-12 bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute top-[200px] left-[90px] w-5 h-5 bg-[#a78bfa]/10 rounded-full" />
+      </View>
+
+      <SafeAreaView className="flex-1">
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ paddingBottom: 70 }}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          overScrollMode="always"
+        >
+          <View className="w-full max-w-[400px] self-center px-4">
+            <View className="flex-row justify-between top-2 items-center mt-4 mb-3 w-full">
+              <TouchableOpacity 
+                className="flex-row items-center"
+                onPress={() => router.back()}
+                activeOpacity={0.7}
+              >
+                <Image
+                  source={require("../assets/Speaksy.png")}
+                  className="w-12 h-12 rounded-full right-1"
+                  resizeMode="contain"
+                />
+                <Text className="text-white font-bold text-2xl ml-2 -left-4">
+                  Voclaria
+                </Text>
+              </TouchableOpacity>
+    
+              <View className="flex-row items-center -right-1 space-x-2">
+                <TouchableOpacity
+                  className="p-2 bg-white/10 rounded-full"
+                  onPress={() => handleIconPress("chatbot")}
+                  activeOpacity={0.7}
+                >
+                  <View className="w-6 h-6 items-center justify-center">
+                    <Image
+                      source={require("../assets/chatbot.png")}
+                      className="w-5 h-5"
+                      resizeMode="contain"
+                      tintColor="white"
+                    />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="p-2 bg-white/10 rounded-full"
+                  onPress={() => handleIconPress("notifications")}
+                  activeOpacity={0.7}
+                >
+                  <View className="w-6 h-6 items-center justify-center">
+                    <Ionicons name="notifications-outline" size={20} color="white" />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="p-1"
+                  onPress={() => setIsProfileMenuVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <View className="p-0.5 bg-white/10 rounded-full">
+                    <Image
+                      source={{
+                        uri: "https://randomuser.me/api/portraits/women/44.jpg"
+                      }}
+                      className="w-8 h-8 rounded-full"
+                    />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          <Animated.ScrollView
+            className="flex-1"
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingBottom: 0,
+              paddingTop: 0,
+            }}
+            showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+          >
+            {/* Body */}
+            <GlassContainer className="mb-5 -bottom- overflow-hidden">
+              <View className="relative">
+                <View className="flex-row right-2 items-center mb-1 ml-4">
+                  <Image
+                    source={{
+                      uri: "https://randomuser.me/api/portraits/women/32.jpg",
+                    }}
+                    className="w-12 h-12 rounded-full border-2 border-white/20"
+                  />
+                  <View className="ml-4 flex-1">
+                    <Text className="text-white font-semibold text-base">
+                      Sarah Johnson
+                    </Text>
+                    <Text className="text-gray-400 text-sm">
+                      Posted 2 hours ago
+                    </Text>
+                  </View>
+                </View>
+                <Text className="text-white right-4 text-2xl font-bold mb-2 px-4">
+                  Quarterly Sales Presentation
+                </Text>
+                <Text className="text-gray-300 text-base leading-relaxed mb-4">
+                  This is a focused practice session to refine delivery,
+                  structure, and slide flow.
+                </Text>
+
+                {/* Video */}
+
+                <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
+                  <Image
+                    source={{
+                      uri: "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
+                    }}
+                    className="w-full h-full"
+                    resizeMode="cover"
+                  />
+                  <View className="absolute top-3 left-3  rounded-full px-2 py-1 flex-row items-center z-10">
+                    <Ionicons name="time-outline" size={16} color="white" />
+                    <Text className="text-white text-sm ml-2 font-medium">
+                      5:24 min
+                    </Text>
+                  </View>
+                  <View className="absolute top-3 right-3 bg-black/50 rounded-full px-2 py-1 flex-row items-center z-10">
+                    <Ionicons name="eye-outline" size={14} color="#9ca3af" />
+                    <Text className="text-gray-200 text-xs ml-1 font-medium">
+                      127 views
+                    </Text>
+                  </View>
+                  <View className="absolute inset-0 bg-black/30" />
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      left: "50%",
+                      transform: [{ translateX: -40 }, { translateY: -40 }],
+                      width: 80,
+                      height: 80,
+                      backgroundColor: "rgba(255, 255, 255, 0.3)",
+                      borderRadius: 40,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderWidth: 1,
+                      borderColor: "rgba(255, 255, 255, 0.2)",
+                    }}
+                  >
+                    <Ionicons name="play" size={36} color="#fff" />
+                  </View>
+                </View>
+
+                {/* Icons below video */}
+                <View className="p-2 bg-white/5 rounded-b-2xl">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center space-x-6">
+                      <TouchableOpacity
+                        className="flex-row items-center left-1 p-2 rounded-full bg-white/10"
+                        onPress={() => {
+                          const newLikeState = !isLiked;
+                          setIsLiked(newLikeState);
+                          setLikeCount((prev) =>
+                            newLikeState ? prev + 1 : prev - 1
+                          );
+                        }}
+                      >
+                        <Ionicons
+                          name={isLiked ? "heart" : "heart-outline"}
+                          size={18}
+                          color={isLiked ? "#ef4444" : "#9ca3af"}
+                        />
+                        <Text
+                          className={`text-sm ml-1 right-0.1 font-medium ${isLiked ? "text-red-500" : "text-gray-400"}`}
+                        >
+                          {likeCount} {likeCount === 1 ? "like" : "likes"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View className="flex-row items-center right-1 space-x-3">
+                      <TouchableOpacity className="p-2 rounded-full bg-white/10">
+                        <Ionicons
+                          name="share-outline"
+                          size={20}
+                          color="#9ca3af"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </GlassContainer>
+
+            {/* Improved comment + rating post area */}
+            <View className="-mt-2">
+              <GlassContainer className="p-2">
+                <View className="flex-row justify-between items-start mb-4">
+                  <View className="flex-1 top-3">
+                    <Text className="text-white text-xl font-bold mb-1">
+                      Share Your Feedback
+                    </Text>
+                    <Text className="text-gray-300 text-sm">
+                      Help others by sharing your thoughts
+                    </Text>
+                  </View>
+
+                  <View className="right-1 top-1 items-center px-3 py-2 ml-4">
+                    <Text className="text-white text-2xl font-bold">
+                      {overall ?? localOverall}
+                      <Text className="text-gray-400 text-base">/5</Text>
+                    </Text>
+                    <Text className="text-gray-300 text-xs">Overall</Text>
+                  </View>
+                </View>
+
+                {/* Combined Comment and Rating Section */}
+                <View className="bg-white/10 rounded-xl p-4 border border-white/20">
+                  {/* Comment Input */}
+                  <View className="mb-3">
+                    <Text className="text-white font-bold text-xl -mb-1">
+                      Your Comment
+                    </Text>
+                    <View className="bottom-1.5 border-b border-white/20 pb-2">
+                      <TextInput
+                        value={typed}
+                        onChangeText={setTyped}
+                        placeholder="Share your constructive feedback..."
+                        placeholderTextColor="#9ca3af"
+                        multiline
+                        className="text-white top-4 text-medium font-medium leading-6 min-h-[40px] w-full"
+                        textAlignVertical="top"
+                        accessibilityLabel="Write your comment"
+                      />
+                    </View>
+                  </View>
+                  {!commentEntered && (
+                    <Text className="text-amber-400 text-xs mt-2 bottom-3">
+                      Please write a comment before rating
+                    </Text>
+                  )}
+                  {/* Rating Section */}
+                  <View className="space-y-4">
+                    <View className="flex-row justify-between">
+                      <View className="flex-1 pr-2">
+                        <Text className="text-white font-medium mb-2">
+                          Delivery
+                        </Text>
+                        <Stars
+                          value={ratingDelivery}
+                          onPress={
+                            commentEntered ? setRatingDelivery : undefined
+                          }
+                          disabled={!commentEntered}
+                        />
+                      </View>
+
+                      <View className="flex-1 pl-2">
+                        <Text className="text-white font-medium mb-2">
+                          Confidence
+                        </Text>
+                        <Stars
+                          value={ratingConfidence}
+                          onPress={
+                            commentEntered ? setRatingConfidence : undefined
+                          }
+                          disabled={!commentEntered}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Overall Rating */}
+                    <View className="pt-2">
+                      <Text className="text-white font-medium mb-2">
+                        Overall Rating
+                      </Text>
+                      <Stars
+                        value={Math.round(localOverall)}
+                        onPress={
+                          commentEntered
+                            ? (val) => {
+                                setRatingDelivery(val);
+                                setRatingConfidence(val);
+                              }
+                            : undefined
+                        }
+                        disabled={!commentEntered}
+                      />
+                      <Text className="text-gray-400 text-xs mt-1">
+                        Average of Delivery & Confidence
+                      </Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={postReview}
+                    disabled={!canSubmit || submitting}
+                    className={`py-3 rounded-xl items-center justify-center mt-4 ${canSubmit ? "bg-violet-600" : "bg-gray-600"}`}
+                  >
+                    <Text className="text-white font-bold text-base">
+                      {submitting ? "Posting..." : "Post Feedback"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </GlassContainer>
+            </View>
+
+            {/* Reviews list (teacher + student feed) */}
+            <GlassContainer className="mb-8 top-4">
+              <View className="p-1">
+                <View className="flex-row justify-between items-center mb-4">
+                  <View>
+                    <Text className="text-white text-xl font-bold">
+                      Community Reviews
+                    </Text>
+                    <Text className="text-gray-300 text-sm">
+                      Feedback from teachers and students
+                    </Text>
+                  </View>
+                </View>
+
+                {loadingReviews ? (
+                  <View className="py-8 items-center">
+                    <ActivityIndicator color="#8B5CF6" />
+                    <Text className="text-gray-400 mt-2">
+                      Loading reviews...
+                    </Text>
+                  </View>
+                ) : reviews.length > 0 ? (
+                  <View className="space-y-4">
+                    {reviews.map((review) => (
+                      <View
+                        key={review.id}
+                        className="bg-white/10 rounded-xl p-4 border border-white/20"
+                      >
+                        <View className="flex-row items-start mb-2">
+                          <View className="flex-row items-center">
+                            <View className="w-10 h-10 bg-violet-500/20 rounded-full items-center justify-center mr-3">
+                              <Text className="text-white font-bold">
+                                {review.name.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <View>
+                              <Text className="text-white font-medium">
+                                {review.name}
+                              </Text>
+                              <Text className="text-gray-400 text-xs">
+                                {review.time} • {review.role}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                        <Text className="text-gray-200 mt-2 text-sm leading-5">
+                          {review.text}
+                        </Text>
+                        <View className="flex-row justify-start items-center mt-3 pt-3 border-t border-white/5">
+                          <TouchableOpacity className="flex-row items-center">
+                            <Ionicons
+                              name="heart-outline"
+                              size={18}
+                              color="#9CA3AF"
+                            />
+                            <Text className="text-gray-400 text-xs ml-1">
+                              Helpful
+                            </Text>
+                            <Text className="text-gray-500 text-xs ml-1">
+                              • {Math.floor(Math.random() * 15) + 1}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View className="py-8 items-center">
+                    <Ionicons
+                      name="chatbubbles-outline"
+                      size={48}
+                      color="#4B5563"
+                    />
+                    <Text className="text-gray-400 mt-3 text-center">
+                      No reviews yet. Be the first to share your feedback!
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </GlassContainer>
+
+            {/* More from community horizontal scroller */}
+            <GlassContainer className="mb-2 bottom-1">
+              <View className="p-1">
+                <View className="flex-row justify-between items-center mb-4">
+                  <View>
+                    <Text className="text-white text-lg font-bold">
+                      More from Community
+                    </Text>
+                    <Text className="text-gray-400 text-xs">
+                      Discover trending practice sessions
+                    </Text>
+                  </View>
+                  <TouchableOpacity className="bg-white/10 px-3 py-1 rounded-full">
+                    <Text className="text-white text-xs font-medium">
+                      View All
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingRight: 16 }}
+                  className="-ml-2"
+                >
+                  {MORE_COMMUNITY_SAMPLE.map((c) => (
+                    <View
+                      key={c.id}
+                      className="w-48 bg-white/5 rounded-xl p-3 mr-3 border border-white/5"
+                    >
+                      <View className="aspect-video bg-gray-800 rounded-lg overflow-hidden mb-3">
+                        <Image
+                          source={{ uri: c.user }}
+                          className="w-full h-full"
+                          resizeMode="cover"
+                        />
+                        <View className="absolute inset-0 bg-black/30" />
+                        <View className="absolute bottom-2 right-2 bg-black/60 px-1.5 py-0.5 rounded">
+                          <Text className="text-white text-[10px]">2:45</Text>
+                        </View>
+                      </View>
+                      <Text
+                        className="text-white font-medium text-sm mb-1"
+                        numberOfLines={1}
+                      >
+                        {c.title}
+                      </Text>
+                      <View className="flex-row items-center">
+                        <View className="flex-row items-center">
+                          <Ionicons
+                            name="eye-outline"
+                            size={12}
+                            color="#9ca3af"
+                          />
+                          <Text className="text-gray-400 text-xs ml-1">
+                            {formatCount(c.views)}
+                          </Text>
+                        </View>
+                        <View className="w-1 h-1 bg-gray-600 rounded-full mx-2" />
+                        <Text className="text-gray-400 text-xs">{c.age}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            </GlassContainer>
+          </Animated.ScrollView>
+        </ScrollView>
+      </SafeAreaView>
+
+      {/* Bottom Navigation */}
+      <BottomNav 
+        setShowLevelModal={setShowLevelModal} 
+        onCommunityPress={() => setShowCommunityModal(true)} 
+      />
+
+      {/* Level Selection Modal */}
+      <LevelSelectionModal
+        visible={showLevelModal}
+        onDismiss={() => setShowLevelModal(false)}
+        onSelectLevel={(selectedLevel) => {
+          setLevel(selectedLevel);
+          setShowLevelModal(false);
+          // Navigate to the appropriate reading page based on level
+          if (selectedLevel === "Basic") {
+            router.push("/basic-exercise-reading");
+          } else {
+            router.push("/advance-execise-reading");
+          }
+        }}
+      />
+
+      {/* Profile Menu */}
+      <ProfileMenuNew
+        visible={profileOpen}
+        onDismiss={() => setProfileOpen(false)}
+        user={{
+          name: "Sarah Johnson",
+          email: "sarah@gmail.com",
+          image: { uri: "https://randomuser.me/api/portraits/women/44.jpg" },
+        }}
+      />
+      <LivesessionCommunityModal
+        visible={showCommunityModal}
+        onDismiss={() => setShowCommunityModal(false)}
+        onSelectOption={handleCommunitySelect}
+      />
+
+      {/* Profile Modal bottom sheet */}
+      <Modal
+        visible={profileOpen}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setProfileOpen(false)}
+      >
+        <View style={{ flex: 1 }}>
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: "rgba(0,0,0,0.3)" },
+            ]}
+          />
+          <Animated.View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "#0e1724",
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 16,
+            }}
+          >
+            <View className="w-10 h-1 rounded bg-white/12 self-center mb-3" />
+            <View className="items-center">
+              <Image
+                source={{
+                  uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                }}
+                className="w-18 h-18 rounded-full border border-white/12"
+              />
+              <Text className="text-white mt-2 font-bold text-base">
+                Sarah Johnson
+              </Text>
+              <Text className="text-gray-400 text-sm">sarah@fluentech.app</Text>
+            </View>
+
+            <View className="mt-4">
+              <RowAction
+                icon="settings-outline"
+                label="Settings"
+                onPress={() => router?.push?.("/settings")}
+              />
+              <RowAction
+                icon="sparkles-outline"
+                label="Upgrade"
+                onPress={() =>
+                  Alert.alert("Upgrade", "Upgrade flow not implemented in demo")
+                }
+              />
+              <RowAction
+                icon="log-out-outline"
+                label="Log out"
+                destructive
+                onPress={() => handleSignOut()}
+              />
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+export default CommunityPage;

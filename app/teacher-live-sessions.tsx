@@ -1,178 +1,445 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, Modal, Animated } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, usePathname } from 'expo-router';
+import * as React from "react";
+import { useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  SafeAreaView,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter, usePathname } from "expo-router";
+import ProfileMenuNew from "../components/ProfileMenuNew";
+import LevelSelectionModal from "../components/LevelSelectionModal";
 
-export default function TeacherLiveSessions() {
+// Background Decorator Component
+const BackgroundDecor = () => (
+  <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
+    <View className="absolute left-0 right-0 top-0 bottom-0">
+      <LinearGradient
+        colors={["#0F172A", "#1E293B", "#0F172A"]}
+        className="flex-1"
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+    </View>
+    <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
+    <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
+    <View className="absolute bottom-[100px] left-[50px] w-9 h-9 bg-[#a78bfa]/10 rounded-full" />
+    <View className="absolute bottom-5 right-10 w-12 h-12 bg-[#a78bfa]/10 rounded-full" />
+    <View className="absolute top-[200px] left-[90px] w-5 h-5 bg-[#a78bfa]/10 rounded-full" />
+  </View>
+);
+
+const LiveSessions = () => {
   const router = useRouter();
   const pathname = usePathname();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-  const slideAnim = useRef(new Animated.Value(-50)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const [showLevelModal, setShowLevelModal] = useState(false);
 
-  const handleNavigation = (page: string) => router.push(page);
-  const handleLogout = () => router.replace('/login-page');
-  const handleSettings = () => router.push('/settings');
-
-  const getActiveTab = () => {
-    if (pathname.includes('/teacher-dashboard')) return 'Overview';
-    if (pathname.includes('/teacher-community')) return 'Community';
-    if (pathname.includes('/teacher-live-sessions')) return 'Live Sessions';
-    return '';
-  };
-  const activeTab = getActiveTab();
-
-  useEffect(() => {
-    if (isProfileMenuVisible) {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: -50, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start();
+  const handleIconPress = (type: string) => {
+    if (type === "chatbot") {
+      console.log("Chatbot pressed");
+    } else if (type === "notifications") {
+      console.log("Notifications pressed");
     }
-  }, [isProfileMenuVisible]);
+  };
+
+  const sessions = [
+    {
+      id: "1",
+      name: "Michael Chen",
+      title: "Voice Warm-Up & Articulation Techniques",
+      level: "Basic",
+      viewers: "1.2k",
+      time: "LIVE NOW",
+      duration: "45 min session",
+    },
+    {
+      id: "2",
+      name: "David Kim",
+      title: "Advanced Debate Strategies & Practice",
+      level: "Advanced",
+      viewers: "856",
+      time: "LIVE NOW",
+      duration: "60 min session",
+    },
+    {
+      id: "3",
+      name: "Lisa Park",
+      title: "Mastering Eye Contact & Facial Expressions",
+      level: "Basic",
+      viewers: "723",
+      time: "LIVE NOW",
+      duration: "30 min session",
+    },
+  ];
 
   return (
-    <View className="flex-1">
-      {/* Gradient Background */}
-      <LinearGradient
-        colors={['#0A0A0F', '#1A1A2E', '#16213E']}
-        locations={[0, 0.5, 1]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        className="absolute top-0 left-0 right-0 bottom-0"
-        pointerEvents="none"
+    <View className="flex-1 bg-[#0F172A]">
+      <BackgroundDecor />
+
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingBottom: 30 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View className="absolute top-[-60px] left-[-50px] w-40 h-40 rounded-full bg-purple-600 opacity-15" />
-        <View className="absolute top-[100px] right-[-40px] w-24 h-24 rounded-full bg-blue-600 opacity-10" />
-        <View className="absolute bottom-[100px] left-[50px] w-9 h-9 rounded-full bg-cyan-300 opacity-10" />
-        <View className="absolute bottom-5 right-10 w-15 h-15 rounded-full bg-purple-400 opacity-10" />
-        <View className="absolute top-[200px] left-[90px] w-6 h-6 rounded-full bg-cyan-300 opacity-10" />
-      </LinearGradient>
-
-      <ScrollView className="flex-1 px-4 pt-8">
         {/* Header */}
-        <View className="flex-row items-center mb-3">
-          <View className="w-7 h-7 rounded-full bg-purple-500 mr-2 items-center justify-center" />
-          <Text className="text-white text-xl font-bold">Fluentech</Text>
-          <View className="flex-1" />
-          <View className="flex-row items-center space-x-3 relative">
-            <TouchableOpacity>
-              <Ionicons name="trophy-outline" size={22} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity>
-              <Ionicons name="notifications-outline" size={22} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={22} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsProfileMenuVisible(true)}>
-              <View className="w-9 h-9 rounded-full ml-2 overflow-hidden border-2 border-white">
+        <View className="z-10">
+          <SafeAreaView>
+            <View className="flex-row justify-between items-center top-6 px-4 py-3">
+              <View className="flex-row items-center">
                 <Image
-                  source={{ uri: 'https://randomuser.me/api/portraits/women/44.jpg' }}
-                  className="w-full h-full"
+                  source={require("../assets/Speaksy.png")}
+                  className="w-12 h-12 right-3 -mr-4"
+                  resizeMode="contain"
                 />
+                <Text className="text-white font-bold text-2xl">Voclaria</Text>
               </View>
-            </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Profile Menu Modal */}
-        <Modal
-          visible={isProfileMenuVisible}
-          transparent
-          animationType="none"
-          onRequestClose={() => setIsProfileMenuVisible(false)}
-        >
-          <TouchableOpacity
-            className="flex-1 bg-black/30"
-            activeOpacity={1}
-            onPressOut={() => setIsProfileMenuVisible(false)}
-          >
-            <Animated.View
-              className="absolute top-14 right-4"
-              style={{
-                transform: [{ translateY: slideAnim }],
-                opacity: opacityAnim,
-              }}
-            >
-              <View className="bg-[#1E1E2E] rounded-lg p-3 w-44">
-                <Text className="text-white text-base font-bold mb-3">Sarah Johnson</Text>
-                <TouchableOpacity onPress={handleSettings} className="py-2">
-                  <Text className="text-white text-sm">Settings</Text>
+              <View className="flex-row items-center space-x-3">
+                <TouchableOpacity
+                  onPress={() => handleIconPress("chatbot")}
+                  activeOpacity={0.7}
+                >
+                  <Image
+                    source={require("../assets/chatbot.png")}
+                    className="w-6 h-6"
+                    resizeMode="contain"
+                    tintColor="white"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleIconPress("notifications")}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="notifications-outline"
+                    size={24}
+                    color="white"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setIsProfileMenuVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <Image
+                    source={{
+                      uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                    }}
+                    className="w-9 h-9 rounded-full border-2 border-white/80"
+                  />
                 </TouchableOpacity>
               </View>
-            </Animated.View>
-          </TouchableOpacity>
-        </Modal>
-
-        {/* Tab Bar */}
-        <View className="flex-row bg-black/40 rounded-xl mb-6 p-1">
-          {[
-            { label: 'Overview', path: '/teacher-dashboard' },
-            { label: 'Community', path: '/teacher-community' },
-            { label: 'Live Sessions', path: '/teacher-live-sessions' },
-          ].map((tab) => (
-            <TouchableOpacity
-              key={tab.label}
-              className={`flex-1 items-center py-2 rounded-lg ${activeTab === tab.label ? 'bg-white' : ''}`}
-              onPress={() => handleNavigation(tab.path)}
-            >
-              <Text className={`font-semibold ${activeTab === tab.label ? 'text-purple-500' : 'text-white/80'}`}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Title & Subtitle */}
-        <View className="mt-2 mb-2">
-          <Text className="text-white text-2xl font-bold mb-1">Join Live Sessions</Text>
-          <Text className="text-gray-400 text-xs">Connect with experts and learn in real-time</Text>
-        </View>
-
-        {/* Info Banner */}
-        <View className="mb-4 flex-row items-center bg-[#231942] rounded-xl px-4 py-3">
-          <Ionicons name="information-circle-outline" size={18} color="#a855f7" />
-          <Text className="text-white text-xs ml-2">Live sessions update in real-time</Text>
-        </View>
-
-        {/* Session Cards */}
-        {[
-          { name: 'Sarah Chen', title: 'Voice Warm-Up and Articulation', level: 'Basic' },
-          { name: 'David Kim', title: 'Advanced Debate Practice', level: 'Advanced' },
-          { name: 'Lisa Park', title: 'Eye Contact and Facial Expression', level: 'Basic' },
-        ].map((session, i) => (
-          <View key={i} className="mb-4 bg-[#232345] rounded-2xl p-4">
-            <View className="flex-row items-center justify-between mb-2">
-              <View className="flex-row items-center">
-                <Text className="bg-red-500 text-white text-[11px] font-bold rounded px-2 py-0.5 mr-2">LIVE</Text>
-                <Ionicons name="person-circle-outline" size={20} color="#8A5CFF" />
-                <Text className="text-white font-bold ml-2">{session.name}</Text>
-              </View>
-              <View className="flex-row items-center">
-                <Ionicons name="eye-outline" size={14} color="#aaa" />
-                <Text className="text-gray-400 text-xs ml-1">127</Text>
-              </View>
             </View>
-            <Text className="text-white/90 font-semibold mb-1">{session.title}</Text>
-            <View className="flex-row items-center mb-2">
-              <Text className="bg-[#4F4FFF33] text-[#4F4FFF] text-xs font-bold rounded px-2 py-0.5 mr-2">{session.level}</Text>
-            </View>
-            <TouchableOpacity
-              className="bg-[#6C47FF] rounded-xl px-4 py-2 self-start mt-1"
-              onPress={() => handleNavigation('/teacher-live-session')}
-            >
-              <Text className="text-white text-xs font-bold">Join Session</Text>
-            </TouchableOpacity>
+          </SafeAreaView>
+        </View>
+
+        {/* Main Content */}
+        <View className="px-4">
+          {/* Page Title */}
+          <View className="mt-6 mb-6">
+            <Text className="text-white text-3xl font-bold mb-1">
+              Live Sessions
+            </Text>
+            <Text className="text-white/80 text-base">
+              Learn from experts in real-time
+            </Text>
           </View>
-        ))}
+
+          {/* Live Sessions Info */}
+          <View className="mb-8">
+            <View className="flex-row items-center opacity-80">
+              <View className="bg-white/20 flex-row items-center rounded-lg px-3 py-1 self-start mb-6 -mt-2">
+                <Ionicons name="time-outline" size={18} color="white" />
+                <Text className="text-white ml-2 text-sm">
+                  Live sessions update in real-time
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Live Sessions Section */}
+          <View className="mb-5 bottom-8">
+            <View className="flex-row justify-between items-center mb-5">
+              <Text className="text-white text-xl font-bold">
+                People live now
+              </Text>
+              <TouchableOpacity>
+                <Text className="text-white text-sm">View all</Text>
+              </TouchableOpacity>
+            </View>
+
+            {sessions.map((session) => (
+              <View
+                key={session.id}
+                className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
+              >
+                {/* Session Status Bar */}
+                <View className="flex-row justify-between items-center mb-4">
+                  <View className="flex-row items-center">
+                    <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
+                      <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
+                      <Text className="text-white text-xs font-bold">
+                        {session.time}
+                      </Text>
+                    </View>
+                  </View>
+                  <View className="flex-row items-center">
+                    <Ionicons name="people-outline" size={16} color="white" />
+                    <Text className="text-white text-xs ml-1">
+                      {session.viewers} watching
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Host Profile */}
+                <View className="flex-row items-center mb-4">
+                  <View className="w-12 h-12 bg-white/10 rounded-full items-center justify-center mr-3">
+                    <Ionicons name="person" size={20} color="white" />
+                  </View>
+                  <View>
+                    <Text className="text-white font-medium">
+                      {session.name}
+                    </Text>
+                    <Text className="text-violet-300 text-xs">Student</Text>
+                  </View>
+                </View>
+
+                {/* Session Details */}
+                <Text className="text-white text-lg font-semibold mb-3 leading-tight">
+                  {session.title}
+                </Text>
+
+                {/* Join Button */}
+                <TouchableOpacity
+                  className="bg-violet-600/80 active:bg-white border border-white/20 rounded-xl py-4 items-center"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/teacher-live-session",
+                      params: {
+                        id: session.id,
+                        title: session.title,
+                        name: session.name,
+                        viewers: session.viewers,
+                      },
+                    })
+                  }
+                >
+                  <Text className="text-white text-based font-bold">
+                    Join Session
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          {/* Community Recordings Section */}
+          <View className="mb-8 bottom-14">
+            <View className="flex-row justify-between items-center mb-5">
+              <Text className="text-white text-xl top-2 font-bold">
+                Community Recordings
+              </Text>
+            </View>
+
+            <View className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-4">
+              {/* Recording Card 1 */}
+              <TouchableOpacity
+                className="bg-white/5 rounded-xl p-3 border border-white/20"
+                onPress={() => router.push("/recording/1")}
+              >
+                <View className="flex-row items-start">
+                  <View className="relative mr-3">
+                    <View className="w-24 h-16 bg-violet-500/10 rounded-lg items-center justify-center">
+                      <Ionicons name="play-circle" size={32} color="white" />
+                    </View>
+                    <View className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded">
+                      <Text className="text-white text-2xs">45:22</Text>
+                    </View>
+                  </View>
+                  <View className="flex-1">
+                    <Text
+                      className="text-white font-medium text-sm mb-1"
+                      numberOfLines={2}
+                    >
+                      Mastering Public Speaking: Tips & Tricks
+                    </Text>
+                    <Text className="text-violet-300 text-xs mb-1">
+                      @jameswilson
+                    </Text>
+                    <View className="flex-row items-center">
+                      <Ionicons name="eye-outline" size={14} color="#94a3b8" />
+                      <Text className="text-slate-400 text-xs ml-1">
+                        1.2k views
+                      </Text>
+                      <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
+                      <Text className="text-slate-400 text-xs">2 days ago</Text>
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Recording Card 2 */}
+              <TouchableOpacity
+                className="bg-white/5 rounded-xl p-3 border border-white/20"
+                onPress={() => router.push("/recording/2")}
+              >
+                <View className="flex-row items-start">
+                  <View className="relative mr-3">
+                    <View className="w-24 h-16 bg-violet-500/10 rounded-lg items-center justify-center">
+                      <Ionicons name="play-circle" size={32} color="white" />
+                    </View>
+                    <View className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded">
+                      <Text className="text-white text-2xs">32:15</Text>
+                    </View>
+                  </View>
+                  <View className="flex-1">
+                    <Text
+                      className="text-white font-medium text-sm mb-1"
+                      numberOfLines={2}
+                    >
+                      Daily English Conversation Practice
+                    </Text>
+                    <Text className="text-violet-300 text-xs mb-1">
+                      @sarah_teaches
+                    </Text>
+                    <View className="flex-row items-center">
+                      <Ionicons name="eye-outline" size={14} color="#94a3b8" />
+                      <Text className="text-slate-400 text-xs ml-1">
+                        856 views
+                      </Text>
+                      <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
+                      <Text className="text-slate-400 text-xs">1 week ago</Text>
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* Find More Button */}
+              <TouchableOpacity
+                className="bg-white/20 rounded-xl border border-white/20 py-3 flex-row items-center justify-center mt-4"
+                onPress={() => router.push("/community-selection")}
+              >
+                <Ionicons
+                  name="search"
+                  size={20}
+                  color="white"
+                  style={{ marginRight: 8 }}
+                />
+                <Text className="text-white font-bold text-base">
+                  Find More Community Recordings
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Profile Menu */}
+          <ProfileMenuNew
+            visible={isProfileMenuVisible}
+            onDismiss={() => setIsProfileMenuVisible(false)}
+            user={{
+              name: "Sarah Johnson",
+              email: "sarah@gmail.com",
+              image: {
+                uri: "https://randomuser.me/api/portraits/women/44.jpg",
+              },
+            }}
+          />
+        </View>
       </ScrollView>
+
+      {/* Level Selection Modal */}
+      <LevelSelectionModal
+        visible={showLevelModal}
+        onDismiss={() => setShowLevelModal(false)}
+        onSelectLevel={(level) => {
+          setShowLevelModal(false);
+          if (level === "Basic") {
+            router.push("/basic-exercise-reading");
+          } else {
+            router.push("/advance-exercise-reading");
+          }
+        }}
+      />
+
+      {/* Bottom Navigation */}
+      <View className="absolute bottom-0 left-0 right-0 bg-[#0F172A]/90 backdrop-blur-lg rounded-t-3xl">
+        <View className="flex-row justify-around items-center py-2">
+          <BottomNav />
+        </View>
+      </View>
     </View>
   );
-}
+};
+
+const BottomNav = () => {
+  const router = useRouter();
+  const pathname = usePathname?.() || "";
+  const navItems = [
+    {
+      icon: "stats-chart-outline",
+      label: "Dashboard",
+      route: "teacher-dashboard",
+      onPress: () => router.replace("/teacher-dashboard"),
+    },
+    {
+      icon: "people-outline",
+      label: "Community",
+      route: "teacher-community",
+      onPress: () => router.replace("/teacher-community-selection"),
+    },
+    {
+      icon: "mic-circle-outline",
+      label: "Live Session",
+      route: "teacher-live-session",
+      onPress: () => router.replace("/teacher-live-sessions"),
+    },
+  ];
+
+  return (
+    <View
+      className="absolute bottom-0 left-0 right-0 bg-[#0F172A]/90 backdrop-blur-lg rounded-t-3xl z-50"
+      style={{ elevation: 50 }}
+    >
+      <View className="flex-row justify-around items-center py-2">
+        {navItems.map((item) => {
+          // Check if current pathname includes the item's route or is a live-session route
+          const isActive =
+            pathname === `/${item.route}` ||
+            pathname === `/${item.route}/` ||
+            (item.route === "teacher-live-session" &&
+              (pathname.includes("live-session") ||
+                pathname.includes("teacher-live-sessions")));
+          return (
+            <TouchableOpacity
+              key={item.route}
+              className="items-center py-2 px-1 rounded-xl"
+              style={{
+                backgroundColor: isActive
+                  ? "rgba(255, 255, 255, 0.14)"
+                  : "transparent",
+              }}
+              onPress={item.onPress}
+            >
+              <Ionicons
+                name={item.icon as any}
+                size={24}
+                color={isActive ? "#A78BFA" : "rgb(255, 255, 255)"}
+              />
+              <Text
+                className="text-xs mt-1"
+                style={{ color: isActive ? "#A78BFA" : "rgb(255, 255, 255)" }}
+              >
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+};
+
+export default LiveSessions;
