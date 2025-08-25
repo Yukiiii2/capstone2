@@ -21,6 +21,48 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '@/lib/supabaseClient'
+
+
+
+function guessContentType(ext: string) {
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    pdf: 'application/pdf',
+  };
+  return map[ext.toLowerCase()] ?? 'application/octet-stream';
+}
+
+async function uploadVerificationDoc(userId: string, localUri: string) {
+  // Build a stable path: user/<uid>/<timestamp>.<ext>
+  const urlNoQuery = localUri.split('?')[0];
+  const ext = (urlNoQuery.split('.').pop() || 'jpg').toLowerCase();
+  const fileName = `${Date.now()}.${ext}`;
+  const path = `user/${userId}/${fileName}`;
+
+  // Turn local file into a Blob for supabase-js
+  const res = await fetch(localUri);
+  const blob = await res.blob();
+
+  const contentType = blob.type || guessContentType(ext);
+
+  const { error } = await supabase
+    .storage
+    .from('verify-docs')   // <-- your bucket name
+    .upload(path, blob, {
+      upsert: false,
+      contentType,
+    });
+
+  if (error) throw error;
+  return path;              // e.g. user/<uid>/1714058123.jpg
+}
+
 
 // Custom alert implementation that matches the design
 const showCustomAlert = (title: string, message: string) => {
@@ -233,21 +275,85 @@ export default function CreateAccountStudent() {
   };
 
   const handleSignUp = async () => {
-    if (!isFormComplete()) {
-      showCustomAlert('Missing Information', 'Please fill out all required fields and upload the required document');
+  if (loading) return;
+
+  if (!isFormComplete()) {
+    showCustomAlert('Missing Information', 'Please fill out all required fields and upload the required document');
+    return;
+  }
+  if (!selectedVerificationType || !verificationFile) {
+    showCustomAlert('Missing Document', 'Please select a document type and upload your file.');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    // 1) Sign up
+    const full_name = `${formData.firstName} ${formData.lastName}`.trim();
+    const { data: signData, error: signUpError } = await supabase.auth.signUp({
+      email: formData.email.trim(),
+      password: formData.password,
+      options: {
+        data: { full_name, role: 'student', mobile: formData.mobileNumber },
+      },
+    });
+    if (signUpError) throw signUpError;
+
+    // 2) Get the user id (if email confirmations are ON, there may be no session yet)
+    const { data: userWrap } = await supabase.auth.getUser();
+    const userId = userWrap?.user?.id;
+
+    // If there is no active session yet, skip storage (policies won't let you upload).
+    // Show your success screen and let them finish after email confirmation.
+    if (!userId) {
+      setActiveStep(2);
       return;
     }
 
-    setLoading(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setActiveStep(2);
-    } catch (error) {
-      showCustomAlert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    // 3) (Optional) create a profiles row
+    const { error: profileError } = await supabase.from('profiles').insert({
+  id: userId,
+  name: full_name,
+  role: 'student',
+});
+if (profileError) console.log('profiles insert warn:', profileError.message);
+
+if (profileError) {
+  console.log('profiles insert warn:', profileError.message);
+}
+    // 4) Upload the verification doc to Storage
+    const docPath = await uploadVerificationDoc(userId, verificationFile);
+    // Map your dropdown ID to a compact doc_type string
+    const DOC_TYPE: Record<string, string> = {
+    studentId: 'student_id',
+    enrollmentForm: 'enrollment_form',
+    schoolId: 'school_id',
+    other: 'other',
+    };
+    const doc_type = DOC_TYPE[selectedVerificationType] ?? 'other';
+
+    // 5) Create verification request
+    const { error: verErr } = await supabase
+    .from('verification_requests')
+    .insert({
+    user_id: userId,
+    role: 'student',
+    doc_type,
+    doc_url: docPath,
+    status: 'pending',
+   });
+    if (verErr) throw verErr;
+
+    // 6) Success screen
+    setActiveStep(2);
+  } catch (err: any) {
+    console.error(err);
+    showCustomAlert('Error', err?.message ?? 'Something went wrong. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
+
 
    const renderProgressBar = () => (
       <View className="flex-row justify-center items-center mb-8">
@@ -631,19 +737,44 @@ export default function CreateAccountStudent() {
               </TouchableOpacity>
               
               <TouchableOpacity 
-                className="bg-white/10 border border-white/10 w-full py-3 rounded-lg items-center justify-center active:bg-white/20"
-                onPress={() => showCustomAlert('Email Resent', 'Confirmation email sent again')}
-              >
-                <Text className="text-white font-medium">Resend Email</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        );
+              className="bg-white/10 border border-white/10 w-full py-3 rounded-lg items-center justify-center active:bg-white/20"
+              onPress={async () => {
+              // keep the exact same UI; only behavior changes
+              try {
+               const email = (formData.email || '').trim();
+              if (!email) {
+              showCustomAlert('Missing Email', 'Please enter your email on the form first.');
+               return;
+              }
 
-      default:
+              const { error } = await supabase.auth.resend({
+               type: 'signup',
+              email,
+              });
+
+               if (error) {
+               console.error(error.message);
+               showCustomAlert('Error', 'Failed to resend confirmation email. Please try again.');
+               } else {
+              showCustomAlert('Email Resent', 'A new confirmation email has been sent.');
+              }
+              } catch (err: any) {
+                 console.error(err);
+                 showCustomAlert('Error', 'Something went wrong. Please try again.');
+             }
+            }}
+            >
+          <Text className="text-white font-medium">Resend Email</Text>
+          </TouchableOpacity>
+
+          </View>
+          </Animated.View>
+         );
+
+          default:
         return null;
-    }
-  };
+        }
+        };
 
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">

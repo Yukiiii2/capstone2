@@ -17,6 +17,9 @@ import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import { Ionicons } from "@expo/vector-icons";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from 'expo-splash-screen';
+import 'react-native-get-random-values'
+import 'react-native-url-polyfill/auto'
+
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();

@@ -16,6 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabaseClient"; // ✅ added
 
 const BackgroundDecor = () => (
   <View className="absolute inset-0 w-full h-full z-0">
@@ -33,12 +34,6 @@ const BackgroundDecor = () => (
     <View className="absolute w-20 h-20 bg-[#a78bfa]/5 rounded-full top-28 left-60 z-10" />
   </View>
 );
-
-const STUDENT_ACCOUNT = {
-  email: "student@test.com",
-  password: "password123",
-  redirect: "/pre-assessment" as const,
-};
 
 type LoginField = "email" | "password";
 
@@ -62,42 +57,118 @@ export default function StudentLoginScreen() {
     return () => setIsMounted(false);
   }, []);
 
-  const handleLogin = useCallback(() => {
-    const { email, password } = formData;
+  // ✅ REAL Supabase login with role check, UI unchanged
+  const handleLogin = useCallback(async () => {
+    if (isLoading) return;
+
+    const email = formData.email.trim();
+    const password = formData.password;
+
     if (!email || !password) {
       Alert.alert("Error", "Please enter both email and password");
       return;
     }
 
     setIsLoading(true);
+    try {
+      // 1) sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    // Simulate API call
-    setTimeout(() => {
-      if (!isMounted) return;
+      if (signInError) {
+        const msg = (signInError.message || "").toLowerCase();
 
-      if (
-        email === STUDENT_ACCOUNT.email &&
-        password === STUDENT_ACCOUNT.password
-      ) {
-        try {
-          router.push(STUDENT_ACCOUNT.redirect);
-        } catch (error) {
-          console.error("Navigation error:", error);
+        if (msg.includes("confirm") || msg.includes("not confirmed")) {
           Alert.alert(
-            "Navigation Error",
-            "Could not navigate to the next screen."
+            "Email Not Confirmed",
+            "Please confirm your email first. You can resend the confirmation email from the signup success screen."
           );
+        } else if (
+          msg.includes("invalid") ||
+          msg.includes("email") ||
+          msg.includes("password")
+        ) {
+          Alert.alert("Login Failed", "Invalid email or password.");
+        } else {
+          Alert.alert("Sign In Failed", signInError.message);
         }
-      } else {
-        Alert.alert("Login Failed", "Invalid email or password.");
+        return;
       }
 
-      if (isMounted) {
-        setIsLoading(false);
+      // 2) get user id
+      const { data: userWrap, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !userWrap?.user?.id) {
+        Alert.alert("Error", "Could not retrieve user session.");
+        return;
       }
-    }, 1200);
-  }, [formData, isMounted, router]);
+      const userId = userWrap.user.id;
 
+      // 3) enforce role === 'student'
+      const { data: profile, error: pErr } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .single();
+
+      if (pErr) {
+        console.log("profiles fetch error:", pErr.message);
+        Alert.alert(
+          "Profile Missing",
+          "We couldn't load your profile. Please contact support."
+        );
+        return;
+      }
+
+      if (!profile || profile.role !== "student") {
+        Alert.alert(
+          "Wrong Portal",
+          "This account isn't a student. Please log in via the correct portal."
+        );
+        await supabase.auth.signOut();
+        return;
+      }
+
+      // 4) success — same route you had
+      router.push("/pre-assessment");
+    } catch (err: any) {
+      console.error(err);
+      Alert.alert("Error", err?.message ?? "Something went wrong.");
+    } finally {
+      if (isMounted) setIsLoading(false);
+    }
+  }, [formData, isMounted, isLoading, router]);
+
+  // ✅ Forgot password now sends reset email (no UI changes)
+  const handleForgotPassword = useCallback(async () => {
+    const email = formData.email.trim();
+    if (!email) {
+      Alert.alert(
+        "Forgot Password",
+        "Enter your email above first, then tap this again."
+      );
+      return;
+    }
+
+    try {
+      // TODO: replace with your app's deep link or hosted URL that handles reset
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: "yourapp://reset-password",
+      });
+      if (error) {
+        console.error(error);
+        Alert.alert("Reset Failed", error.message);
+        return;
+      }
+      Alert.alert("Check Your Email", "We sent you a password reset link.");
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert("Error", e?.message ?? "Failed to start password reset.");
+    }
+  }, [formData.email]);
+
+  // (kept as a stub; UI unchanged)
   const handleGoogleSignIn = useCallback(async () => {
     try {
       setIsGoogleLoading(true);
@@ -110,11 +181,6 @@ export default function StudentLoginScreen() {
       if (isMounted) setIsGoogleLoading(false);
     }
   }, [isMounted]);
-
-  const handleForgotPassword = useCallback(
-    () => Alert.alert("Forgot Password", "Redirect to reset password flow"),
-    []
-  );
 
   const handleSignUp = useCallback(
     () => router.push("/create-account-student"),
@@ -208,9 +274,7 @@ export default function StudentLoginScreen() {
                   autoComplete="password"
                   textContentType="password"
                 />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                >
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                   <Ionicons
                     name={showPassword ? "eye-off" : "eye"}
                     size={20}
@@ -249,7 +313,9 @@ export default function StudentLoginScreen() {
               <TouchableOpacity
                 onPress={handleLogin}
                 disabled={!isFormValid || isLoading}
-                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${isFormValid ? "bg-violet-600" : "bg-gray-600"}`}
+                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${
+                  isFormValid ? "bg-violet-600" : "bg-gray-600"
+                }`}
                 activeOpacity={0.8}
               >
                 {isLoading ? (

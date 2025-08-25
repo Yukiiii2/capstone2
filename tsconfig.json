@@ -2,8 +2,8 @@
   "compilerOptions": {
     "jsx": "react-native",
     "target": "esnext",
-    "module": "Node16",
-    "moduleResolution": "node16",
+    "module": "esnext",               
+    "moduleResolution": "bundler",   
     "allowJs": true,
     "strict": true,
     "esModuleInterop": true,
@@ -32,6 +32,7 @@
   ],
   "include": [
     "app",
+    "lib",
     "**/*.d.ts",
     "src/types/**/*.d.ts"
   ],

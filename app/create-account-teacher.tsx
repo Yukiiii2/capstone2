@@ -21,6 +21,41 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '@/lib/supabaseClient'
+
+// RN-safe content type map (no 'mime' package)
+function guessContentType(ext: string) {
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    pdf: 'application/pdf',
+  };
+  return map[ext.toLowerCase()] ?? 'application/octet-stream';
+}
+
+async function uploadVerificationDoc(userId: string, localUri: string) {
+  const urlNoQuery = localUri.split('?')[0];
+  const ext = (urlNoQuery.split('.').pop() || 'jpg').toLowerCase();
+  const fileName = `${Date.now()}.${ext}`;
+  const path = `user/${userId}/${fileName}`;
+
+  const res = await fetch(localUri);
+  const blob = await res.blob();
+  const contentType = blob.type || guessContentType(ext);
+
+  const { error } = await supabase
+    .storage
+    .from('verify-docs')               // your bucket
+    .upload(path, blob, { upsert: false, contentType });
+
+  if (error) throw error;
+  return path; // save to verification_requests.doc_url
+}
+
 
 // Custom alert implementation that matches the design
 const showCustomAlert = (title: string, message: string) => {
@@ -212,21 +247,83 @@ export default function CreateAccountTeacher() {
   };
 
   const handleSignUp = async () => {
-    if (!isFormComplete()) {
-      showCustomAlert('Missing Information', 'Please fill out all required fields and upload the required document');
+  if (loading) return;
+
+  // keep your guardrails
+  if (!isFormComplete()) {
+    showCustomAlert('Missing Information', 'Please fill out all required fields and upload the required document');
+    return;
+  }
+  if (!selectedVerificationType || !verificationFile) {
+    showCustomAlert('Missing Document', 'Please select a document type and upload your file.');
+    return;
+  }
+
+  setLoading(true);
+  try {
+    // 1) Sign up (send teacher metadata)
+    const full_name = `${formData.firstName} ${formData.lastName}`.trim();
+    const { data: signData, error: signUpError } = await supabase.auth.signUp({
+      email: formData.email.trim(),
+      password: formData.password,
+      options: {
+        data: {
+          full_name,
+          role: 'teacher',
+          mobile: formData.mobileNumber,
+          school_university: formData.schoolUniversity,
+        },
+      },
+    });
+    if (signUpError) throw signUpError;
+
+    // 2) Get user id (if email confirmation is ON, there may be no session yet)
+    const { data: userWrap } = await supabase.auth.getUser();
+    const userId = userWrap?.user?.id;
+
+    // If there is no session yet (email not confirmed), skip storage & DB for now
+    if (!userId) {
+      setActiveStep(2); // show your success screen
       return;
     }
 
-    setLoading(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setActiveStep(2);
-    } catch (error) {
-      showCustomAlert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    // (If you kept the server trigger for profiles, you DON'T need a client insert here.)
+
+    // 3) Upload verification doc to Storage
+    const docPath = await uploadVerificationDoc(userId, verificationFile);
+
+    // 4) Save verification request
+    const DOC_TYPE: Record<string, string> = {
+      teacherId: 'teacher_id',
+      appointmentPaper: 'appointment_paper',
+      schoolId: 'school_id',
+      other: 'other',
+    };
+    const doc_type = DOC_TYPE[selectedVerificationType] ?? 'other';
+
+    const { error: verErr } = await supabase
+      .from('verification_requests')
+      .insert({
+        user_id: userId,
+        role: 'teacher',
+        doc_type,
+        doc_url: docPath,
+        status: 'pending',
+        school_university: formData.schoolUniversity || null, // optional column if you added it
+      });
+
+    if (verErr) throw verErr;
+
+    // 5) Success screen
+    setActiveStep(2);
+  } catch (err: any) {
+    console.error(err);
+    showCustomAlert('Error', err?.message ?? 'Something went wrong. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
+
 
    const renderProgressBar = () => (
       <View className="flex-row justify-center items-center mb-8">
@@ -635,11 +732,29 @@ export default function CreateAccountTeacher() {
               </TouchableOpacity>
               
               <TouchableOpacity 
-                className="bg-white/10 border border-white/10 w-full py-3 rounded-lg items-center justify-center active:bg-white/20"
-                onPress={() => showCustomAlert('Email Resent', 'Confirmation email sent again')}
-              >
-                <Text className="text-white font-medium">Resend Email</Text>
-              </TouchableOpacity>
+  className="bg-white/10 border border-white/10 w-full py-3 rounded-lg items-center justify-center active:bg-white/20"
+  onPress={async () => {
+    try {
+      const email = (formData.email || '').trim();
+      if (!email) {
+        showCustomAlert('Missing Email', 'Please enter your email on the form first.');
+        return;
+      }
+      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      if (error) {
+        console.error(error.message);
+        showCustomAlert('Error', 'Failed to resend confirmation email. Please try again.');
+      } else {
+        showCustomAlert('Email Resent', 'A new confirmation email has been sent.');
+      }
+    } catch (e: any) {
+      console.error(e);
+      showCustomAlert('Error', 'Something went wrong. Please try again.');
+    }
+  }}
+>
+  <Text className="text-white font-medium">Resend Email</Text>
+</TouchableOpacity>
             </View>
           </Animated.View>
         );
