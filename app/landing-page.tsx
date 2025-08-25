@@ -8,14 +8,15 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   StatusBar,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, useFocusEffect, useRouter } from "expo-router";
 import { Modal } from "react-native";
-
-// Type declarations are now in src/types/react-native.d.ts
+import { ResizeMode, AVPlaybackStatus } from "expo-av";
+import { Video } from 'expo-av';
 
 // Type Definitions
 type FeatureCardProps = {
@@ -105,7 +106,8 @@ const PricingCard = ({
       <View className="absolute -top-2 left-1/2 -translate-x-1/2 bg-purple-500 px-2 py-0.5 rounded-full">
         <Text className="text-white text-[9px] font-medium">MOST POPULAR</Text>
       </View>
-    )}
+    )
+    }
     <View className="mb-2">
       <Text
         className="text-white text-sm font-bold mb-0.5"
@@ -219,11 +221,15 @@ export default function Landing() {
   };
 
   // Video player state
+  const videoRef = useRef<typeof Video>(null);
+  const videoContainerRef = useRef<View>(null);
   const videoSource = require("../assets/speech-video.mp4");
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [showPlayButton, setShowPlayButton] = useState(true);
-  // No videoRef needed as we control playback through state
+  const [isVideoInView, setIsVideoInView] = useState(true);
+  const [videoLayout, setVideoLayout] = useState({ y: 0, height: 0 });
+  const { height: screenHeight } = useWindowDimensions();
 
   // Handle play button press
   const handlePlayPress = useCallback(() => {
@@ -231,13 +237,50 @@ export default function Landing() {
     setShowPlayButton(false);
   }, []);
 
-  // Handle video play/pause when it enters/leaves viewport
-  const handleScroll = useCallback(() => {
-    // This is a placeholder - implement your scroll handling logic here
-    // The Video component from expo-video will handle pausing when not visible
+  // Handle video pause
+  const handlePause = useCallback(() => {
+    setIsVideoPlaying(false);
+    setShowPlayButton(true);
   }, []);
 
-  const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
+  // Measure video position
+  const measureVideoPosition = useCallback(() => {
+    if (videoContainerRef.current) {
+      videoContainerRef.current.measureInWindow((x, y, width, height) => {
+        setVideoLayout({ y, height });
+      });
+    }
+  }, []);
+
+  // Handle scroll to detect when video is out of view
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const scrollPosition = event.nativeEvent.contentOffset.y;
+    
+    if (videoLayout.y === 0) {
+      measureVideoPosition();
+      return;
+    }
+    
+    const isVisible = (
+      scrollPosition + screenHeight > videoLayout.y && 
+      scrollPosition < videoLayout.y + videoLayout.height
+    );
+    
+    setIsVideoInView(isVisible);
+  }, [videoLayout, screenHeight, measureVideoPosition]);
+
+  // Effect to control video playback based on visibility
+  useEffect(() => {
+    if (isVideoInView && !isVideoPlaying && !showPlayButton) {
+      // Video came back into view and was playing before
+      handlePlayPress();
+    } else if (!isVideoInView && isVideoPlaying) {
+      // Video scrolled out of view while playing
+      handlePause();
+    }
+  }, [isVideoInView, isVideoPlaying, showPlayButton, handlePlayPress, handlePause]);
+
+  const handlePlaybackStatusUpdate = useCallback((status: any) => {
     if (!status.isLoaded) return;
 
     setIsVideoLoaded(status.isLoaded);
@@ -250,6 +293,7 @@ export default function Landing() {
     useCallback(() => {
       return () => {
         setIsVideoPlaying(false);
+        setShowPlayButton(true);
       };
     }, [])
   );
@@ -459,15 +503,24 @@ export default function Landing() {
               Here is an example of how to speak confidently
             </Text>
 
-            <View className="w-full h-60 rounded-xl overflow-hidden bg-black">
+            <View 
+              ref={videoContainerRef}
+              onLayout={measureVideoPosition}
+              className="w-full h-60 rounded-xl overflow-hidden bg-black"
+            >
               <Video
                 source={videoSource}
                 style={{ width: "100%", height: "100%" }}
                 resizeMode={ResizeMode.CONTAIN}
                 useNativeControls={true}
-                shouldPlay={isVideoPlaying}
+                shouldPlay={isVideoPlaying && isVideoInView}
                 isLooping={true}
-                onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                onPlaybackStatusUpdate={(status) => {
+                  handlePlaybackStatusUpdate(status);
+                  if (status.isLoaded) {
+                    setIsVideoLoaded(true);
+                  }
+                }}
               />
               {!isVideoLoaded && (
                 <View className="absolute top-0 left-0 right-0 bottom-0 bg-black/50 items-center justify-center">
@@ -624,13 +677,13 @@ export default function Landing() {
             </View>
             <View className="flex-row space-x-4 mr-24">
               <TouchableOpacity>
-                <Ionicons name="logo-twitter" size={20} color="#f4f8ffff" />
+                <Ionicons name="logo-twitter" size={20} color="#f4f8ff" />
               </TouchableOpacity>
               <TouchableOpacity>
-                <Ionicons name="logo-facebook" size={20} color="#f4f8ffff" />
+                <Ionicons name="logo-facebook" size={20} color="#f4f8ff" />
               </TouchableOpacity>
               <TouchableOpacity>
-                <Ionicons name="logo-instagram" size={20} color="#f4f8ffff" />
+                <Ionicons name="logo-instagram" size={20} color="#f4f8ff" />
               </TouchableOpacity>
             </View>
 

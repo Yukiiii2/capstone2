@@ -10,11 +10,11 @@ import {
   View,
   Dimensions,
 } from "react-native";
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
 type SelectionModalProps = {
   visible: boolean;
@@ -140,7 +140,7 @@ export const LivesessionCommunityModal: React.FC<SelectionModalProps> = ({
       animationType="fade"
       onRequestClose={handleClose}
     >
-      <Animated.View 
+      <Animated.View
         className="flex-1 justify-end"
         style={{ opacity: fadeAnim }}
       >
@@ -153,12 +153,13 @@ export const LivesessionCommunityModal: React.FC<SelectionModalProps> = ({
         <Animated.View
           className="w-full"
           style={{
-            transform: [
-              { translateY: Animated.add(slideAnim, pan.y) },
-            ]
+            transform: [{ translateY: Animated.add(slideAnim, pan.y) }],
           }}
         >
-          <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-3xl overflow-hidden shadow-2xl border-t border-white/10" {...panResponder.panHandlers}>
+          <View
+            className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-3xl overflow-hidden shadow-2xl border-t border-white/10"
+            {...panResponder.panHandlers}
+          >
             {/* Decorative top handle */}
             <View className="items-center py-3">
               <View className="w-12 h-1 bg-white/30 rounded-full" />
@@ -166,59 +167,85 @@ export const LivesessionCommunityModal: React.FC<SelectionModalProps> = ({
 
             <View className="p-5">
               <View className="items-center mb-6">
-                <Text className="text-white text-2xl font-bold mb-1">Community</Text>
-                <Text className="text-gray-300 text-sm">Choose what to see on community</Text>
+                <Text className="text-white text-2xl font-bold mb-1">
+                  Community
+                </Text>
+                <Text className="text-gray-300 text-sm">
+                  Choose what to see on community
+                </Text>
               </View>
 
               <View className="space-y-4 mb-6">
                 {/* Live Session Option */}
                 <TouchableOpacity
-                  className="bg-white/5 border border-white/5 rounded-xl p-4 flex-row items-center active:bg-white/10 shadow"
-                  onPress={() => handleSelect("Live Session")}
+                    className="bg-white/5 border border-white/10 rounded-xl p-4 flex-row items-center active:bg-white/10 shadow"
+                    onPress={() => handleSelect("Live Session")}
                   activeOpacity={0.9}
                 >
                   <View className="w-12 h-12 rounded-2xl bg-white/10 items-center justify-center mr-4">
-                    <Ionicons name="videocam-outline" size={22} color="#FFFFFF" />
+                    <Ionicons
+                      name="videocam-outline"
+                      size={22}
+                      color="#FFFFFF"
+                    />
                   </View>
                   <View className="flex-1">
-                    <Text className="text-white font-semibold text-base">Live Session</Text>
-                    <Text className="text-gray-300 text-xs">See student live session</Text>
+                    <Text className="text-white font-semibold text-base">
+                      Live Session
+                    </Text>
+                    <Text className="text-gray-300 text-xs">
+                      See student live session
+                    </Text>
                   </View>
                   <View className="w-8 h-8 rounded-full bg-white/10 items-center justify-center">
-                    <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#FFFFFF"
+                    />
                   </View>
                 </TouchableOpacity>
 
                 {/* Community Post Option */}
                 <TouchableOpacity
-                  className="bg-white/5 border border-white/5 rounded-xl p-4 flex-row items-center active:bg-white/10 shadow"
-                  onPress={() => handleSelect("Community Post")}
+                    className="bg-white/5 border border-white/10 rounded-xl p-4 flex-row items-center active:bg-white/10 shadow"
+                    onPress={() => handleSelect("Community Post")}
                   activeOpacity={0.9}
                 >
                   <View className="w-12 h-12 rounded-xl bg-white/10 items-center justify-center mr-4">
-                    <Ionicons name="chatbubble-ellipses-outline" size={22} color="#FFFFFF" />
+                    <Ionicons
+                      name="chatbubble-ellipses-outline"
+                      size={22}
+                      color="#FFFFFF"
+                    />
                   </View>
                   <View className="flex-1">
-                    <Text className="text-white font-semibold text-base">Peer Review</Text>
-                    <Text className="text-gray-300 text-xs">Community share performances</Text>
+                    <Text className="text-white font-semibold text-base">
+                      Peer Review
+                    </Text>
+                    <Text className="text-gray-300 text-xs">
+                      Community share performances
+                    </Text>
                   </View>
                   <View className="w-8 h-8 rounded-full bg-white/10 items-center justify-center">
-                    <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#FFFFFF"
+                    />
                   </View>
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity
-                className="py-4 rounded-xl bg-violet-500/80 border border-white/30 items-center justify-center active:bg-white/20"
+                className="py-4 rounded-xl bg-white/10 border border-white/20 items-center justify-center active:bg-white/20"
                 onPress={handleClose}
                 activeOpacity={0.9}
               >
-                <Text className="text-white font-medium text-base">
-                  Cancel
-                </Text>
+                <Text className="text-white font-medium text-base">Cancel</Text>
               </TouchableOpacity>
             </View>
-            
+
             {/* Bottom safe area for iOS */}
             <View className="h-4 bg-transparent" />
           </View>

@@ -27,6 +27,7 @@ import { LevelSelectionModal } from "../components/LevelSelectionModal";
 import ProfileMenu, { UserProfile } from "../components/ProfileMenuNew";
 import LivesessionCommunityModal from "../components/LivesessionCommunityModal";
 import { useTransform } from "../hooks/useTransform";
+import ModuleTrackingModal from "../components/ModuleTrackingModal";
 
 // ===== Constants =====
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
@@ -47,6 +48,15 @@ function HomePage() {
   const insets = useSafeAreaInsets();
   const windowWidth = Dimensions.get('window').width;
   const { translateX: layoutTranslateX, resetTransform, setTransform } = useTransform();
+  
+  // State for class joining
+  const [hasJoinedClass, setHasJoinedClass] = useState(false);
+  const [showLiveSessionModal, setShowLiveSessionModal] = useState(false);
+
+  const handleSignOut = () => {
+    // Handle sign out logic here
+    router.replace('/landing-page');
+  };
 
   // ===== State =====
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
@@ -93,6 +103,16 @@ function HomePage() {
   }, [showSidebar, setTransform, overlayAnim]);
 
   const [showLevelModal, setShowLevelModal] = useState(false);
+  const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
+  const [showModuleModal, setShowModuleModal] = useState(false);
+  const [moduleModalType, setModuleModalType] = useState<'completed' | 'upcoming'>('completed');
+  const [moduleModalCategory, setModuleModalCategory] = useState<'speaking' | 'reading'>('speaking');
+  const [moduleCounts, setModuleCounts] = useState({
+    upcomingSpeaking: 6, // 6 advanced speaking modules
+    completedSpeaking: 6, // 6 basic speaking modules
+    upcomingReading: 3,  // 3 advanced reading modules
+    completedReading: 3  // 3 basic reading modules
+  });
   const [showReadingLevelModal, setShowReadingLevelModal] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [stats, setStats] = useState({
@@ -459,6 +479,15 @@ function HomePage() {
     }
   };
 
+  // Handle join session
+  const handleJoinSession = (sessionId: string) => {
+    setShowLiveSessionModal(false);
+    // Set hasJoinedClass to true when joining a session
+    setHasJoinedClass(true);
+    // Navigate to live session page with the session ID
+    router.push(`/live-session/${sessionId}`);
+  };
+
   // ===== Effects =====
   useEffect(() => {
     const animations = isProfileMenuVisible
@@ -558,11 +587,18 @@ function HomePage() {
       />
       <BackgroundDecor />
 
-      {/* Profile Menu */}
+      {/* Profile Menu Modal */}
       <ProfileMenu
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
         user={userProfile}
+        onSignOut={handleSignOut}
+        hasJoinedClass={hasJoinedClass}
+        setHasJoinedClass={setHasJoinedClass}
+        onLeaveClass={() => {
+          // This will be called when user leaves class from the profile menu
+          setHasJoinedClass(false);
+        }}
       />
 
       {/* Main Scrollable Content with Status Bar Area */}
@@ -605,14 +641,18 @@ function HomePage() {
                 <TouchableOpacity 
                   className="top-1.5 bg-gradient-to-br from-violet-600/20 to-violet-900/20 backdrop-blur-sm rounded-lg p-2.5 flex-1 border border-white/10 shadow-md active:scale-[0.98] transition-all"
                   activeOpacity={0.85}
-                  onPress={() => console.log('View Upcoming Sessions')}
+                  onPress={() => {
+                    setModuleModalType('upcoming');
+                    setModuleModalCategory('speaking');
+                    setShowModuleModal(true);
+                  }}
                 >
                   <View className="flex-row items-center justify-between h-full">
                     <View className="p-1.5 bg-white/10 bottom-2 rounded-md">
                       <Ionicons name="calendar" size={16} color="#FFFFFF" />
                     </View>
                     <View className="items-end">
-                      <Text className="text-white text-2xl  font-bold">2</Text>
+                      <Text className="text-white text-2xl font-bold">{moduleCounts.upcomingSpeaking + moduleCounts.upcomingReading}</Text>
                       <Text className="text-white text-[10px] top-2 font-medium mt-[-5px]">SESSIONS</Text>
                     </View>
                   </View>
@@ -625,14 +665,18 @@ function HomePage() {
                 <TouchableOpacity 
                   className="top-1.5 bg-gradient-to-br from-violet-600/20 to-violet-900/20 backdrop-blur-sm rounded-lg p-2.5 flex-1 border border-white/10 shadow-md active:scale-[0.98] transition-all"
                   activeOpacity={0.85}
-                  onPress={() => console.log('View Completed Modules')}
+                  onPress={() => {
+                    setModuleModalType('completed');
+                    setModuleModalCategory('speaking');
+                    setShowModuleModal(true);
+                  }}
                 >
                   <View className="flex-row items-center justify-between h-full">
                     <View className="p-1.5 bg-white/10 bottom-2 rounded-md">
                       <Ionicons name="checkmark" size={16} color="#FFFFFF" />
                     </View>
                     <View className="items-end">
-                      <Text className="text-white text-2xl font-bold">8</Text>
+                      <Text className="text-white text-2xl font-bold">{moduleCounts.completedSpeaking + moduleCounts.completedReading}</Text>
                       <Text className="text-white text-[10px] top-2 font-medium mt-[-5px]">MODULES</Text>
                     </View>
                   </View>
@@ -800,7 +844,7 @@ function HomePage() {
             <View className="mt-4">
               <View className="flex-row justify-between mb-2">
                 <Text className="text-white font-medium text-sm">
-                  Speaking and Reading Exercises
+                  Confidence During Exercises
                 </Text>
                 <Text className="text-white/80 text-sm">
                   {stats.averageConfidence}%
@@ -815,7 +859,7 @@ function HomePage() {
 
               <View className="flex-row justify-between mt-4 mb-2">
                 <Text className="text-white font-medium text-sm">
-                  Anxiety During Practice
+                  Anxiety During Exercises
                 </Text>
                 <Text className="text-white/80 text-sm">
                   {100 - stats.averageConfidence}%
@@ -840,6 +884,14 @@ function HomePage() {
         visible={showLevelModal}
         onDismiss={() => setShowLevelModal(false)}
         onSelectLevel={handleLevelSelect}
+      />
+
+      {/* Module Tracking Modal */}
+      <ModuleTrackingModal
+        visible={showModuleModal}
+        onClose={() => setShowModuleModal(false)}
+        moduleType={moduleModalCategory}
+        filterType={moduleModalType}
       />
     </View>
   );
