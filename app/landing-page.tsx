@@ -479,7 +479,7 @@ export default function Landing() {
                 {["X", "E", "Y", "F"].map((initial, i) => (
                   <View
                     key={i}
-                    className="w-8 h-8 rounded-full bg-purple-500/20 items-center justify-center mx-1"
+                    className="w-8 h-8 rounded-full bg-white/10 items-center justify-center mx-1"
                   >
                     <Text className="text-white/80 font-bold text-sm">
                       {initial}

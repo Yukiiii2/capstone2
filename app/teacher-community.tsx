@@ -372,12 +372,8 @@ const CommunityPage: React.FC = () => {
   }, [params]);
 
   const handleIconPress = (type: string) => {
-    if (type === "chatbot") {
-      // Handle chatbot press
-      console.log("Chatbot pressed");
-    } else if (type === "notifications") {
-      // Handle notifications press
-      console.log("Notifications pressed");
+    if (type === "add-student") {
+      router.push("/add-student");
     }
   };
 
@@ -559,29 +555,19 @@ const CommunityPage: React.FC = () => {
                 </Text>
               </View>
 
-              <View className="flex-row items-center right-4 space-x-2">
-                <TouchableOpacity
-                  className="p-1 right-1"
-                  onPress={() => handleIconPress("chatbot")}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={24}
-                    color="white"
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  className="p-1 right-1"
-                  onPress={() => handleIconPress("notifications")}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="notifications-outline"
-                    size={26}
-                    color="white"
-                  />
-                </TouchableOpacity>
+              <View className="flex-row items-center right-2">
+                          <TouchableOpacity
+                            onPress={() => handleIconPress("add-student")}
+                            activeOpacity={0.7}
+                            className="p-2 bg-white/10 rounded-full mr-4"
+                          >
+                            <Image
+                              source={require("../assets/add-student.png")}
+                              className="w-5 h-5"
+                              resizeMode="contain"
+                              tintColor="white"
+                            />
+                          </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setIsProfileMenuVisible(true)}
                   activeOpacity={0.7}

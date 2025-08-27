@@ -1089,8 +1089,9 @@ export default function TeacherDashboard() {
   const pathname = usePathname();
 
   const handleIconPress = (iconName: string) => {
-    console.log(`${iconName} icon pressed`);
-    // Add your icon press handlers here
+    if (iconName === "add-student") {
+      router.push("/add-student");
+    }
   };
 
   // Calculate stats whenever component mounts or allStudents changes
@@ -1250,11 +1251,11 @@ export default function TeacherDashboard() {
 
   return (
     <View className="flex-1 bg-[#0F172A] relative">
-      <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
       <ScrollView
-        className="flex-1 bottom-8 p-4 z-10"
+        className="flex-1 bottom-3 p-4 z-10"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingBottom: 30,
@@ -1274,25 +1275,18 @@ export default function TeacherDashboard() {
             </Text>
           </View>
 
-          <View className="flex-row items-center right-4 space-x-2">
+          <View className="flex-row items-center right-2">
             <TouchableOpacity
-              className="p-1 right-1"
-              onPress={() => handleIconPress("chatbot")}
+              onPress={() => handleIconPress("add-student")}
               activeOpacity={0.7}
+              className="p-2 bg-white/10 rounded-full mr-4"
             >
               <Image
-                source={require("../assets/chatbot.png")}
-                className="w-6 h-6"
+                source={require("../assets/add-student.png")}
+                className="w-5 h-5"
                 resizeMode="contain"
                 tintColor="white"
               />
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="p-1 right-1"
-              onPress={() => handleIconPress("notifications")}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="notifications-outline" size={26} color="white" />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setIsProfileMenuVisible(true)}
@@ -1393,7 +1387,15 @@ export default function TeacherDashboard() {
           <View className="bg-white/10 border border-white/30 rounded-2xl p-6">
             <View className="items-center mb-4">
               <View className="mb-3">
-                <Text className="text-indigo-400 text-2xl">👥</Text>
+                <Image
+                  source={require("../assets/manage-student.png")}
+                  style={{ 
+                    width: 40, 
+                    height: 36,
+                    tintColor: 'white'
+                  }}
+                  resizeMode="contain"
+                />
               </View>
               <Text className="text-lg font-semibold text-white mb-1">
                 Manage Your Students

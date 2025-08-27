@@ -829,23 +829,28 @@ const ClassProgress = () => {
               </TouchableOpacity>
             </View>
             
-            {/* Teacher Info */}
-            <View className="bg-white/5 top-4 rounded-2xl p-4 mb-4">
+            {/* Teacher & Strand Info - Compact */}
+            <View className="bg-white/5 top-4 rounded-2xl p-3 mb-4">
               <View className="flex-row items-center">
                 <Image 
                   source={{ uri: teacherData.avatar }} 
                   className="w-12 h-12 rounded-full mr-3 border-2 border-indigo-400/30"
                 />
                 <View className="flex-1">
-                  <Text className="text-white text-lg font-semibold">Instructor</Text>
-                  <Text className="text-white text-xs">{classData.teacher}</Text>
-                </View>
-                <View className="items-end">
-                  <View className="flex-row items-center bg-white/10 px-3 py-1 rounded-full">
-                    <Ionicons name="star" size={14} color="#F59E0B" />
-                    <Text className="text-white ml-1 text-sm font-medium">4.8</Text>
+                  <Text className="text-white text-sm font-medium">{classData.teacher}</Text>
+                  <Text className="text-indigo-300 text-xs font-medium">Instructor of STEM - Grade 11</Text>
+                  <View className="flex-row items-center mt-1">
+                    <View className="flex-row items-center">
+                      <Ionicons name="people" size={12} color="#9CA3AF" />
+                      <Text className="text-gray-300 text-xs ml-1">{classData.students.length + 1} Students</Text>
+                    </View>
                   </View>
-                  <Text className="text-gray-400 text-xs mt-1">{classData.students.length + 1} students</Text>
+                </View>
+                <View className="flex-row items-center">
+                  <View className=" px-3 py-2 items-center flex-row">
+                    <Ionicons name="star" size={16} color="#F59E0B" />
+                    <Text className="text-white text-base font-bold ml-1">4.8</Text>
+                  </View>
                 </View>
               </View>
             </View>

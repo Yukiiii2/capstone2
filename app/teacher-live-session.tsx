@@ -162,8 +162,9 @@ export default function LiveSession() {
   }, [isProfileMenuVisible]);
 
   const handleIconPress = (icon: string) => {
-    // Handle icon press actions here
-    console.log(`Pressed ${icon} icon`);
+    if (icon === "add-student") {
+      router.push("/add-student");
+    }
   };
 
   // Background Decorations
@@ -209,28 +210,19 @@ export default function LiveSession() {
                   </Text>
                 </View>
 
-                <View className="flex-row items-center space-x-3">
-                  <TouchableOpacity
-                    onPress={() => handleIconPress("chatbot")}
-                    activeOpacity={0.7}
-                  >
-                    <Image
-                      source={require("../assets/chatbot.png")}
-                      className="w-6 h-6"
-                      resizeMode="contain"
-                      tintColor="white"
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleIconPress("notifications")}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name="notifications-outline"
-                      size={26}
-                      color="white"
-                    />
-                  </TouchableOpacity>
+                <View className="flex-row items-center right-2">
+                            <TouchableOpacity
+                              onPress={() => handleIconPress("add-student")}
+                              activeOpacity={0.7}
+                              className="p-2 bg-white/10 rounded-full mr-4"
+                            >
+                              <Image
+                                source={require("../assets/add-student.png")}
+                                className="w-5 h-5"
+                                resizeMode="contain"
+                                tintColor="white"
+                              />
+                            </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setIsProfileMenuVisible(true)}
                     activeOpacity={0.7}

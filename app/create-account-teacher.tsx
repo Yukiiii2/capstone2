@@ -66,8 +66,9 @@ export default function CreateAccountTeacher() {
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  // State for password visibility - true means password is hidden (secure)
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -351,7 +352,7 @@ export default function CreateAccountTeacher() {
                   value: formData.password,
                   key: 'password',
                   type: 'password',
-                  secure: !showPassword
+                  secure: true
                 },
                 {
                   icon: 'lock-outline',
@@ -359,7 +360,7 @@ export default function CreateAccountTeacher() {
                   value: formData.confirmPassword,
                   key: 'confirmPassword',
                   type: 'password',
-                  secure: !showConfirmPassword
+                  secure: true
                 }
               ].map((field) => (
                 <View key={field.key} className="bottom-2 space-y-0.5">
@@ -394,6 +395,7 @@ export default function CreateAccountTeacher() {
                       </View>
                     ) : (
                       <TextInput
+                        key={`${field.key}-${field.key === 'password' ? passwordVisible : confirmPasswordVisible}`}
                         className="flex-1 text-white text-[15px]"
                         placeholder={`Enter your ${field.label.toLowerCase()}`}
                         placeholderTextColor="#9CA3AF"
@@ -401,16 +403,33 @@ export default function CreateAccountTeacher() {
                         onChangeText={(text) => {
                           setFormData({ ...formData, [field.key]: text });
                         }}
-                        secureTextEntry={field.secure}
+                        secureTextEntry={field.key === 'password' ? !passwordVisible : field.key === 'confirmPassword' ? !confirmPasswordVisible : true}
                         keyboardType={field.type === 'email' ? 'email-address' : 'default'}
                         autoCapitalize={field.key === 'email' ? 'none' : 'words'}
                       />
                     )}
-                    {(field.key === 'password' || field.key === 'confirmPassword') && (
-                      <TouchableOpacity onPress={() => 
-                        field.key === 'password' ? setShowPassword(!showPassword) : setShowConfirmPassword(!showConfirmPassword)
-                      }>
-                        <Ionicons name={field.secure ? 'eye-off-outline' : 'eye-outline'} size={18} color="white" />
+                    {field.key === 'password' && (
+                      <TouchableOpacity 
+                        onPress={() => setPasswordVisible(!passwordVisible)}
+                        className="p-2 -mr-2"
+                      >
+                        <Ionicons 
+                          name={passwordVisible ? 'eye' : 'eye-off'}
+                          size={20} 
+                          color="#9CA3AF"
+                        />
+                      </TouchableOpacity>
+                    )}
+                    {field.key === 'confirmPassword' && (
+                      <TouchableOpacity 
+                        onPress={() => setConfirmPasswordVisible(!confirmPasswordVisible)}
+                        className="p-2 -mr-2"
+                      >
+                        <Ionicons 
+                          name={confirmPasswordVisible ? 'eye' : 'eye-off'}
+                          size={20} 
+                          color="#9CA3AF"
+                        />
                       </TouchableOpacity>
                     )}
                   </View>

@@ -65,21 +65,29 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
   const hasJoinedClass = propHasJoinedClass !== undefined ? propHasJoinedClass : localHasJoinedClass;
   const setHasJoinedClass = propSetHasJoinedClass || setLocalHasJoinedClass;
 
-  const handleJoinClass = (classCode: string) => {
+  const handleJoinClass = (data: { classCode: string; gradeLevel: string; strand: string }) => {
+    const { classCode, gradeLevel, strand } = data;
+    
     if (!classCode.trim()) {
       Alert.alert("Error", "Please enter a class code");
       return;
     }
     
+    if (!gradeLevel || !strand) {
+      Alert.alert("Error", "Please select both grade level and strand");
+      return;
+    }
+    
     // Here you would typically make an API call to join the class
+    console.log('Joining class with:', { classCode, gradeLevel, strand });
+    
     // For now, we'll simulate a successful join
     setHasJoinedClass(true);
     setShowJoinClassModal(false);
-    setClassCode('');
     
     // Show success message with custom modal
     setShowSuccessMessage(true);
-    setSuccessMessage(`Successfully joined class`);
+    setSuccessMessage(`Successfully joined class as Grade ${gradeLevel} ${strand}`);
     
     // Auto-hide after 3 seconds
     setTimeout(() => {

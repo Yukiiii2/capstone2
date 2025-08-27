@@ -112,12 +112,8 @@ function StudentPresentation() {
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
-    } else if (iconName === "notifications-outline") {
-      // Handle notifications
-      console.log("Notifications pressed");
-    } else if (iconName === "robot-excited-outline") {
-      // Handle AI assistant
-      console.log("AI Assistant pressed");
+    } else if (iconName === "add-student") {
+      router.push("/add-student");
     }
   };
 
@@ -224,7 +220,7 @@ function StudentPresentation() {
 
   // Header Component
   const Header = () => (
-    <View className="flex-row justify-between items-center mt-8 mb-2 w-full px-5">
+    <View className="flex-row justify-between items-center mt-12 mb-2 w-full px-5">
       <View className="flex-row items-center">
         <Image
           source={require("../assets/Speaksy.png")}
@@ -236,26 +232,19 @@ function StudentPresentation() {
         </Text>
       </View>
 
-      <View className="flex-row items-center right-4 space-x-2">
-        <TouchableOpacity
-          className="p-1 right-1"
-          onPress={() => handleIconPress("robot-excited-outline")}
-          activeOpacity={0.7}
-        >
-          <Image
-            source={require("../assets/chatbot.png")}
-            className="w-6 h-6"
-            resizeMode="contain"
-            tintColor="white"
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          className="p-1 right-1"
-          onPress={() => handleIconPress("notifications-outline")}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="notifications-outline" size={26} color="white" />
-        </TouchableOpacity>
+      <View className="flex-row items-center right-2">
+                  <TouchableOpacity
+                    onPress={() => handleIconPress("add-student")}
+                    activeOpacity={0.7}
+                    className="p-2 bg-white/10 rounded-full mr-4"
+                  >
+                    <Image
+                      source={require("../assets/add-student.png")}
+                      className="w-5 h-5"
+                      resizeMode="contain"
+                      tintColor="white"
+                    />
+                  </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setIsProfileMenuVisible(true)}
           activeOpacity={0.7}
