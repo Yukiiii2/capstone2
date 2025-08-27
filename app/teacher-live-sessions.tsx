@@ -11,7 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, usePathname } from "expo-router";
-import ProfileMenuNew from "../components/ProfileMenuNew";
+import ProfileMenuNew from "@/components/ProfileMenuNew";
 import LevelSelectionModal from "../components/LevelSelectionModal";
 
 // Background Decorator Component

@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import LevelSelectionModal from "../components/LevelSelectionModal";
 import LivesessionCommunityModal from "../components/LivesessionCommunityModal";
-import ProfileMenu from "../components/ProfileMenuNew";
+import ProfileMenu from "@/components/ProfileMenuNew";
 
 // ===== CONSTANTS & TYPES =====
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };

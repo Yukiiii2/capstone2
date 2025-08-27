@@ -14,7 +14,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import StudentManagementModal from "../components/StudentManagementModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
-import ProfileMenu from "../components/ProfileMenuNew";
+import ProfileMenu from "@/components/ProfileMenuNew";
 
 const { width, height } = Dimensions.get("window");
 const cardWidth = (width - 40) / 2 - 10;

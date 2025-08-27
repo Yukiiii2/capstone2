@@ -10,7 +10,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
-import ProfileMenuNew from "../components/ProfileMenuNew";
+import ProfileMenuNew from "@/components/ProfileMenuNew";
 import LevelSelectionModal from "../components/LevelSelectionModal";
 import LivesessionCommunityModal from "../components/LivesessionCommunityModal";
 

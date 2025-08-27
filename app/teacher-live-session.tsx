@@ -8,7 +8,7 @@ import {
   Animated,
   Dimensions,
 } from "react-native";
-import ProfileMenuNew from "../components/ProfileMenuNew";
+import ProfileMenuNew from "@/components/ProfileMenuNew";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams, usePathname } from "expo-router";

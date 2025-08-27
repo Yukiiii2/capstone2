@@ -23,7 +23,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
-import ProfileMenuNew from "../components/ProfileMenuNew";
+import ProfileMenuNew from "@/components/ProfileMenuNew";
 import { LevelSelectionModal } from "../components/LevelSelectionModal";
 
 interface Review {

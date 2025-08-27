@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LevelSelectionModal } from "../components/LevelSelectionModal";
-import ProfileMenuNew from "../components/ProfileMenuNew";
+import ProfileMenuNew from "@/components/ProfileMenuNew";
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
