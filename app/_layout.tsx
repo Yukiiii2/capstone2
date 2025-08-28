@@ -189,18 +189,18 @@ export default function Layout() {
         <SafeAreaView style={{ flex: 1 }} edges={['right', 'left', 'bottom'] as any}>
           <Stack screenOptions={screenOptions}>
             <Stack.Screen name="index" />
-            <Stack.Screen name="home-page" />
-            <Stack.Screen name="exercise-speaking" />
-            <Stack.Screen name="basic-exercise-reading" />
-            <Stack.Screen name="community-selection" />
-            <Stack.Screen name="live-sessions-select" />
-            <Stack.Screen name="create-account-student" />
-            <Stack.Screen name="create-account-teacher" />
-            <Stack.Screen name="advanced-contents" />
-            <Stack.Screen name="teacher-dashboard" />
-            <Stack.Screen name="teacher-community" />
-            <Stack.Screen name="teacher-live-session" />
-            <Stack.Screen name="logout" />
+            <Stack.Screen name="StudentScreen/HomePage/home-page" />
+            <Stack.Screen name="StudentScreen/SpeakingExercise/exercise-speaking" />
+            <Stack.Screen name="StudentScreen/ReadingExercise/basic-exercise-reading" />
+            <Stack.Screen name="StudentScreen/StudentCommunity/community-selection" />
+            <Stack.Screen name="StudentScreen/StudentLiveSession/live-sessions-select" />
+            <Stack.Screen name="CreateAccount/create-account-student" />
+            <Stack.Screen name="CreateAccount/create-account-teacher" />
+            <Stack.Screen name="StudentScreen/SpeakingExercise/advanced-contents" />
+            <Stack.Screen name="TeacherScreen/TeacherDashboard/teacher-dashboard" />
+            <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-session" />
+            <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-sessions" />
+            <Stack.Screen name="ProfileMenu/logout" />
           </Stack>
         </SafeAreaView>
       </View>

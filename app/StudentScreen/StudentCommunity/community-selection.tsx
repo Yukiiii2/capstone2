@@ -1,0 +1,478 @@
+import React, { useMemo, useState, useRef, useEffect } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  SafeAreaView,
+  TextInput,
+  Animated,
+  StatusBar,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter, usePathname } from "expo-router";
+import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
+import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
+import NavigationBar from "../../../components/NavigationBar/nav-bar";
+
+// Background decoration component with gradient and floating circles
+const BackgroundDecor = () => (
+  <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
+    <View className="absolute left-0 right-0 top-0 bottom-0">
+      <LinearGradient
+        colors={["#0F172A", "#1E293B", "#0F172A"]}
+        className="flex-1"
+      />
+    </View>
+    <View className="absolute top-[-60px] left-[-50px] w-60 h-60 bg-[#a78bfa]/5 rounded-full" />
+    <View className="absolute top-[100px] right-[-40px] w-[120px] h-[120px] bg-[#a78bfa]/5 rounded-full" />
+    <View className="absolute bottom-[100px] left-[50px] w-12 h-12 bg-[#a78bfa]/5 rounded-full" />
+    <View className="absolute top-[200px] left-[90px] w-8 h-8 bg-[#a78bfa]/5 rounded-full" />
+  </View>
+);
+
+
+// Student data type definition
+type Student = {
+  id: string;
+  name: string;
+  avatar: string;
+  lastPractice: string;
+  rating: number;
+  isSelected?: boolean;
+  lesson?: {
+    id: number;
+    title: string;
+    subtitle: string;
+    desc: string;
+    type: "Review" | "Start" | "Continue" | "New";
+    progress: number;
+    difficulty: "Basic" | "Advanced";
+  };
+};
+
+// Mock student data
+const STUDENTS: Student[] = [
+  {
+    id: "1",
+    name: "Sarah Johnson",
+    avatar: "https://randomuser.me/api/portraits/women/32.jpg",
+    lastPractice: "2h ago",
+    rating: 4.2,
+    lesson: {
+      id: 1,
+      title: "Persuasive Speech Building",
+      subtitle: "Lesson 1",
+      desc: "Master persuasive speech delivery",
+      type: "Review",
+      progress: 1,
+      difficulty: "Advanced"
+    }
+  },
+  {
+    id: "2",
+    name: "Earl Ang",
+    avatar: "https://randomuser.me/api/portraits/men/44.jpg",
+    lastPractice: "1d ago",
+    rating: 4.8,
+    lesson: {
+      id: 2,
+      title: "Effective Non-Verbal Communication",
+      subtitle: "Lesson 1",
+      desc: "Master gestures and visual cues",
+      type: "Review",
+      progress: 1,
+      difficulty: "Basic"
+    }
+  },
+  {
+    id: "3",
+    name: "Yang Flores",
+    avatar: "https://randomuser.me/api/portraits/women/68.jpg",
+    lastPractice: "3h ago",
+    rating: 3.9,
+    lesson: {
+      id: 3,
+      title: "Advanced Debate Practice",
+      subtitle: "Lesson 2",
+      desc: "Develop argumentation and rebuttal skills",
+      type: "Start",
+      progress: 0.5,
+      difficulty: "Advanced"
+    }
+  },
+  {
+    id: "4",
+    name: "John Park",
+    avatar: "https://randomuser.me/api/portraits/men/67.jpg",
+    lastPractice: "5h ago",
+    rating: 4.1,
+    lesson: {
+      id: 4,
+      title: "Diaphragmatic Breathing Practice",
+      subtitle: "Lesson 2",
+      desc: "Control and project your voice",
+      type: "Start",
+      progress: 0.5,
+      difficulty: "Basic"
+    }
+  },
+  {
+    id: "5",
+    name: "Emma Wilson",
+    avatar: "https://randomuser.me/api/portraits/women/12.jpg",
+    lastPractice: "30m ago",
+    rating: 4.5,
+    lesson: {
+      id: 5,
+      title: "Panel Interview Simulation",
+      subtitle: "Lesson 3",
+      desc: "Prepare effectively for interviews and Q&A",
+      type: "Review",
+      progress: 1,
+      difficulty: "Advanced"
+    }
+  },
+  {
+    id: "6",
+    name: "David Kim",
+    avatar: "https://randomuser.me/api/portraits/men/31.jpg",
+    lastPractice: "4h ago",
+    rating: 4.0,
+    lesson: {
+      id: 6,
+      title: "Voice Warm-up and Articulation",
+      subtitle: "Lesson 3",
+      desc: "Clarity and pronunciation",
+      type: "Review",
+      progress: 1,
+      difficulty: "Basic"
+    }
+  },
+];
+
+function StudentPresentation() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [query, setQuery] = useState("");
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
+  const [showCommunityModal, setShowCommunityModal] = useState(false);
+  const [showSelectionModal, setShowSelectionModal] = useState(false);
+  const sheetY = useRef(new Animated.Value(300)).current;
+  const sheetOpacity = useRef(new Animated.Value(0)).current;
+
+  // Profile image URI
+  const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
+
+  // Handle icon press actions
+  const handleIconPress = (iconName: string) => {
+    if (iconName === "log-out-outline") {
+      router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/ButtonIcon/chatbot");
+    } else if (iconName === "notifications" || iconName === "notifications-outline") {
+      router.push("/ButtonIcon/notification");
+    }
+  };
+
+  // Handle option selection from modal
+  const handleOptionSelect = (option: "Live Session" | "Community Post") => {
+    setShowCommunityModal(false);
+    if (option === "Live Session") {
+      router.push("/live-sessions-select");
+    } else {
+      router.push("/community-selection");
+    }
+  };
+
+
+  // Animate profile menu
+  useEffect(() => {
+    if (isProfileMenuVisible) {
+      sheetY.setValue(300);
+      sheetOpacity.setValue(0);
+
+      Animated.parallel([
+        Animated.spring(sheetY, {
+          toValue: 0,
+          useNativeDriver: true,
+          bounciness: 0,
+        }),
+        Animated.timing(sheetOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(sheetY, {
+          toValue: 300,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sheetOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        })
+      ]).start();
+    }
+  }, [isProfileMenuVisible]);
+
+  // Filter students based on search query
+  const filteredStudents = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return STUDENTS.filter(
+      (student) => q.length === 0 || student.name.toLowerCase().includes(q)
+    );
+  }, [query]);
+
+  // Toggle student selection
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudents((prev) =>
+      prev.includes(studentId)
+        ? prev.filter((id) => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
+
+  // Navigate to student watch page
+  const goToWatch = (student: Student) => {
+    router.push({
+      pathname: "/StudentScreen/StudentCommunity/community-page",
+      params: { studentId: student.id },
+    });
+  };
+
+  // Clear all selected students
+  const clearSelection = () => {
+    setSelectedStudents([]);
+  };
+
+  // Header Component
+  const Header = () => (
+    <View className="flex-row top-2 justify-between items-center mt-4 mb-3 w-full px-5">
+      <TouchableOpacity 
+        className="flex-row items-center"
+        onPress={() => router.back()}
+        activeOpacity={0.7}
+      >
+        <Image
+          source={require("../../../assets/Speaksy.png")}
+          className="w-12 h-12 -ml-2 right-1"
+          resizeMode="contain"
+        />
+        <Text className="text-white right-4 font-bold text-2xl ml-2">
+          Voclaria
+        </Text>
+      </TouchableOpacity>
+
+      <View className="flex-row items-center space-x-2">
+        <TouchableOpacity
+          className="p-2 bg-white/10 rounded-full"
+          onPress={() => handleIconPress("chatbot")}
+          activeOpacity={0.7}
+        >
+          <Image
+            source={require("../../../assets/chatbot.png")}
+            className="w-5 h-5"
+            resizeMode="contain"
+            tintColor="white"
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          className="p-2 bg-white/10 rounded-full"
+          onPress={() => handleIconPress("notifications")}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="notifications-outline" size={20} color="white" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setIsProfileMenuVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Image
+            source={PROFILE_PIC}
+            className="w-8 h-8 rounded-full border border-white/20"
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  // Profile menu component
+  const ProfileMenu = () => (
+    <ProfileMenuNew
+      visible={isProfileMenuVisible}
+      onDismiss={() => setIsProfileMenuVisible(false)}
+      user={{
+        name: "Sarah Johnson",
+        email: "sarah@gmail.com",
+        image: PROFILE_PIC,
+      }}
+    />
+  );
+
+
+  return (
+    <View className="flex-1 bg-[#0F172A]">
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <BackgroundDecor />
+
+      {/* Selection Modals */}
+      <LivesessionCommunityModal
+        visible={showCommunityModal}
+        onDismiss={() => setShowCommunityModal(false)}
+        onSelectOption={handleOptionSelect}
+      />
+      
+      <LevelSelectionModal
+        visible={showSelectionModal}
+        onDismiss={() => setShowSelectionModal(false)}
+        onSelectLevel={(level: 'Basic' | 'Advanced') => {
+          setShowSelectionModal(false);
+          const route = level === 'Basic' 
+            ? '/basic-exercise-reading' 
+            : '/advance-execise-reading';
+          router.push(route);
+        }}
+      />
+
+      <SafeAreaView className="flex-1 z-10">
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ paddingBottom: 80, maxWidth: 600, width: '100%', alignSelf: 'center' }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="flex-1 px-1">
+            {/* Header */}
+            <Header />
+
+            {/* Page Title */}
+            <View className="px-4 mb-3">
+              <Text className="text-white text-2xl font-bold">
+                Student Speech Practice
+              </Text>
+              <Text className="text-indigo-300 text-sm">
+                Watch and learn from peers
+              </Text>
+            </View>
+
+            {/* Search Bar */}
+            <View className="mb-4 px-5">
+              <View className="rounded-xl p-0.1 bg-white/5 border border-white/10 flex-row items-center">
+                <View className="ml-2">
+                  <Ionicons name="search" size={20} color="#FFFFFF" />
+                </View>
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search students..."
+                  placeholderTextColor="#9ca3af"
+                  className="text-white flex-1 ml-3 text-base"
+                  style={{ fontFamily: "Inter_400Regular" }}
+                />
+              </View>
+            </View>
+
+            {/* Selection Info */}
+            {selectedStudents.length > 0 && (
+              <View className="mx-4 mb-3 bg-indigo-500/30 rounded-xl p-2 flex-row justify-between items-center border border-indigo-500/30">
+                <Text className="text-white font-medium">
+                  {selectedStudents.length} selected
+                </Text>
+                <TouchableOpacity onPress={clearSelection}>
+                  <Text className="text-indigo-300">Clear</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Students List */}
+            <View className="px-4">
+              {filteredStudents.length === 0 ? (
+                <View className="items-center justify-center py-10">
+                  <Ionicons name="people-outline" size={48} color="#4B5563" />
+                  <Text className="text-gray-400 mt-4">No students found</Text>
+                </View>
+              ) : (
+                filteredStudents.map((student) => (
+                  <TouchableOpacity
+                    key={student.id}
+                    onPress={() => goToWatch(student)}
+                    onLongPress={() => toggleStudentSelection(student.id)}
+                    activeOpacity={0.9}
+                    className={`rounded-2xl overflow-hidden mb-4 border border-white/10 bg-white/5 backdrop-blur-sm ${
+                      selectedStudents.includes(student.id) ? 'border-indigo-500/50' : ''
+                    }`}
+                  >
+                    <View className="p-4">
+                      <View className="flex-row items-start">
+                        <Image
+                          source={{ uri: student.avatar }}
+                          className="w-12 h-12 rounded-full border-2 border-gray-200"
+                        />
+                        <View className="flex-1 ml-3">
+                          <View className="flex-row justify-between items-start">
+                            <Text className="text-white font-semibold text-base">
+                              {student.name}
+                            </Text>
+                            <View className="flex-row items-center">
+                              <Ionicons name="star" size={14} color="#F59E0B" />
+                              <Text className="text-amber-600 text-sm font-medium ml-1">
+                                {student.rating?.toFixed(1) || 'N/A'}
+                              </Text>
+                            </View>
+                          </View>
+                          
+                          {student.lesson && (
+                            <View className="mt-2">
+                              <Text className="text-indigo-200 text-sm font-medium">
+                                {student.lesson.title}
+                              </Text>
+                              <Text className="text-gray-300/80 text-xs mt-0.5">
+                                {student.lesson.desc}
+                              </Text>
+                              <View className="mt-2">
+                                <View className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                  <View 
+                                    className="h-full bg-violet-600 rounded-full" 
+                                    style={{ 
+                                      width: `${(student.lesson?.progress || 0) * 100}%`,
+                                    }}
+                                  />
+                                </View>
+                                <View className="flex-row justify-between mt-1">
+                                  <Text className="text-gray-400 text-xs">
+                                    {Math.round((student.lesson?.progress || 0) * 100)}% Complete
+                                  </Text>
+                                  <Text className="text-indigo-300 text-xs font-medium">
+                                    Continue
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+
+            {/* Profile Menu */}
+            <ProfileMenu />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+  <NavigationBar defaultActiveTab="Community" />
+    </View>
+  );
+}
+
+export default StudentPresentation;

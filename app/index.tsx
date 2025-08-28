@@ -172,7 +172,7 @@ export default function Index() {
       Animated.delay(2000),
     ]).start(() => {
       // Navigate after the full animation completes
-      router.replace("/landing-page");
+  router.replace("/Auth/Login/landing-page");
     });
   }, []);
 
