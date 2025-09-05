@@ -17,6 +17,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
 
 const BackgroundDecor = () => (
   <View style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 0 }}>
@@ -35,11 +36,10 @@ const BackgroundDecor = () => (
   </View>
 );
 
-const TEACHER_ACCOUNT = {
-  email: "teacher@test.com",
-  password: "password123",
-  redirect: "/TeacherScreen/TeacherDashboard/teacher-dashboard" as const,
-};
+// ✅ routes based on your tree
+const TEACHER_DASHBOARD_ROUTE = "/TeacherScreen/TeacherDashboard/teacher-dashboard";
+const ROLE_SELECTION_ROUTE = "/Auth/Login/role-selection";
+const TEACHER_SIGNUP_ROUTE = "/CreateAccount/create-account-teacher";
 
 type LoginField = "email" | "password";
 
@@ -64,7 +64,49 @@ export default function TeacherLoginScreen() {
     return () => setIsMounted(false);
   }, []);
 
-  const handleLogin = useCallback(() => {
+  // route ONLY teachers; block others
+  const routeTeacherAfterLogin = useCallback(
+    async (userId: string, metaRole?: string | null) => {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("role, name, phone")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error && error.code !== "PGRST116") {
+        Alert.alert("Error", error.message);
+        return;
+      }
+
+      const role = profile?.role || metaRole || null;
+      if (role !== "teacher") {
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Wrong account",
+          "This login is for teachers only. Please use the student login."
+        );
+        return;
+      }
+
+      // create minimal profile if missing
+      if (!profile) {
+        const { data: ures } = await supabase.auth.getUser();
+        const md = ures?.user?.user_metadata || {};
+        await supabase.from("profiles").upsert({
+          id: userId,
+          name: md.full_name ?? null,
+          phone: md.phone_number ?? null,
+          role: "teacher",
+        });
+      }
+
+      router.replace(TEACHER_DASHBOARD_ROUTE);
+    },
+    [router]
+  );
+
+  // Supabase email+password sign-in (UI unchanged)
+  const handleLogin = useCallback(async () => {
     const { email, password } = formData;
     if (!email || !password) {
       Alert.alert("Error", "Please enter both email and password");
@@ -72,30 +114,42 @@ export default function TeacherLoginScreen() {
     }
 
     setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    // Simulate API call
-    setTimeout(() => {
-      if (!isMounted) return;
-
-      if (
-        email === TEACHER_ACCOUNT.email &&
-        password === TEACHER_ACCOUNT.password
-      ) {
-        router.replace(TEACHER_ACCOUNT.redirect);
-      } else {
-        Alert.alert("Login Failed", "Invalid email or password.");
+      if (error) {
+        if (error.message?.toLowerCase().includes("email not confirmed")) {
+          Alert.alert(
+            "Email not confirmed",
+            "Please check your inbox for the verification link."
+          );
+        } else {
+          Alert.alert("Login Failed", error.message || "Invalid credentials.");
+        }
+        return;
       }
 
-      if (isMounted) {
-        setIsLoading(false);
+      const user = data.user;
+      if (!user) {
+        Alert.alert("Login Failed", "Could not get user information.");
+        return;
       }
-    }, 1200);
-  }, [formData, isMounted, router]);
+
+      await routeTeacherAfterLogin(user.id, (user.user_metadata as any)?.role);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Something went wrong.");
+    } finally {
+      if (isMounted) setIsLoading(false);
+    }
+  }, [formData, isMounted, routeTeacherAfterLogin]);
 
   const handleGoogleSignIn = useCallback(async () => {
     try {
       setIsGoogleLoading(true);
-      // Simulate Google Sign-In
+    // real Google auth requires deep-linking config; keeping as stub
       await new Promise((resolve) => setTimeout(resolve, 1500));
       Alert.alert("Google Login", "Google Sign-In successful (dummy).");
     } catch (error) {
@@ -105,13 +159,27 @@ export default function TeacherLoginScreen() {
     }
   }, [isMounted]);
 
-  const handleForgotPassword = useCallback(
-    () => Alert.alert("Forgot Password", "Redirect to reset password flow"),
-    []
-  );
+  // reset password via Supabase
+  const handleForgotPassword = useCallback(async () => {
+    const email = formData.email.trim();
+    if (!email) {
+      Alert.alert("Forgot Password", "Enter your email first.");
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
+      Alert.alert(
+        "Reset Email Sent",
+        "Check your inbox for instructions to reset your password."
+      );
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Could not send reset email.");
+    }
+  }, [formData.email]);
 
   const handleSignUp = useCallback(
-  () => router.push("/CreateAccount/create-account-teacher"),
+    () => router.push(TEACHER_SIGNUP_ROUTE),
     [router]
   );
 
@@ -135,7 +203,7 @@ export default function TeacherLoginScreen() {
             {/* Header */}
             <TouchableOpacity
               className="flex-row items-center mb-6"
-              onPress={() => router.push("/role-selection")}
+              onPress={() => router.push(ROLE_SELECTION_ROUTE)}
               activeOpacity={0.8}
             >
               <View className="w-16 h-16 rounded-2xl items-center justify-center overflow-hidden -ml-4">
@@ -303,4 +371,3 @@ export default function TeacherLoginScreen() {
     </View>
   );
 }
-// This file has been intentionally emptied to resolve lingering errors.

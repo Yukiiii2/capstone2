@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json.schemastore.org/package",
+  "$schema": "http://json.schemastore.org/package",
   "name": "capstone2",
   "version": "1.0.0",
   "main": "expo-router/entry",
@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@react-native-community/netinfo": "11.4.1",
-    "@react-native-picker/picker": "^2.11.1",
     "@react-navigation/stack": "^7.4.5",
+    "@supabase/supabase-js": "^2.56.0",
     "autoprefixer": "^10.4.21",
     "expo": "53.0.22",
     "expo-audio": "~0.4.9",
@@ -42,11 +42,13 @@
     "react-native": "^0.79.5",
     "react-native-actions-sheet": "^0.9.7",
     "react-native-gesture-handler": "~2.24.0",
+    "react-native-get-random-values": "^1.11.0",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "^5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-svg": "15.11.2",
+    "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "^0.20.0"
   },
   "devDependencies": {

@@ -29,56 +29,58 @@ type Lesson = {
   progress: number;
 };
 
+// Replace the whole `lessons` array with this:
 const lessons: Lesson[] = [
   {
     id: 1,
     title: "Effective Non-Verbal Communication",
     subtitle: "Lesson 1",
-    desc: "Master gestures and visual cues",
-    type: "Review",
-    progress: 1,
+    desc: "Use body language, gestures, and eye contact to reinforce your message.",
+    type: "Start",
+    progress: 0,
   },
   {
     id: 2,
-    title: "Diaphragmatic Breathing Practice",
+    title: "Vocal Projection & Clarity",
     subtitle: "Lesson 2",
-    desc: "Control and project your voice",
+    desc: "Breathing, resonance, and articulation for a clear, confident voice.",
     type: "Start",
-    progress: 0.5,
+    progress: 0,
   },
   {
     id: 3,
-    title: "Voice Warm-up and Articulation",
+    title: "Structuring a Speech",
     subtitle: "Lesson 3",
-    desc: "Clarity and pronunciation",
-    type: "Review",
-    progress: 1,
+    desc: "Organize ideas with an engaging intro, clear body, and strong close.",
+    type: "Start",
+    progress: 0,
   },
   {
     id: 4,
-    title: "Eye Contact and Facial Expression",
+    title: "Managing Stage Fright",
     subtitle: "Lesson 4",
-    desc: "Engage your audience",
-    type: "New",
+    desc: "Practical strategies to reduce anxiety and boost confidence.",
+    type: "Start",
     progress: 0,
   },
   {
     id: 5,
-    title: "Basic Self-Introduction",
+    title: "Active Listening Skills",
     subtitle: "Lesson 5",
-    desc: "Confidently introduce yourself",
-    type: "Review",
-    progress: 1,
+    desc: "Listen with intent to respond well to questions and feedback.",
+    type: "Start",
+    progress: 0,
   },
   {
     id: 6,
-    title: "Telling a Personal Story",
+    title: "Basic Self-Introduction",
     subtitle: "Lesson 6",
-    desc: "Structure and deliver engaging stories",
-    type: "Continue",
-    progress: 0.75,
+    desc: "Present yourself clearly with purpose, background, and goals.",
+    type: "Start",
+    progress: 0,
   },
 ];
+
 
 const recentSessions = [
   {

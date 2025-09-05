@@ -21,6 +21,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as FileSystem from 'expo-file-system';                // ⬅️ added
+import { supabase } from '@/lib/supabaseClient';               // ⬅️ added
 
 // Custom alert implementation that matches the design
 const showCustomAlert = (title: string, message: string) => {
@@ -47,6 +49,9 @@ const VERIFICATION_OPTIONS = [
   { id: 'schoolId', icon: 'school', iconType: 'material-community', label: 'School ID' },
   { id: 'other', icon: 'file-document-edit', iconType: 'material-community', label: 'Other Document' },
 ];
+
+// ⬅️ added
+const BUCKET = 'verify-docs';
 
 export default function CreateAccountTeacher() {
 
@@ -212,6 +217,53 @@ export default function CreateAccountTeacher() {
     return isBasicInfoValid && isPasswordValid && isVerificationValid;
   };
 
+  // ⬅️ added — upload to Storage if we have a session
+  const uploadVerificationIfAny = async (userId: string): Promise<string | null> => {
+    if (!verificationFile) return null;
+
+    try {
+      let uploadUri = verificationFile;
+      if (uploadUri.startsWith('content://')) {
+        const tmpDest = `${FileSystem.cacheDirectory}verify_${Date.now()}.jpg`;
+        await FileSystem.copyAsync({ from: uploadUri, to: tmpDest });
+        uploadUri = tmpDest;
+      }
+
+      const ext = (uploadUri.split('?')[0].split('.').pop() || 'jpg').toLowerCase();
+      const contentType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      const objectPath = `verifications/teachers/${userId}/${Date.now()}.${ext}`;
+
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token || (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
+      if (!token) throw new Error('Not authenticated');
+
+      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
+      if (!SUPABASE_URL) throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL');
+
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(objectPath)}`;
+      const res = await FileSystem.uploadAsync(uploadUrl, uploadUri, {
+        httpMethod: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: token,
+          'Content-Type': contentType,
+          'x-upsert': 'false',
+        },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      });
+
+      if (res.status !== 200 && res.status !== 201) {
+        throw new Error(`Upload failed (${res.status}): ${res.body?.slice(0, 160)}`);
+      }
+
+      return objectPath;
+    } catch (e: any) {
+      console.log('Upload verification error:', e?.message || e);
+      return null;
+    }
+  };
+
+  // ⬅️ replaced with Supabase sign-up flow (no UI changes)
   const handleSignUp = async () => {
     if (!isFormComplete()) {
       showCustomAlert('Missing Information', 'Please fill out all required fields and upload the required document');
@@ -220,12 +272,97 @@ export default function CreateAccountTeacher() {
 
     setLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const full_name = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
+
+      // Normalize phone to E.164 +63xxxxxxxxxx
+      const cleaned = formData.mobileNumber.replace(/\D/g, '');
+      const noZero = cleaned.replace(/^0+/, '');
+      const phoneE164 = `+63${noZero.startsWith('63') ? noZero.slice(2) : noZero}`;
+
+      // 1) Create Auth user
+      const { data: sign, error: signErr } = await supabase.auth.signUp({
+        email: formData.email.trim(),
+        password: formData.password,
+        options: {
+          data: {
+            full_name,
+            phone_number: phoneE164,
+            role: 'teacher',
+            verification_type: selectedVerificationType,
+            school_university: formData.schoolUniversity,
+          },
+          // emailRedirectTo: 'yourapp://auth-callback', // optional
+        },
+      });
+      if (signErr) {
+        showCustomAlert('Sign up failed', signErr.message);
+        setLoading(false);
+        return;
+      }
+
+      // If confirmations ON: no session yet -> just show COMPLETE; email already sent
+      if (!sign.session) {
+        setActiveStep(2);
+        setLoading(false);
+        return;
+      }
+
+      // 2) With session (confirmations OFF): continue to Storage + DB
+      const userId = sign.session.user.id;
+
+      // 3) Upload doc
+      const verification_path = await uploadVerificationIfAny(userId);
+
+      // 4) Upsert profile (minimal safe columns)
+      const { error: profErr } = await supabase.from('profiles').upsert({
+        id: userId,
+        name: full_name,
+        phone: phoneE164,
+        role: 'teacher',
+        avatar_url: null,
+      });
+      if (profErr) {
+        showCustomAlert('Profile save failed', profErr.message);
+        setLoading(false);
+        return;
+      }
+
+      // 5) Create verification_requests (store school in notes)
+      const { error: vrErr } = await supabase.from('verification_requests').insert({
+        user_id: userId,
+        role: 'teacher',
+        doc_type: selectedVerificationType,
+        doc_url: verification_path,
+        status: 'pending',
+        notes: formData.schoolUniversity ? `School/University: ${formData.schoolUniversity}` : null,
+      });
+      if (vrErr) {
+        showCustomAlert('Verification save failed', vrErr.message);
+        setLoading(false);
+        return;
+      }
+
       setActiveStep(2);
-    } catch (error) {
-      showCustomAlert('Error', 'Something went wrong. Please try again.');
+    } catch (error: any) {
+      showCustomAlert('Error', error?.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ⬅️ added — resend confirmation email
+  const handleResendEmail = async () => {
+    try {
+      const email = formData.email.trim();
+      if (!email) {
+        showCustomAlert('Missing email', 'Please enter your email first.');
+        return;
+      }
+      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      if (error) return showCustomAlert('Resend failed', error.message);
+      showCustomAlert('Email Resent', `Verification link sent to: ${email}`);
+    } catch (e: any) {
+      showCustomAlert('Error', e?.message || 'Could not resend email.');
     }
   };
 
@@ -655,7 +792,7 @@ export default function CreateAccountTeacher() {
               
               <TouchableOpacity 
                 className="bg-white/10 border border-white/10 w-full py-3 rounded-lg items-center justify-center active:bg-white/20"
-                onPress={() => showCustomAlert('Email Resent', 'Confirmation email sent again')}
+                onPress={handleResendEmail}   // ⬅️ now actually resends
               >
                 <Text className="text-white font-medium">Resend Email</Text>
               </TouchableOpacity>

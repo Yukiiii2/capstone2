@@ -1,5 +1,5 @@
 // ...existing code...
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,9 +9,11 @@ import {
   Dimensions,
   StyleSheet,
   StatusBar,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
 
 type Question = {
   question: string;
@@ -32,6 +34,10 @@ const QUESTIONS: Question[] = [
 ];
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// ✅ routes used
+const HOME_ROUTE = "/StudentScreen/HomePage/home-page";
+const LOGIN_STUDENT_ROUTE = "/Auth/Login/login-student";
 
 const BackgroundDecor = () => (
   <View className="absolute inset-0 w-full h-full z-0">
@@ -109,6 +115,38 @@ const PreAssessmentScreen = () => {
     Array(QUESTIONS.length).fill(null)
   );
   const [showError, setShowError] = useState(false);
+  const [saving, setSaving] = useState(false); // ⬅️ added
+
+  // ⬅️ guard: only new students should be here
+  useEffect(() => {
+    (async () => {
+      const { data: userRes } = await supabase.auth.getUser();
+      const user = userRes?.user;
+      if (!user) {
+        router.replace(LOGIN_STUDENT_ROUTE);
+        return;
+      }
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("role, has_completed_preassessment")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.log("profile check error:", error.message);
+        return;
+      }
+
+      if (profile?.role !== "student") {
+        router.replace(LOGIN_STUDENT_ROUTE);
+        return;
+      }
+
+      if (profile?.has_completed_preassessment) {
+        router.replace(HOME_ROUTE);
+      }
+    })();
+  }, [router]);
 
   const handleSelect = useCallback(
     (val: number) => {
@@ -122,6 +160,39 @@ const PreAssessmentScreen = () => {
     [current, showError]
   );
 
+  // ⬅️ save completion to Supabase then route home
+  const completeAssessment = useCallback(async () => {
+    try {
+      setSaving(true);
+      const { data: userRes } = await supabase.auth.getUser();
+      const user = userRes?.user;
+      if (!user) {
+        Alert.alert("Session expired", "Please sign in again.");
+        router.replace(LOGIN_STUDENT_ROUTE);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ has_completed_preassessment: true })
+        .eq("id", user.id);
+
+      if (error) {
+        Alert.alert(
+          "Save failed",
+          error.message || "Could not save your pre-assessment."
+        );
+        return;
+      }
+
+      router.replace(HOME_ROUTE);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  }, [router]);
+
   const goNext = useCallback(async () => {
     if (answers[current] === null) {
       setShowError(true);
@@ -131,10 +202,12 @@ const PreAssessmentScreen = () => {
     if (current < QUESTIONS.length - 1) {
       setCurrent((prev) => prev + 1);
     } else {
-      // Navigate directly to home-page.tsx
-  router.push("/StudentScreen/HomePage/home-page");
+      // finished: mark completed for this student, then go home
+      if (!saving) {
+        await completeAssessment();
+      }
     }
-  }, [current, answers, router]);
+  }, [current, answers, completeAssessment, saving]);
 
   const goPrev = useCallback(() => {
     if (current > 0) {
@@ -194,7 +267,7 @@ const PreAssessmentScreen = () => {
               <View className="flex-row w-full space-x-3">
                 <Pressable
                   onPress={goPrev}
-                  disabled={current === 0}
+                  disabled={current === 0 || saving}
                   className={`flex-1 py-3.5 rounded-xl items-center ${
                     current === 0
                       ? "bg-gray-600/30 opacity-60"
@@ -208,7 +281,7 @@ const PreAssessmentScreen = () => {
 
                 <Pressable
                   onPress={goNext}
-                  disabled={!answers[current]}
+                  disabled={!answers[current] || saving}
                   className={`flex-1 py-3.5 rounded-xl items-center ${
                     !answers[current]
                       ? "bg-gray-600/30 opacity-60"
@@ -216,10 +289,20 @@ const PreAssessmentScreen = () => {
                   }`}
                 >
                   <Text className="text-white text-base font-medium">
-                    {current === QUESTIONS.length - 1 ? "Complete" : "Next"}
+                    {current === QUESTIONS.length - 1
+                      ? saving
+                        ? "Saving..."
+                        : "Complete"
+                      : "Next"}
                   </Text>
                 </Pressable>
               </View>
+
+              {showError && (
+                <Text className="text-red-400 text-xs text-center mt-3">
+                  Please select a rating to continue.
+                </Text>
+              )}
             </View>
           </View>
 

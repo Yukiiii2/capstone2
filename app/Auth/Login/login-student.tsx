@@ -16,6 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
 
 const BackgroundDecor = () => (
   <View className="absolute inset-0 w-full h-full z-0">
@@ -34,11 +35,11 @@ const BackgroundDecor = () => (
   </View>
 );
 
-const STUDENT_ACCOUNT = {
-  email: "student@test.com",
-  password: "password123",
-  redirect: "/StudentScreen/PreAssessment/pre-assessment" as const,
-};
+// ✅ correct paths for your tree
+const PRE_ASSESSMENT_ROUTE = "/StudentScreen/PreAssessment/pre-assessment";
+const HOME_ROUTE = "/StudentScreen/HomePage/home-page";
+const ROLE_SELECTION_ROUTE = "/Auth/Login/role-selection";
+const SIGNUP_ROUTE = "/CreateAccount/create-account-student";
 
 type LoginField = "email" | "password";
 
@@ -62,7 +63,47 @@ export default function StudentLoginScreen() {
     return () => setIsMounted(false);
   }, []);
 
-  const handleLogin = useCallback(() => {
+  // route student after successful login
+  const routeStudentAfterLogin = useCallback(
+    async (userId: string, metaRole?: string | null) => {
+      const { data: profile, error: profErr } = await supabase
+        .from("profiles")
+        .select("role, has_completed_preassessment, name, phone")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (profErr && profErr.code !== "PGRST116") throw profErr;
+
+      const role = profile?.role || metaRole || null;
+      if (role !== "student") {
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Wrong account",
+          "This login is for students only. Please use the teacher login."
+        );
+        return;
+      }
+
+      // create minimal profile if missing
+      if (!profile) {
+        const { data: userRes } = await supabase.auth.getUser();
+        const md = userRes?.user?.user_metadata || {};
+        await supabase.from("profiles").upsert({
+          id: userId,
+          name: md.full_name ?? null,
+          phone: md.phone_number ?? null,
+          role: "student",
+        });
+      }
+
+      const completed = profile?.has_completed_preassessment === true;
+      router.push(completed ? HOME_ROUTE : PRE_ASSESSMENT_ROUTE);
+    },
+    [router]
+  );
+
+  // sign in with Supabase; UI unchanged
+  const handleLogin = useCallback(async () => {
     const { email, password } = formData;
     if (!email || !password) {
       Alert.alert("Error", "Please enter both email and password");
@@ -70,38 +111,42 @@ export default function StudentLoginScreen() {
     }
 
     setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    // Simulate API call
-    setTimeout(() => {
-      if (!isMounted) return;
-
-      if (
-        email === STUDENT_ACCOUNT.email &&
-        password === STUDENT_ACCOUNT.password
-      ) {
-        try {
-          router.push(STUDENT_ACCOUNT.redirect);
-        } catch (error) {
-          console.error("Navigation error:", error);
+      if (error) {
+        if (error.message?.toLowerCase().includes("email not confirmed")) {
           Alert.alert(
-            "Navigation Error",
-            "Could not navigate to the next screen."
+            "Email not confirmed",
+            "Please check your inbox for the verification link."
           );
+        } else {
+          Alert.alert("Login Failed", error.message || "Invalid credentials.");
         }
-      } else {
-        Alert.alert("Login Failed", "Invalid email or password.");
+        return;
       }
 
-      if (isMounted) {
-        setIsLoading(false);
+      const user = data.user;
+      if (!user) {
+        Alert.alert("Login Failed", "Could not get user information.");
+        return;
       }
-    }, 1200);
-  }, [formData, isMounted, router]);
+
+      await routeStudentAfterLogin(user.id, (user.user_metadata as any)?.role);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Something went wrong.");
+    } finally {
+      if (isMounted) setIsLoading(false);
+    }
+  }, [formData, isMounted, routeStudentAfterLogin]);
 
   const handleGoogleSignIn = useCallback(async () => {
     try {
       setIsGoogleLoading(true);
-      // Simulate Google Sign-In
+      // keep as a stub; real Google flow needs deep linking setup
       await new Promise((resolve) => setTimeout(resolve, 1500));
       Alert.alert("Google Login", "Google Sign-In successful (dummy).");
     } catch (error) {
@@ -111,15 +156,25 @@ export default function StudentLoginScreen() {
     }
   }, [isMounted]);
 
-  const handleForgotPassword = useCallback(
-    () => Alert.alert("Forgot Password", "Redirect to reset password flow"),
-    []
-  );
+  const handleForgotPassword = useCallback(async () => {
+    const email = formData.email.trim();
+    if (!email) {
+      Alert.alert("Forgot Password", "Enter your email first.");
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
+      Alert.alert(
+        "Reset Email Sent",
+        "Check your inbox for instructions to reset your password."
+      );
+    } catch (e: any) {
+      Alert.alert("Error", e?.message || "Could not send reset email.");
+    }
+  }, [formData.email]);
 
-  const handleSignUp = useCallback(
-    () => router.push("/create-account-student"),
-    [router]
-  );
+  const handleSignUp = useCallback(() => router.push(SIGNUP_ROUTE), [router]);
 
   const isFormValid = formData.email.trim() && formData.password.length >= 6;
 
@@ -142,7 +197,7 @@ export default function StudentLoginScreen() {
             {/* Header */}
             <TouchableOpacity
               className="flex-row items-center mb-6"
-              onPress={() => router.push("/role-selection")}
+              onPress={() => router.push(ROLE_SELECTION_ROUTE)}
               activeOpacity={0.8}
             >
               <View className="w-16 h-16 rounded-2xl items-center justify-center overflow-hidden -mt-3 -ml-4">
