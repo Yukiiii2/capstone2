@@ -15,38 +15,11 @@ import ProfileMenuNew from "@/components/ProfileModal/ProfileMenuNew";
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 
+// 🔧 Added: Supabase client (functionality only; no UI changes)
+import { supabase } from "@/lib/supabaseClient";
+
 // ===== CONSTANTS & TYPES =====
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
-
-const MODULES: ModuleType[] = [
-  {
-    key: "CriticalAnalysis",
-    label: "ADVANCE",
-    title: "Critical Analysis & Interpretation",
-    desc: "Develop advanced analytical skills for complex texts, literary criticism, and argumentative analysis.",
-    progress: 72 / 100,
-    color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
-  },
-  {
-    key: "AcademicResearch",
-    label: "ADVANCE",
-    title: "Academic Research Reading",
-    desc: "Navigate complex academic papers, research methodologies, and scholarly discourse effectively.",
-    progress: 55 / 100,
-    color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
-  },
-  {
-    key: "LiteraryAnalysis",
-    label: "ADVANCE",
-    title: "Literary Analysis Deep Dive",
-    desc: "Explore advanced literary techniques, symbolism, and thematic analysis across genres.",
-    progress: 40 / 100,
-    color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
-  },
-];
 
 type ModuleType = {
   key: string;
@@ -58,6 +31,37 @@ type ModuleType = {
   navigateTo: string;
   isActive?: boolean;
 };
+
+// Progress set to ZERO as requested
+const MODULES: ModuleType[] = [
+  {
+    key: "CriticalAnalysis",
+    label: "ADVANCE",
+    title: "Critical Analysis & Interpretation",
+    desc: "Develop advanced analytical skills for complex texts, literary criticism, and argumentative analysis.",
+    progress: 0,
+    color: "#a78bfa",
+    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+  },
+  {
+    key: "AcademicResearch",
+    label: "ADVANCE",
+    title: "Academic Research Reading",
+    desc: "Navigate complex academic papers, research methodologies, and scholarly discourse effectively.",
+    progress: 0,
+    color: "#a78bfa",
+    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+  },
+  {
+    key: "LiteraryAnalysis",
+    label: "ADVANCE",
+    title: "Literary Analysis Deep Dive",
+    desc: "Explore advanced literary techniques, symbolism, and thematic analysis across genres.",
+    progress: 0,
+    color: "#a78bfa",
+    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+  },
+];
 
 // ===== MAIN COMPONENT =====
 const HomeScreen = () => {
@@ -71,6 +75,11 @@ const HomeScreen = () => {
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [selectedLevel, setSelectedLevel] = useState<"Basic" | "Advanced">("Advanced");
+
+  // 🔧 Added: Real profile wiring (no layout changes)
+  const [fullName, setFullName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
   // ===== REFS =====
   const slideAnim = useRef(new Animated.Value(-50)).current;
@@ -149,7 +158,69 @@ const HomeScreen = () => {
         ];
 
     Animated.parallel(animations).start();
-  }, [isProfileMenuVisible]);
+  }, [isProfileMenuVisible, slideAnim, opacityAnim]);
+
+  // 🔧 Added: Load Supabase user + signed private avatar (no UI changes)
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user || !mounted) return;
+
+      setUserEmail(user.email ?? "");
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", user.id)
+        .single();
+
+      const nameValue =
+        (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "").trim();
+      if (!mounted) return;
+      setFullName(nameValue);
+
+      const resolveSigned = async (): Promise<string | null> => {
+        const stored = profile?.avatar_url?.toString() || user.id;
+        const normalized = stored.replace(/^avatars\//, "");
+        let objectPath: string | null = null;
+
+        if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+          objectPath = normalized;
+        } else {
+          const { data: list, error: listErr } = await supabase.storage
+            .from("avatars")
+            .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+          if (listErr) return null;
+          if (list && list.length > 0) objectPath = `${normalized}/${list[0].name}`;
+        }
+
+        if (!objectPath) return null;
+
+        const { data: signed, error: signErr } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(objectPath, 60 * 60);
+        if (signErr) return null;
+        return signed?.signedUrl ?? null;
+      };
+
+      try {
+        const url = await resolveSigned();
+        if (!mounted) return;
+        setAvatarUri(url);
+      } catch {
+        if (!mounted) return;
+        setAvatarUri(null);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // ===== UTILITY FUNCTIONS =====
   const getProgressStatus = (progress: number) =>
@@ -161,7 +232,7 @@ const HomeScreen = () => {
 
   // ===== SUB-COMPONENTS =====
 
-  // Background decorator component
+  // Background decorator component (unchanged)
   const BackgroundDecor = () => (
       <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
         <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -180,7 +251,7 @@ const HomeScreen = () => {
       </View>
     );
 
-  // Module card component
+  // Module card component (unchanged UI)
   const ModuleCard = ({ mod }: { mod: ModuleType }) => (
     <View className="bg-white/5 backdrop-blur-lg border border-white/30 rounded-2xl p-6 mb-4 w-full shadow-lg shadow-violet-900/20">
       <View className="mb-4">
@@ -228,7 +299,7 @@ const HomeScreen = () => {
     </View>
   );
 
-  // Header Component
+  // Header Component (unchanged layout; avatar now dynamic)
   const Header = () => (
     <View className="flex-row justify-between items-center mt-4 mb-3 w-full">
       <TouchableOpacity 
@@ -277,7 +348,8 @@ const HomeScreen = () => {
         >
           <View className="p-0.5 bg-white/10 rounded-full">
             <Image
-              source={PROFILE_PIC}
+              // 👇 dynamic avatar; styling/placement unchanged
+              source={avatarUri ? { uri: avatarUri } : PROFILE_PIC}
               className="w-8 h-8 rounded-full"
             />
           </View>
@@ -286,7 +358,7 @@ const HomeScreen = () => {
     </View>
   );
 
-  // Live practice section component
+  // Live practice section component (unchanged)
   const LivePracticeSection = () => (
     <View className="mb-8 w-full">
       <Text className="text-white text-2xl font-bold mb-2">
@@ -306,14 +378,14 @@ const HomeScreen = () => {
     <View className="flex-1 bg-[#0F172A] relative">
       <BackgroundDecor />
 
-      {/* Profile Menu */}
+      {/* Profile Menu (wired to Supabase user; layout unchanged) */}
       <ProfileMenuNew
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
         user={{
-          name: "Sarah Johnson",
-          email: "sarah@gmail.com",
-          image: PROFILE_PIC,
+          name: fullName || "Student",
+          email: userEmail || "",
+          image: avatarUri ? { uri: avatarUri } : PROFILE_PIC,
         }}
       />
       <LivesessionCommunityModal
@@ -350,7 +422,7 @@ const HomeScreen = () => {
           </View>
         </View>
       </ScrollView>
-  <NavigationBar defaultActiveTab="Reading" />
+      <NavigationBar defaultActiveTab="Reading" />
     </View>
   );
 };

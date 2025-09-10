@@ -20,7 +20,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
-import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal"; // Keep this import for usage
+import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+
+// ⬇️ Added: Supabase client (logic only; UI unchanged)
+import { supabase } from "@/lib/supabaseClient";
 
 // Constants
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
@@ -80,6 +83,11 @@ export default function PrivateVideoRecording() {
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
 
+  // 🔧 Added: dynamic profile (no UI changes)
+  const [fullName, setFullName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
   // Animation refs
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -97,6 +105,69 @@ export default function PrivateVideoRecording() {
       StatusBar.setBackgroundColor('transparent');
       StatusBar.setTranslucent(true);
     }
+  }, []);
+
+  // 🔧 Load Supabase user + signed avatar (logic only)
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user || !mounted) return;
+
+      setUserEmail(user.email ?? "");
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", user.id)
+        .single();
+
+      const nameValue =
+        (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "").trim();
+      if (!mounted) return;
+      setFullName(nameValue);
+
+      const resolveSigned = async (): Promise<string | null> => {
+        const stored = profile?.avatar_url?.toString() || user.id;
+        const normalized = stored.replace(/^avatars\//, "");
+        let objectPath: string | null = null;
+
+        if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+          objectPath = normalized;
+        } else {
+          const { data: list } = await supabase.storage
+            .from("avatars")
+            .list(normalized, {
+              limit: 1,
+              sortBy: { column: "created_at", order: "desc" },
+            });
+          if (list && list.length > 0) objectPath = `${normalized}/${list[0].name}`;
+        }
+
+        if (!objectPath) return null;
+
+        const { data: signed } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(objectPath, 60 * 60);
+        return signed?.signedUrl ?? null;
+      };
+
+      try {
+        const url = await resolveSigned();
+        if (!mounted) return;
+        setAvatarUri(url);
+      } catch {
+        if (!mounted) return;
+        setAvatarUri(null);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Rotate through tips every 5 seconds
@@ -372,8 +443,9 @@ export default function PrivateVideoRecording() {
             onPress={() => setIsProfileMenuVisible(true)}
             activeOpacity={0.7}
           >
+            {/* 👇 Avatar now dynamic (fallback preserved) */}
             <Image
-              source={PROFILE_PIC}
+              source={avatarUri ? { uri: avatarUri } : PROFILE_PIC}
               className="w-9 h-9 rounded-full border-2 left-3 border-white/80"
             />
           </TouchableOpacity>
@@ -381,7 +453,6 @@ export default function PrivateVideoRecording() {
       </View>
     </View>
   );
-
 
   // AI Feedback Component (Centered text only)
   const AIFeedback = () => (
@@ -499,9 +570,10 @@ export default function PrivateVideoRecording() {
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
         user={{
-          name: "Sarah Johnson",
-          email: "sarah@gmail.com",
-          image: PROFILE_PIC,
+          // 👇 dynamic user (fallback preserved)
+          name: fullName || "Student",
+          email: userEmail || "",
+          image: avatarUri ? { uri: avatarUri } : PROFILE_PIC,
         }}
       />
 

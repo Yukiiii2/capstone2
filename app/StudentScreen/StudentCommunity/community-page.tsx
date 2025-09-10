@@ -1,3 +1,4 @@
+// app/StudentScreen/StudentCommunity/community-page.tsx
 import React, {
   useCallback,
   useEffect,
@@ -23,10 +24,53 @@ import {
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import { LevelSelectionModal } from "../../../components/StudentModal/LevelSelectionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+
+// ⬇️ bring in Supabase (for real user avatar like Home-page)
+import { supabase } from "@/lib/supabaseClient";
+
+// ---------- helpers (preserved style) ----------
+
+async function resolveSignedAvatar(
+  userId: string,
+  storedPath?: string | null
+): Promise<string | null> {
+  try {
+    // absolute url? return as-is
+    if (storedPath && /^https?:\/\//i.test(storedPath)) return storedPath;
+
+    // if path looks like "avatars/<folder or file>"
+    const base = (storedPath ?? userId).toString().replace(/^avatars\//, "");
+
+    // if already includes a filename, sign directly
+    const hasFile = /\.[a-zA-Z0-9]+$/.test(base);
+    let objectPath: string | null = null;
+
+    if (hasFile) {
+      objectPath = base;
+    } else {
+      // find the newest file under this folder
+      const { data: files } = await supabase.storage
+        .from("avatars")
+        .list(base, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+      if (files && files.length > 0) {
+        objectPath = `${base}/${files[0].name}`;
+      }
+    }
+
+    if (!objectPath) return null;
+
+    const { data: signed } = await supabase.storage
+      .from("avatars")
+      .createSignedUrl(objectPath, 60 * 60);
+    return signed?.signedUrl ?? null;
+  } catch {
+    return null;
+  }
+}
 
 interface Review {
   id: string;
@@ -36,7 +80,6 @@ interface Review {
   time: string;
   text: string;
 }
-
 
 // Helper function to generate unique IDs - only for React keys, not for rendering
 const generateUid = (prefix: string = ""): string =>
@@ -252,7 +295,7 @@ const BottomNav: React.FC<BottomNavProps & { onCommunityPress: () => void }> = (
       icon: "home-outline",
       label: "Overview",
       route: "/home-page",
-  onPress: () => router.push("/StudentScreen/HomePage/home-page"),
+      onPress: () => router.push("/StudentScreen/HomePage/home-page"),
     },
     {
       icon: "mic-outline",
@@ -309,11 +352,122 @@ const BottomNav: React.FC<BottomNavProps & { onCommunityPress: () => void }> = (
   );
 };
 
+// ===================== PAGE =====================
+
 const CommunityPage: React.FC = () => {
   const router = useRouter?.() || { replace: () => {} };
   const pathname = usePathname?.() || "";
+  const { postId } = useLocalSearchParams<{ postId?: string }>();
+
+  // ===== profile menu wiring (like Home-page) =====
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+
+  // current user avatar (dynamic via Supabase) + initials fallback
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [fullName, setFullName] = useState<string>("");
+  const [initials, setInitials] = useState<string>("");
+
+  // ===== backend-driven post fields (defaults = your static UI) =====
+  const [authorName, setAuthorName] = useState<string>("Sarah Johnson");
+  const [authorAvatar, setAuthorAvatar] = useState<string>("https://randomuser.me/api/portraits/women/32.jpg");
+  const [postedAgo, setPostedAgo] = useState<string>("Posted 2 hours ago");
+  const [postTitle, setPostTitle] = useState<string>("Quarterly Sales Presentation");
+  const [postDesc, setPostDesc] = useState<string>("This is a focused practice session to refine delivery, structure, and slide flow.");
+  const [videoThumb, setVideoThumb] = useState<string>("https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80");
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user || !mounted) return;
+
+      // pull profile name + avatar_url
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", user.id)
+        .single();
+
+      const name =
+        (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "Student").trim();
+      const parts = name.split(/\s+/).filter(Boolean);
+      const inits =
+        (parts[0]?.[0] ?? "S").toUpperCase() +
+        (parts[1]?.[0] ?? "").toUpperCase();
+
+      if (!mounted) return;
+      setFullName(name);
+      setInitials(inits || "S");
+
+      // resolve avatar
+      const url = await resolveSignedAvatar(user.id, profile?.avatar_url ?? undefined);
+      if (!mounted) return;
+      setAvatarUri(url);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ===== load the selected post (by postId) and map into the same UI =====
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      if (!postId) return; // keep static defaults as offline fallback
+
+      const { data, error } = await supabase
+        .from("posts")
+        .select(`
+          id,
+          user_id,
+          title,
+          content,
+          media_url,
+          created_at,
+          profiles!posts_user_id_fkey (
+            name,
+            avatar_url
+          )
+        `)
+        .eq("id", postId)
+        .single();
+
+      if (error || !data || !alive) return; // keep static UI on any failure
+
+      // map into UI state
+      setPostTitle(data.title || postTitle);
+      setPostDesc(data.content || postDesc);
+
+      const prof = (data as any).profiles as { name?: string | null; avatar_url?: string | null } | null;
+      setAuthorName((prof?.name ?? "User") || "User");
+
+      const signedAuthor = await resolveSignedAvatar(data.user_id, prof?.avatar_url ?? null);
+      if (!alive) return;
+      setAuthorAvatar(signedAuthor ?? authorAvatar);
+
+      // simple "posted" text fallback (you can format relative time if you want)
+      try {
+        const when = new Date(data.created_at);
+        setPostedAgo(`Posted ${when.toLocaleString()}`);
+      } catch {
+        setPostedAgo("Posted");
+      }
+
+      // if you store thumbnails/video poster in media_url, show it; else keep fallback
+      if (data.media_url) setVideoThumb(data.media_url);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [postId]);
+
+  // ===== other original state (unchanged UI) =====
+  const [profileOpen, setProfileOpen] = useState(false); // ⚠️ we’ll stop using this bottom sheet
   const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
   const [activeTab, setActiveTab] = useState("Community");
   const [showLevelModal, setShowLevelModal] = useState(false);
@@ -331,6 +485,13 @@ const CommunityPage: React.FC = () => {
   const [canSubmit, setCanSubmit] = useState(false);
   const [overall, setOverall] = useState(0);
 
+  useEffect(() => {
+    setCommentEntered(typed.trim().length > 0 ? "y" : "");
+    const ov = (ratingDelivery + ratingConfidence) / 2;
+    setLocalOverall(ov);
+    setCanSubmit(typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0);
+  }, [typed, ratingDelivery, ratingConfidence]);
+
   const handleCommunityPress = () => {
     // Handle community item press
     console.log(`Pressed on Community`);
@@ -346,10 +507,9 @@ const CommunityPage: React.FC = () => {
   };
 
   const postReview = async () => {
-    // Implementation for posting a review
     setSubmitting(true);
     try {
-      // Your review posting logic here
+      // your review posting logic (left as-is to keep UI identical)
       setSubmitting(false);
     } catch (error) {
       console.error('Error posting review:', error);
@@ -358,7 +518,6 @@ const CommunityPage: React.FC = () => {
   };
 
   const handleSignOut = () => {
-    // Handle sign out logic
     router.replace('/login-page');
   };
 
@@ -451,19 +610,44 @@ const CommunityPage: React.FC = () => {
                     <Ionicons name="notifications-outline" size={20} color="white" />
                   </View>
                 </TouchableOpacity>
+
+                {/* ✅ Header avatar now uses real user avatar & opens ProfileMenuNew */}
                 <TouchableOpacity
-                  className="p-1"
+                  className="p-1 rounded-full bg-white/10"
                   onPress={() => setIsProfileMenuVisible(true)}
                   activeOpacity={0.7}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.6)",
+                    overflow: "hidden",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
                 >
-                  <View className="p-0.5 bg-white/10 rounded-full">
+                  {avatarUri ? (
                     <Image
-                      source={{
-                        uri: "https://randomuser.me/api/portraits/women/44.jpg"
-                      }}
-                      className="w-8 h-8 rounded-full"
+                      source={{ uri: avatarUri }}
+                      style={{ width: 32, height: 32 }}
                     />
-                  </View>
+                  ) : (
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: "rgba(167,139,250,0.25)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>
+                        {initials || "U"}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -485,33 +669,31 @@ const CommunityPage: React.FC = () => {
                 <View className="flex-row right-2 items-center mb-1 ml-4">
                   <Image
                     source={{
-                      uri: "https://randomuser.me/api/portraits/women/32.jpg",
+                      uri: authorAvatar || "https://randomuser.me/api/portraits/women/32.jpg",
                     }}
                     className="w-12 h-12 rounded-full border-2 border-white/20"
                   />
                   <View className="ml-4 flex-1">
                     <Text className="text-white font-semibold text-base">
-                      Sarah Johnson
+                      {authorName}
                     </Text>
                     <Text className="text-gray-400 text-sm">
-                      Posted 2 hours ago
+                      {postedAgo}
                     </Text>
                   </View>
                 </View>
                 <Text className="text-white right-4 text-2xl font-bold mb-2 px-4">
-                  Quarterly Sales Presentation
+                  {postTitle}
                 </Text>
                 <Text className="text-gray-300 text-base leading-relaxed mb-4">
-                  This is a focused practice session to refine delivery,
-                  structure, and slide flow.
+                  {postDesc}
                 </Text>
 
                 {/* Video */}
-
                 <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
                   <Image
                     source={{
-                      uri: "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
+                      uri: videoThumb,
                     }}
                     className="w-full h-full"
                     resizeMode="cover"
@@ -559,7 +741,7 @@ const CommunityPage: React.FC = () => {
                           const newLikeState = !isLiked;
                           setIsLiked(newLikeState);
                           setLikeCount((prev) =>
-                            newLikeState ? prev + 1 : prev - 1
+                            newLikeState ? prev + 1 : Math.max(0, prev - 1)
                           );
                         }}
                       >
@@ -853,8 +1035,8 @@ const CommunityPage: React.FC = () => {
         </ScrollView>
       </SafeAreaView>
 
-  {/* Bottom Navigation */}
-  <NavigationBar defaultActiveTab="Community" />
+      {/* Bottom Navigation */}
+      <NavigationBar defaultActiveTab="Community" />
 
       {/* Level Selection Modal */}
       <LevelSelectionModal
@@ -872,85 +1054,24 @@ const CommunityPage: React.FC = () => {
         }}
       />
 
-      {/* Profile Menu */}
+      {/* ✅ Profile Menu (only this modal is used now; no duplicate user/email/image elsewhere) */}
       <ProfileMenuNew
-        visible={profileOpen}
-        onDismiss={() => setProfileOpen(false)}
+        visible={isProfileMenuVisible}
+        onDismiss={() => setIsProfileMenuVisible(false)}
         user={{
-          name: "Sarah Johnson",
-          email: "sarah@gmail.com",
-          image: { uri: "https://randomuser.me/api/portraits/women/44.jpg" },
+          name: fullName || "Student",
+          email: "", // keep empty to avoid extra email text duplication
+          image: { uri: avatarUri || "" }, // ProfileMenuNew will handle empty gracefully
         }}
       />
+
       <LivesessionCommunityModal
         visible={showCommunityModal}
         onDismiss={() => setShowCommunityModal(false)}
         onSelectOption={handleCommunitySelect}
       />
 
-      {/* Profile Modal bottom sheet */}
-      <Modal
-        visible={profileOpen}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setProfileOpen(false)}
-      >
-        <View style={{ flex: 1 }}>
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: "rgba(0,0,0,0.3)" },
-            ]}
-          />
-          <Animated.View
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: "#0e1724",
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              padding: 16,
-            }}
-          >
-            <View className="w-10 h-1 rounded bg-white/12 self-center mb-3" />
-            <View className="items-center">
-              <Image
-                source={{
-                  uri: "https://randomuser.me/api/portraits/women/44.jpg",
-                }}
-                className="w-18 h-18 rounded-full border border-white/12"
-              />
-              <Text className="text-white mt-2 font-bold text-base">
-                Sarah Johnson
-              </Text>
-              <Text className="text-gray-400 text-sm">sarah@fluentech.app</Text>
-            </View>
-
-            <View className="mt-4">
-              <RowAction
-                icon="settings-outline"
-                label="Settings"
-                onPress={() => router?.push?.("/settings")}
-              />
-              <RowAction
-                icon="sparkles-outline"
-                label="Upgrade"
-                onPress={() =>
-                  Alert.alert("Upgrade", "Upgrade flow not implemented in demo")
-                }
-              />
-              <RowAction
-                icon="log-out-outline"
-                label="Log out"
-                destructive
-                onPress={() => handleSignOut()}
-              />
-            </View>
-          </Animated.View>
-        </View>
-      </Modal>
+      {/* ❌ Removed the old bottom-sheet profile Modal to prevent duplication */}
     </View>
   );
 };

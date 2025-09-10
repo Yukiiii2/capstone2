@@ -21,6 +21,9 @@ import { useRouter, usePathname } from "expo-router";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 
+// ⬇️ Added (logic only; UI untouched)
+import { supabase } from "@/lib/supabaseClient";
+
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
 const tips = [
@@ -77,6 +80,9 @@ export default function PrivateVideoRecording() {
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
 
+  // ⬇️ Added (logic only; no UI change): dynamic Supabase profile + avatar
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
   // Animation refs
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -94,6 +100,62 @@ export default function PrivateVideoRecording() {
       StatusBar.setBackgroundColor('transparent');
       StatusBar.setTranslucent(true);
     }
+  }, []);
+
+  // 🔧 Load Supabase avatar (keeps your static fallback)
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user || !mounted) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("id", user.id)
+        .single();
+
+      const resolveSigned = async (): Promise<string | null> => {
+        const stored = profile?.avatar_url?.toString() || user.id;
+        const normalized = stored.replace(/^avatars\//, "");
+        let objectPath: string | null = null;
+
+        if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+          objectPath = normalized;
+        } else {
+          const { data: list } = await supabase.storage
+            .from("avatars")
+            .list(normalized, {
+              limit: 1,
+              sortBy: { column: "created_at", order: "desc" },
+            });
+          if (list && list.length > 0) objectPath = `${normalized}/${list[0].name}`;
+        }
+
+        if (!objectPath) return null;
+
+        const { data: signed } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(objectPath, 60 * 60);
+        return signed?.signedUrl ?? null;
+      };
+
+      try {
+        const url = await resolveSigned();
+        if (!mounted) return;
+        setAvatarUri(url);
+      } catch {
+        if (!mounted) return;
+        setAvatarUri(null);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Rotate through tips every 5 seconds
@@ -185,8 +247,6 @@ export default function PrivateVideoRecording() {
         ];
     Animated.parallel(animations).start();
   }, [isProfileMenuVisible]);
-
-
 
   const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
     setShowCommunityModal(false);
@@ -295,7 +355,6 @@ export default function PrivateVideoRecording() {
 
   // ===== SUB-COMPONENTS =====
 
-
   // Header component
   const Header = () => (
     <View className="mt-2">
@@ -341,8 +400,9 @@ export default function PrivateVideoRecording() {
             onPress={() => setIsProfileMenuVisible(true)}
             activeOpacity={0.7}
           >
+            {/* 👇 Avatar is dynamic via Supabase; falls back to your static pic */}
             <Image
-              source={PROFILE_PIC}
+              source={avatarUri ? { uri: avatarUri } : PROFILE_PIC}
               className="w-9 h-9 rounded-full border-2 left-3 border-white/80"
             />
           </TouchableOpacity>
@@ -350,7 +410,6 @@ export default function PrivateVideoRecording() {
       </View>
     </View>
   );
-
 
   // AI Feedback Component (Centered text only)
   const AIFeedback = () => (
@@ -463,8 +522,6 @@ export default function PrivateVideoRecording() {
       />
       <BackgroundDecor />
 
-
-
       {/* End Session Modal */}
       <EndSessionModal
         visible={showEndSessionModal}
@@ -480,103 +537,101 @@ export default function PrivateVideoRecording() {
         onSelectOption={handleCommunitySelect}
       />
 
-
       {isFullScreen ? (
         <FullScreenRecording />
       ) : (
         <>
-            {/* Make the entire screen scrollable */}
-                    <ScrollView
-                      className="flex-1"
-                      contentContainerClassName="pb-20"
-                      showsVerticalScrollIndicator={false}
-                      keyboardShouldPersistTaps="handled"
-                    >
-                      {/* Header - Fixed at the top */}
-                      <View className="pt-2 px-5 z-10">
-                        <Header />
-                      </View>
-          
-                      {/* Main content */}
-                      <View className="flex-1 px-5 w-full max-w-[500px] mx-auto">
-                        <View className="w-full mb-4">
-                          <View className="mb-4">
-                            <Text className="text-white text-2xl font-bold mb-1">
-                              Private Video Recording
-                            </Text>
-                            <Text className="text-gray-300 text-sm text-justify">
-                            Record your presentation and receive real-time AI Powered
-                            feedback and analysis.
-                            </Text>
-                          </View>
-                        </View>
-          
-                        <View className="w-full bg-white/5 rounded-2xl shadow-xl mb-1 overflow-hidden border border-gray-700/30">
-                          <View className="flex-row items-center justify-between px-4 py-2 bg-gray-800/50">
-                            <View className="flex-row items-center space-x-4">
-                              <View className="flex-row items-center">
-                                <Ionicons name="people" size={14} color="#FFFFFF" />
-                                <Text className="text-gray-300 text-xs ml-1">25</Text>
-                              </View>
-                              <View className="flex-row items-center">
-                                <Ionicons name="mic" size={14} color="#FFFFFF" />
-                                <Text className="text-gray-300 text-xs ml-1">Active</Text>
-                              </View>
-                            </View>
-                          </View>
-                          
-                          {/* Video Container */}
-                          <View className="w-full aspect-[4/3] bg-gray-900 border border-white/30 relative items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-black/30">
-                            {!isRecording && (
-                              <View className="absolute">
-                                <Animated.View
-                                  style={{ transform: [{ scale: pulseAnim }] }}
-                                >
-                                  <TouchableOpacity
-                                    onPress={() => setIsRecording(true)}
-                                    className="w-16 h-16 rounded-full items-center justify-center bg-gradient-to-br from-red-600 to-indigo-700 border-2 border-red-500"
-                                    activeOpacity={0.8}
-                                  >
-                                    <Ionicons name="videocam" size={24} color="#FF0000" />
-                                  </TouchableOpacity>
-                                </Animated.View>
-                              </View>
-                            )}
-          
-                            <Text className={`absolute ${isRecording ? 'bottom-4' : 'bottom-8'} self-center text-white text-xs bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-sm`}>
-                              {isRecording ? "Recording in progress" : "Tap to start recording"}
-                            </Text>
-                          </View>
-          
-                          {showContinueButton && (
-                            <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
-                              <TouchableOpacity
-                                onPress={() => setShowEndSessionModal(true)}
-                                className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
-                              >
-                                <Text className="text-white font-semibold">Continue</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => setShowContinueButton(false)}
-                                className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
-                              >
-                                <Text className="text-white">Cancel</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-                        </View>
-          
-                        {/* Status Row */}
-                        <StatusRow />
-                      </View>
-                    </ScrollView>
-          
-                    {/* Shared NavigationBar added with defaultActiveTab="Speaking" */}
-                    <NavigationBar defaultActiveTab="Speaking" />
-                  </>
-                )}
-          
+          {/* Make the entire screen scrollable */}
+          <ScrollView
+            className="flex-1"
+            contentContainerClassName="pb-20"
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header - Fixed at the top */}
+            <View className="pt-2 px-5 z-10">
+              <Header />
+            </View>
 
+            {/* Main content */}
+            <View className="flex-1 px-5 w-full max-w-[500px] mx-auto">
+              <View className="w-full mb-4">
+                <View className="mb-4">
+                  <Text className="text-white text-2xl font-bold mb-1">
+                    Private Video Recording
+                  </Text>
+                  <Text className="text-gray-300 text-sm text-justify">
+                    Record your presentation and receive real-time AI Powered
+                    feedback and analysis.
+                  </Text>
+                </View>
               </View>
-            );
-          }
+
+              <View className="w-full bg-white/5 rounded-2xl shadow-xl mb-1 overflow-hidden border border-gray-700/30">
+                <View className="flex-row items-center justify-between px-4 py-2 bg-gray-800/50">
+                  <View className="flex-row items-center space-x-4">
+                    <View className="flex-row items-center">
+                      <Ionicons name="people" size={14} color="#FFFFFF" />
+                      <Text className="text-gray-300 text-xs ml-1">25</Text>
+                    </View>
+                    <View className="flex-row items-center">
+                      <Ionicons name="mic" size={14} color="#FFFFFF" />
+                      <Text className="text-gray-300 text-xs ml-1">Active</Text>
+                    </View>
+                  </View>
+                </View>
+                
+                {/* Video Container */}
+                <View className="w-full aspect-[4/3] bg-gray-900 border border-white/30 relative items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-black/30">
+                  {!isRecording && (
+                    <View className="absolute">
+                      <Animated.View
+                        style={{ transform: [{ scale: pulseAnim }] }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => setIsRecording(true)}
+                          className="w-16 h-16 rounded-full items-center justify-center bg-gradient-to-br from-red-600 to-indigo-700 border-2 border-red-500"
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="videocam" size={24} color="#FF0000" />
+                        </TouchableOpacity>
+                      </Animated.View>
+                    </View>
+                  )}
+
+                  <Text className={`absolute ${isRecording ? 'bottom-4' : 'bottom-8'} self-center text-white text-xs bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-sm`}>
+                    {isRecording ? "Recording in progress" : "Tap to start recording"}
+                  </Text>
+                </View>
+
+                {showContinueButton && (
+                  <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
+                    <TouchableOpacity
+                      onPress={() => setShowEndSessionModal(true)}
+                      className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
+                    >
+                      <Text className="text-white font-semibold">Continue</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setShowContinueButton(false)}
+                      className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
+                    >
+                      <Text className="text-white">Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* Status Row */}
+              <StatusRow />
+            </View>
+          </ScrollView>
+
+          {/* Shared NavigationBar added with defaultActiveTab="Speaking" */}
+          <NavigationBar defaultActiveTab="Speaking" />
+        </>
+      )}
+
+    </View>
+  );
+}
