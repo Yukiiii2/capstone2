@@ -451,7 +451,7 @@ export default function PrivateVideoRecording() {
             <Ionicons
               name={item.trend === "up" ? "trending-up" : "trending-down"}
               size={12}
-              color={item.trend === "up" ? "#0096FF" : "#FF0000"}
+              color={item.trend === "up" ? "#00FF00" : "#FF0000"}
               className="mr-1"
             />
             <Text className="text-xs text-gray-400">

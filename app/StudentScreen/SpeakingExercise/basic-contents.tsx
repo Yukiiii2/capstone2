@@ -585,11 +585,11 @@ export default function BasicContents() {
         {/* category modal */}
         <Modal visible={categoryModalVisible} transparent animationType="slide">
           <TouchableOpacity
-            className="flex-1 bg-black/50 justify-end"
+            className="flex-1 justify-end"
             activeOpacity={1}
             onPress={() => setCategoryModalVisible(false)}
           >
-            <View className="bg-[#1E1E2E] rounded-t-2xl p-5" onStartShouldSetResponder={() => true}>
+            <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-2xl p-5" onStartShouldSetResponder={() => true}>
               {["All", "Start", "Continue", "Review"].map((cat) => (
                 <TouchableOpacity
                   key={cat}

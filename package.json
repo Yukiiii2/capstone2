@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@react-native-community/netinfo": "11.4.1",
+    "@react-native-picker/picker": "^2.11.2",
     "@react-navigation/stack": "^7.4.5",
     "@supabase/supabase-js": "^2.56.0",
     "autoprefixer": "^10.4.21",

@@ -80,6 +80,7 @@ type Student = {
   lastPractice: string;
   rating?: number | null;
   isSelected?: boolean;
+  isMyTeacher?: boolean; // Added for filtering
   lesson?: {
     id: number;
     title: string;
@@ -208,11 +209,13 @@ type JoinedRow = {
 function StudentPresentation() {
   const router = useRouter();
   const pathname = usePathname();
-  const [query, setQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showSelectionModal, setShowSelectionModal] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "Classmate">("Everyone");
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const sheetY = useRef(new Animated.Value(300)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
 
@@ -427,20 +430,25 @@ function StudentPresentation() {
     }, [loadUser, fetchPostsAsStudents])
   );
 
-  // Filter students based on search query (merged dynamic + static; UI unchanged)
+  // Filter students based on search query and selected filter
   const mergedFeed = useMemo(() => {
     return [...postStudents, ...studentsFeed];
   }, [postStudents, studentsFeed]);
 
   const filteredStudents = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return mergedFeed.filter(
-      (student) =>
-        q.length === 0 ||
-        student.name.toLowerCase().includes(q) ||
-        student.lesson?.title?.toLowerCase().includes(q)
-    );
-  }, [query, mergedFeed]);
+    return mergedFeed.filter((student) => {
+      // Apply filter
+      const matchesFilter = selectedFilter === "Everyone" || 
+        (selectedFilter === "Classmate" && student.isMyTeacher);
+      
+      // Apply search
+      const matchesSearch = searchQuery === "" || 
+        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.lesson?.title?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      return matchesFilter && matchesSearch;
+    });
+  }, [searchQuery, selectedFilter, mergedFeed]);
 
   // Toggle student selection
   const toggleStudentSelection = (studentId: string) => {
@@ -572,20 +580,73 @@ function StudentPresentation() {
               <Text className="text-indigo-300 text-sm">Watch and learn from peers</Text>
             </View>
 
-            {/* Search Bar */}
-            <View className="mb-4 px-5">
-              <View className="rounded-xl p-0.1 bg-white/5 border border-white/10 flex-row items-center">
-                <View className="ml-2">
-                  <Ionicons name="search" size={20} color="#FFFFFF" />
-                </View>
+            {/* Search and Filter Row */}
+            <View className="flex-row items-center space-x-3 px-4 mb-4">
+              {/* Search Bar */}
+              <View className="relative flex-1">
                 <TextInput
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder="Search students..."
-                  placeholderTextColor="#9ca3af"
-                  className="text-white flex-1 ml-3 text-base"
-                  style={{ fontFamily: "Inter_400Regular" }}
+                  className="bg-white/10 text-white rounded-xl pl-10 pr-8 py-2.5 text-sm"
+                  placeholder="Search by name or title..."
+                  placeholderTextColor="#94a3b8"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
                 />
+                <Ionicons 
+                  name="search" 
+                  size={16} 
+                  color="#94a3b8" 
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: 12,
+                  }} 
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setSearchQuery('')}
+                    style={{
+                      position: 'absolute',
+                      right: 12,
+                      top: 12,
+                    }}
+                  >
+                    <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Filter Dropdown */}
+              <View className="relative">
+                <TouchableOpacity
+                  className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
+                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
+                >
+                  <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
+                  <Ionicons name="chevron-down" size={14} color="white" />
+                </TouchableOpacity>
+
+                {showFilterDropdown && (
+                  <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
+                    <TouchableOpacity
+                      className="px-4 py-2.5 border-b border-white/10"
+                      onPress={() => {
+                        setSelectedFilter("Everyone");
+                        setShowFilterDropdown(false);
+                      }}
+                    >
+                      <Text className="text-white text-sm">Everyone</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      className="px-4 py-2.5"
+                      onPress={() => {
+                        setSelectedFilter("Classmate");
+                        setShowFilterDropdown(false);
+                      }}
+                    >
+                      <Text className="text-white text-sm">Classmate</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
 

@@ -715,7 +715,7 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
             tint="dark"
             className="w-full max-w-md rounded-2xl overflow-hidden"
           >
-            <View className="p-6 bg-[#2A3142]/90 backdrop-blur-3xl border border-white/10 rounded-2xl">
+            <View className="p-6 bg-[#1A1F2E] backdrop-blur-3xl rounded-2xl">
               <Text className="text-2xl font-bold text-white mb-6 text-center">
                 Select Performance Type
               </Text>
@@ -724,12 +724,12 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                 {(["speaking", "reading"] as PerformanceType[]).map((type) => (
                   <TouchableOpacity
                     key={type}
-                    className="p-2 bg-white/10 border border-white/30 rounded-xl active:bg-white/10 transition-colors"
+                    className="p-2 bg-white/10 rounded-xl active:bg-white/10 transition-colors"
                     onPress={() => handlePerformanceTypeSelect(type)}
                     activeOpacity={0.8}
                   >
                     <View className="flex-row items-center">
-                      <View className="w-10 h-10 rounded-full bg-white/10 items-center justify-center mr-4">
+                      <View className="w-10 h-10 rounded-full items-center justify-center mr-4">
                         <Ionicons
                           name={
                             type === "speaking" ? "mic-outline" : "book-outline"

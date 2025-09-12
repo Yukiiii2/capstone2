@@ -1,13 +1,13 @@
-import React, { useState, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView, 
-  KeyboardAvoidingView, 
-  Platform, 
-  Image, 
+import React, { useState, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Image,
   Alert,
   StatusBar,
   ActivityIndicator,
@@ -15,14 +15,18 @@ import {
   Dimensions,
   Modal,
   TouchableWithoutFeedback,
-  ImageSourcePropType
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as FileSystem from 'expo-file-system';                // ⬅️ added
-import { supabase } from '@/lib/supabaseClient';               // ⬅️ added
+  ImageSourcePropType,
+} from "react-native";
+import { useRouter } from "expo-router";
+import {
+  Ionicons,
+  MaterialIcons,
+  MaterialCommunityIcons,
+} from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
+import * as FileSystem from "expo-file-system"; // ⬅️ added
+import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
 
 // Custom alert implementation that matches the design
 const showCustomAlert = (title: string, message: string) => {
@@ -30,44 +34,71 @@ const showCustomAlert = (title: string, message: string) => {
     title,
     message,
     [
-      { 
-        text: 'OK', 
-        style: 'cancel',
+      {
+        text: "OK",
+        style: "cancel",
       },
     ],
     {
       cancelable: true,
-      userInterfaceStyle: 'dark',
+      userInterfaceStyle: "dark",
     }
   );
 };
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 const VERIFICATION_OPTIONS = [
-  { id: 'teacherId', icon: 'card-account-details', iconType: 'material-community', label: 'Teacher ID Card' },
-  { id: 'appointmentPaper', icon: 'file-document', iconType: 'material-community', label: 'Appointment Paper' },
-  { id: 'schoolId', icon: 'school', iconType: 'material-community', label: 'School ID' },
-  { id: 'other', icon: 'file-document-edit', iconType: 'material-community', label: 'Other Document' },
+  {
+    id: "teacherId",
+    icon: "card-account-details",
+    iconType: "material-community",
+    label: "Teacher ID Card",
+  },
+  {
+    id: "schoolId",
+    icon: "card-account-details",
+    iconType: "material-community",
+    label: "School ID Card",
+  },
+  {
+    id: "prcIdCard",
+    icon: "card-account-details",
+    iconType: "material-community",
+    label: "PRC ID Card",
+  },
+  {
+    id: "appointmentPaper",
+    icon: "file-document",
+    iconType: "material-community",
+    label: "Appointment Paper",
+  },
+  {
+    id: "other",
+    icon: "file-document-edit",
+    iconType: "material-community",
+    label: "Other Document",
+  },
 ];
 
 // ⬅️ added
-const BUCKET = 'verify-docs';
+const BUCKET = "verify-docs";
 
 export default function CreateAccountTeacher() {
-
   const [formData, setFormData] = useState<FormData>({
-    firstName: '',
-    lastName: '',
-    mobileNumber: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    schoolUniversity: ''
+    firstName: "",
+    lastName: "",
+    mobileNumber: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    schoolUniversity: "",
   });
-  
-  const [selectedVerificationType, setSelectedVerificationType] = useState<string>('');
+
+  const [selectedVerificationType, setSelectedVerificationType] =
+    useState<string>("");
   const [verificationFile, setVerificationFile] = useState<string | null>(null);
-  const [showVerificationDropdown, setShowVerificationDropdown] = useState(false);
+  const [showVerificationDropdown, setShowVerificationDropdown] =
+    useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -95,7 +126,7 @@ export default function CreateAccountTeacher() {
     label: string;
     value: string;
     key: keyof FormData;
-    type: 'text' | 'email' | 'password';
+    type: "text" | "email" | "password";
     secure: boolean;
   };
 
@@ -123,62 +154,86 @@ export default function CreateAccountTeacher() {
         setVerificationFile(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Error picking image:', error);
-      showCustomAlert('Error', 'Failed to pick image. Please try again.');
+      console.error("Error picking image:", error);
+      showCustomAlert("Error", "Failed to pick image. Please try again.");
     }
   };
 
   const validateStep = (step: number) => {
     if (step === 0) {
       // Check if all required fields are filled
-      const requiredFields = ['firstName', 'lastName', 'mobileNumber', 'email', 'password', 'confirmPassword'] as const;
-      const emptyFields = requiredFields.filter(field => !formData[field]?.trim());
-      
+      const requiredFields = [
+        "firstName",
+        "lastName",
+        "mobileNumber",
+        "email",
+        "password",
+        "confirmPassword",
+      ] as const;
+      const emptyFields = requiredFields.filter(
+        (field) => !formData[field]?.trim()
+      );
+
       if (emptyFields.length > 0) {
-        showCustomAlert('Missing Information', 'Please fill out all required fields before continuing.');
+        showCustomAlert(
+          "Missing Information",
+          "Please fill out all required fields before continuing."
+        );
         return false;
       }
-      
+
       // Check if passwords match
       if (formData.password !== formData.confirmPassword) {
-        showCustomAlert('Validation Error', 'Passwords do not match. Please make sure both passwords are the same.');
+        showCustomAlert(
+          "Validation Error",
+          "Passwords do not match. Please make sure both passwords are the same."
+        );
         return false;
       }
-      
+
       // Check password strength (minimum 8 characters)
       if (formData.password.length < 8) {
-        showCustomAlert('Weak Password', 'Password must be at least 8 characters long.');
+        showCustomAlert(
+          "Weak Password",
+          "Password must be at least 8 characters long."
+        );
         return false;
       }
-      
+
       // Check mobile number format (should be 10 digits for PH numbers without +63)
-      if (formData.mobileNumber.length !== 10 || !/^9\d{9}$/.test(formData.mobileNumber)) {
-        showCustomAlert('Invalid Mobile Number', 'Please enter a valid 11-digit Philippine mobile number starting with 9.');
+      if (
+        formData.mobileNumber.length !== 10 ||
+        !/^9\d{9}$/.test(formData.mobileNumber)
+      ) {
+        showCustomAlert(
+          "Invalid Mobile Number",
+          "Please enter a valid 11-digit Philippine mobile number starting with 9."
+        );
         return false;
       }
-      
+
       // Check email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(formData.email)) {
-        showCustomAlert('Invalid Email', 'Please enter a valid email address.');
+        showCustomAlert("Invalid Email", "Please enter a valid email address.");
         return false;
       }
     }
-    
+
     return true;
   };
 
   const isFormValid = () => {
     return (
-      formData.firstName.trim() !== '' &&
-      formData.lastName.trim() !== '' &&
-      formData.mobileNumber.trim() !== '' &&
-      formData.email.trim() !== '' &&
+      formData.firstName.trim() !== "" &&
+      formData.lastName.trim() !== "" &&
+      formData.mobileNumber.trim() !== "" &&
+      formData.email.trim() !== "" &&
       formData.password.length >= 8 &&
       formData.password === formData.confirmPassword &&
-      selectedVerificationType !== '' &&
+      selectedVerificationType !== "" &&
       verificationFile !== null &&
-      formData.schoolUniversity.trim() !== ''
+      formData.schoolUniversity.trim() !== ""
     );
   };
 
@@ -186,14 +241,14 @@ export default function CreateAccountTeacher() {
     if (activeStep === 0 && !validateStep(0)) {
       return; // Don't proceed if validation fails
     }
-    
+
     if (activeStep === 1) {
       setHasSubmitted(true);
       if (!isFormValid()) {
         return;
       }
     }
-    
+
     if (activeStep < 2) {
       setActiveStep(activeStep + 1);
       scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
@@ -209,56 +264,77 @@ export default function CreateAccountTeacher() {
 
   // Check if all required fields are filled
   const isFormComplete = () => {
-    const requiredFields = ['firstName', 'lastName', 'mobileNumber', 'email', 'password', 'confirmPassword', 'schoolUniversity'] as const;
-    const isBasicInfoValid = requiredFields.every(field => formData[field]?.trim());
-    const isPasswordValid = formData.password === formData.confirmPassword && formData.password.length >= 8;
-    const isVerificationValid = activeStep !== 1 || (!!selectedVerificationType && !!verificationFile);
-    
+    const requiredFields = [
+      "firstName",
+      "lastName",
+      "mobileNumber",
+      "email",
+      "password",
+      "confirmPassword",
+      "schoolUniversity",
+    ] as const;
+    const isBasicInfoValid = requiredFields.every((field) =>
+      formData[field]?.trim()
+    );
+    const isPasswordValid =
+      formData.password === formData.confirmPassword &&
+      formData.password.length >= 8;
+    const isVerificationValid =
+      activeStep !== 1 || (!!selectedVerificationType && !!verificationFile);
+
     return isBasicInfoValid && isPasswordValid && isVerificationValid;
   };
 
   // ⬅️ added — upload to Storage if we have a session
-  const uploadVerificationIfAny = async (userId: string): Promise<string | null> => {
+  const uploadVerificationIfAny = async (
+    userId: string
+  ): Promise<string | null> => {
     if (!verificationFile) return null;
 
     try {
       let uploadUri = verificationFile;
-      if (uploadUri.startsWith('content://')) {
+      if (uploadUri.startsWith("content://")) {
         const tmpDest = `${FileSystem.cacheDirectory}verify_${Date.now()}.jpg`;
         await FileSystem.copyAsync({ from: uploadUri, to: tmpDest });
         uploadUri = tmpDest;
       }
 
-      const ext = (uploadUri.split('?')[0].split('.').pop() || 'jpg').toLowerCase();
-      const contentType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      const ext = (
+        uploadUri.split("?")[0].split(".").pop() || "jpg"
+      ).toLowerCase();
+      const contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
       const objectPath = `verifications/teachers/${userId}/${Date.now()}.${ext}`;
 
       const { data: sess } = await supabase.auth.getSession();
-      const token = sess?.session?.access_token || (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
-      if (!token) throw new Error('Not authenticated');
+      const token =
+        sess?.session?.access_token ||
+        (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
+      if (!token) throw new Error("Not authenticated");
 
       const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
-      if (!SUPABASE_URL) throw new Error('Missing EXPO_PUBLIC_SUPABASE_URL');
+      if (!SUPABASE_URL) throw new Error("Missing EXPO_PUBLIC_SUPABASE_URL");
 
       const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(objectPath)}`;
       const res = await FileSystem.uploadAsync(uploadUrl, uploadUri, {
-        httpMethod: 'POST',
+        httpMethod: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           apikey: token,
-          'Content-Type': contentType,
-          'x-upsert': 'false',
+          "Content-Type": contentType,
+          "x-upsert": "false",
         },
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       });
 
       if (res.status !== 200 && res.status !== 201) {
-        throw new Error(`Upload failed (${res.status}): ${res.body?.slice(0, 160)}`);
+        throw new Error(
+          `Upload failed (${res.status}): ${res.body?.slice(0, 160)}`
+        );
       }
 
       return objectPath;
     } catch (e: any) {
-      console.log('Upload verification error:', e?.message || e);
+      console.log("Upload verification error:", e?.message || e);
       return null;
     }
   };
@@ -266,7 +342,10 @@ export default function CreateAccountTeacher() {
   // ⬅️ replaced with Supabase sign-up flow (no UI changes)
   const handleSignUp = async () => {
     if (!isFormComplete()) {
-      showCustomAlert('Missing Information', 'Please fill out all required fields and upload the required document');
+      showCustomAlert(
+        "Missing Information",
+        "Please fill out all required fields and upload the required document"
+      );
       return;
     }
 
@@ -275,9 +354,9 @@ export default function CreateAccountTeacher() {
       const full_name = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
 
       // Normalize phone to E.164 +63xxxxxxxxxx
-      const cleaned = formData.mobileNumber.replace(/\D/g, '');
-      const noZero = cleaned.replace(/^0+/, '');
-      const phoneE164 = `+63${noZero.startsWith('63') ? noZero.slice(2) : noZero}`;
+      const cleaned = formData.mobileNumber.replace(/\D/g, "");
+      const noZero = cleaned.replace(/^0+/, "");
+      const phoneE164 = `+63${noZero.startsWith("63") ? noZero.slice(2) : noZero}`;
 
       // 1) Create Auth user
       const { data: sign, error: signErr } = await supabase.auth.signUp({
@@ -287,7 +366,7 @@ export default function CreateAccountTeacher() {
           data: {
             full_name,
             phone_number: phoneE164,
-            role: 'teacher',
+            role: "teacher",
             verification_type: selectedVerificationType,
             school_university: formData.schoolUniversity,
           },
@@ -295,7 +374,7 @@ export default function CreateAccountTeacher() {
         },
       });
       if (signErr) {
-        showCustomAlert('Sign up failed', signErr.message);
+        showCustomAlert("Sign up failed", signErr.message);
         setLoading(false);
         return;
       }
@@ -314,37 +393,44 @@ export default function CreateAccountTeacher() {
       const verification_path = await uploadVerificationIfAny(userId);
 
       // 4) Upsert profile (minimal safe columns)
-      const { error: profErr } = await supabase.from('profiles').upsert({
+      const { error: profErr } = await supabase.from("profiles").upsert({
         id: userId,
         name: full_name,
         phone: phoneE164,
-        role: 'teacher',
+        role: "teacher",
         avatar_url: null,
       });
       if (profErr) {
-        showCustomAlert('Profile save failed', profErr.message);
+        showCustomAlert("Profile save failed", profErr.message);
         setLoading(false);
         return;
       }
 
       // 5) Create verification_requests (store school in notes)
-      const { error: vrErr } = await supabase.from('verification_requests').insert({
-        user_id: userId,
-        role: 'teacher',
-        doc_type: selectedVerificationType,
-        doc_url: verification_path,
-        status: 'pending',
-        notes: formData.schoolUniversity ? `School/University: ${formData.schoolUniversity}` : null,
-      });
+      const { error: vrErr } = await supabase
+        .from("verification_requests")
+        .insert({
+          user_id: userId,
+          role: "teacher",
+          doc_type: selectedVerificationType,
+          doc_url: verification_path,
+          status: "pending",
+          notes: formData.schoolUniversity
+            ? `School/University: ${formData.schoolUniversity}`
+            : null,
+        });
       if (vrErr) {
-        showCustomAlert('Verification save failed', vrErr.message);
+        showCustomAlert("Verification save failed", vrErr.message);
         setLoading(false);
         return;
       }
 
       setActiveStep(2);
     } catch (error: any) {
-      showCustomAlert('Error', error?.message || 'Something went wrong. Please try again.');
+      showCustomAlert(
+        "Error",
+        error?.message || "Something went wrong. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -355,427 +441,622 @@ export default function CreateAccountTeacher() {
     try {
       const email = formData.email.trim();
       if (!email) {
-        showCustomAlert('Missing email', 'Please enter your email first.');
+        showCustomAlert("Missing email", "Please enter your email first.");
         return;
       }
-      const { error } = await supabase.auth.resend({ type: 'signup', email });
-      if (error) return showCustomAlert('Resend failed', error.message);
-      showCustomAlert('Email Resent', `Verification link sent to: ${email}`);
+      const { error } = await supabase.auth.resend({ type: "signup", email });
+      if (error) return showCustomAlert("Resend failed", error.message);
+      showCustomAlert("Email Resent", `Verification link sent to: ${email}`);
     } catch (e: any) {
-      showCustomAlert('Error', e?.message || 'Could not resend email.');
+      showCustomAlert("Error", e?.message || "Could not resend email.");
     }
   };
 
-   const renderProgressBar = () => (
-      <View className="flex-row justify-center items-center mb-8">
-        <View className="flex-row items-center">
-          <View className={`h-1 w-24 ${activeStep >= 0 ? 'bg-violet-600' : 'bg-white/20'}`} />
-          <View className={`h-1 w-24 ${activeStep >= 1 ? 'bg-violet-600' : 'bg-white/20'}`} />
-          <View className={`h-1 w-24 ${activeStep >= 2 ? 'bg-violet-600' : 'bg-white/20'}`} />
+  const renderProgressBar = () => (
+    <View className="flex-row justify-center items-center mb-8">
+      <View className="flex-row items-center">
+        <View
+          className={`h-1 w-24 ${activeStep >= 0 ? "bg-violet-600" : "bg-white/20"}`}
+        />
+        <View
+          className={`h-1 w-24 ${activeStep >= 1 ? "bg-violet-600" : "bg-white/20"}`}
+        />
+        <View
+          className={`h-1 w-24 ${activeStep >= 2 ? "bg-violet-600" : "bg-white/20"}`}
+        />
+      </View>
+      <View className="absolute flex-row justify-between w-full px-2">
+        <View className="items-center w-24">
+          <Text
+            className={`text-xs top-3 mt-2 ${activeStep >= 0 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+          >
+            DETAILS
+          </Text>
         </View>
-        <View className="absolute flex-row justify-between w-full px-2">
-          <View className="items-center w-24">
-            <Text className={`text-xs top-3 mt-2 ${activeStep >= 0 ? 'text-violet-400 font-medium' : 'text-gray-400'}`}>DETAILS</Text>
-          </View>
-          <View className="items-center w-24">
-            <Text className={`text-xs top-3 mt-2 ${activeStep >= 1 ? 'text-violet-400 font-medium' : 'text-gray-400'}`}>VERIFY TEACHER</Text>
-          </View>
-          <View className="items-center w-24">
-            <Text className={`text-xs top-3 mt-2 ${activeStep >= 2 ? 'text-violet-400 font-medium' : 'text-gray-400'}`}>APPROVAL</Text>
-          </View>
+        <View className="items-center w-24">
+          <Text
+            className={`text-xs top-3 mt-2 ${activeStep >= 1 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+          >
+            VERIFY TEACHER
+          </Text>
+        </View>
+        <View className="items-center w-24">
+          <Text
+            className={`text-xs top-3 mt-2 ${activeStep >= 2 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+          >
+            APPROVAL
+          </Text>
         </View>
       </View>
-    );
-  
-    const renderFormStep = () => {
-      switch (activeStep) {
-        case 0:
-          return (
-            <Animated.View 
-              style={[{
+    </View>
+  );
+
+  const renderFormStep = () => {
+    switch (activeStep) {
+      case 0:
+        return (
+          <Animated.View
+            style={[
+              {
                 opacity: fadeAnim,
-                backgroundColor: 'rgba(30, 41, 59, 0.7)',
+                backgroundColor: "rgba(30, 41, 59, 0.7)",
                 borderRadius: 20,
                 padding: 14,
                 marginBottom: 30,
                 marginTop: -25,
-                shadowColor: '#000',
+                shadowColor: "#000",
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.3,
                 shadowRadius: 10,
                 borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.1)'
-              }]} 
-              className="space-y-4"
-            >
-              <View className="items-center mb-2">
-                <Text className="text-white text-2xl font-bold mb-1">Teacher Registration</Text>
-                <Text className="text-gray-400 text-center text-sm mb-4">Step 1 of 2: Enter your teaching details</Text>
-                {renderProgressBar()}
-              </View>
-  
-              <View className="flex-row space-x-3">
-                <View className="flex-1">
-                  <Text className="text-white text-sm font-medium pl-1">First Name</Text>
-                  <View className="flex-row items-center bg-white/10 border border-white/10 rounded-lg px-3 py-0.1 mt-1">
-                    <MaterialIcons name="person-outline" size={18} color="white" style={{ marginRight: 10 }} />
-                    <TextInput
-                      className="flex-1 text-white text-[15px]"
-                      placeholder="First name"
-                      placeholderTextColor="#9CA3AF"
-                      value={formData.firstName}
-                      onChangeText={(text) => {
-                        setFormData({ ...formData, firstName: text });
-                      }}
-                      autoCapitalize="words"
-                    />
-                  </View>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-white text-sm font-medium pl-1">Last Name</Text>
-                  <View className="flex-row items-center bg-white/10 border border-white/10 rounded-lg px-3 py-0.1 mt-1">
-                    <MaterialIcons name="person-outline" size={18} color="white" style={{ marginRight: 10 }} />
-                    <TextInput
-                      className="flex-1 text-white text-[15px]"
-                      placeholder="Last name"
-                      placeholderTextColor="#9CA3AF"
-                      value={formData.lastName}
-                      onChangeText={(text) => {
-                        setFormData({ ...formData, lastName: text });
-                      }}
-                      autoCapitalize="words"
-                    />
-                  </View>
+                borderColor: "rgba(255, 255, 255, 0.1)",
+              },
+            ]}
+            className="space-y-4"
+          >
+            <View className="items-center mb-2">
+              <Text className="text-white text-2xl font-bold mb-1">
+                Teacher Registration
+              </Text>
+              <Text className="text-gray-400 text-center text-sm mb-4">
+                Step 1 of 2: Enter your teaching details
+              </Text>
+              {renderProgressBar()}
+            </View>
+
+            <View className="flex-row space-x-3">
+              <View className="flex-1">
+                <Text className="text-white text-sm font-medium pl-1">
+                  First Name
+                </Text>
+                <View className="flex-row items-center bg-white/10 border border-white/10 rounded-lg px-3 py-0.1 mt-1">
+                  <MaterialIcons
+                    name="person-outline"
+                    size={18}
+                    color="white"
+                    style={{ marginRight: 10 }}
+                  />
+                  <TextInput
+                    className="flex-1 text-white text-[15px]"
+                    placeholder="First name"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.firstName}
+                    onChangeText={(text) => {
+                      setFormData({ ...formData, firstName: text });
+                    }}
+                    autoCapitalize="words"
+                  />
                 </View>
               </View>
-              
-              {[
-                {
-                  icon: 'phone-iphone',
-                  label: 'Mobile Number',
-                  value: formData.mobileNumber,
-                  key: 'mobileNumber',
-                  type: 'tel',
-                  secure: false,
-                  maxLength: 13,
-                  format: (text: string) => {
-                    // Format the phone number
-                    const cleaned = ('' + text).replace(/\D/g, '');
-                    let formatted = '';
-                    if (cleaned.startsWith('09')) {
-                      formatted = cleaned.slice(0, 11);
-                      if (formatted.length > 4) {
-                        formatted = formatted.replace(/(\d{4})(\d{3})(\d{1,4})/, '$1 $2 $3');
-                      } else if (formatted.length > 3) {
-                        formatted = formatted.replace(/(\d{4})(\d{1,3})/, '$1 $2');
-                      }
-                    } else {
-                      formatted = cleaned;
+              <View className="flex-1">
+                <Text className="text-white text-sm font-medium pl-1">
+                  Last Name
+                </Text>
+                <View className="flex-row items-center bg-white/10 border border-white/10 rounded-lg px-3 py-0.1 mt-1">
+                  <MaterialIcons
+                    name="person-outline"
+                    size={18}
+                    color="white"
+                    style={{ marginRight: 10 }}
+                  />
+                  <TextInput
+                    className="flex-1 text-white text-[15px]"
+                    placeholder="Last name"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.lastName}
+                    onChangeText={(text) => {
+                      setFormData({ ...formData, lastName: text });
+                    }}
+                    autoCapitalize="words"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {[
+              {
+                icon: "phone-iphone",
+                label: "Mobile Number",
+                value: formData.mobileNumber,
+                key: "mobileNumber",
+                type: "tel",
+                secure: false,
+                maxLength: 13,
+                format: (text: string) => {
+                  // Format the phone number
+                  const cleaned = ("" + text).replace(/\D/g, "");
+                  let formatted = "";
+                  if (cleaned.startsWith("09")) {
+                    formatted = cleaned.slice(0, 11);
+                    if (formatted.length > 4) {
+                      formatted = formatted.replace(
+                        /(\d{4})(\d{3})(\d{1,4})/,
+                        "$1 $2 $3"
+                      );
+                    } else if (formatted.length > 3) {
+                      formatted = formatted.replace(
+                        /(\d{4})(\d{1,3})/,
+                        "$1 $2"
+                      );
                     }
-                    return formatted.trim();
+                  } else {
+                    formatted = cleaned;
                   }
+                  return formatted.trim();
                 },
-                {
-                  icon: 'mail-outline',
-                  label: 'Email Address',
-                  value: formData.email,
-                  key: 'email',
-                  type: 'email',
-                  secure: false
-                },
-                {
-                  icon: 'lock-outline',
-                  label: 'Password',
-                  value: formData.password,
-                  key: 'password',
-                  type: 'password',
-                  secure: true
-                },
-                {
-                  icon: 'lock-outline',
-                  label: 'Confirm Password',
-                  value: formData.confirmPassword,
-                  key: 'confirmPassword',
-                  type: 'password',
-                  secure: true
-                }
-              ].map((field) => (
-                <View key={field.key} className="bottom-2 space-y-0.5">
-                  <View className="flex-row items-center">
-                    <Text className="text-white text-sm font-medium pl-1">{field.label}</Text>
-                    {field.key === 'mobileNumber' && (
-                      <Image 
-                        source={require('@/assets/philippines.png')} 
-                        style={{ width: 18, height: 12, marginLeft: 5, marginTop: 1, resizeMode: 'contain' }} 
-                      />
-                    )}
-                  </View>
-                  <View className="flex-row items-center bg-white/10 border border-white/10 rounded-lg px-3 py-0.1">
-                    <MaterialIcons name={field.icon as any} size={18} color="white" style={{ marginRight: 10 }} />
-                    {field.key === 'mobileNumber' ? (
-                      <View className="flex-row items-center flex-1">
-                        <Text className="text-white/70 mr-1">(+63)</Text>
-                        <TextInput
-                          className="flex-1 text-white text-[15px]"
-                          placeholder=""
-                          placeholderTextColor="#9CA3AF"
-                          value={field.value.replace(/^\+?63/, '')}
-                          onChangeText={(text) => {
-                            // Remove any non-digit characters and leading zeros
-                            const cleaned = text.replace(/\D/g, '').replace(/^0+/, '');
-                            setFormData({ ...formData, [field.key]: cleaned });
-                          }}
-                          keyboardType="phone-pad"
-                          maxLength={13}
-                          autoCapitalize="none"
-                        />
-                      </View>
-                    ) : (
-                      <TextInput
-                        key={`${field.key}-${field.key === 'password' ? passwordVisible : confirmPasswordVisible}`}
-                        className="flex-1 text-white text-[15px]"
-                        placeholder={`Enter your ${field.label.toLowerCase()}`}
-                        placeholderTextColor="#9CA3AF"
-                        value={field.value}
-                        onChangeText={(text) => {
-                          setFormData({ ...formData, [field.key]: text });
-                        }}
-                        secureTextEntry={field.key === 'password' ? !passwordVisible : field.key === 'confirmPassword' ? !confirmPasswordVisible : true}
-                        keyboardType={field.type === 'email' ? 'email-address' : 'default'}
-                        autoCapitalize={field.key === 'email' ? 'none' : 'words'}
-                      />
-                    )}
-                    {field.key === 'password' && (
-                      <TouchableOpacity 
-                        onPress={() => setPasswordVisible(!passwordVisible)}
-                        className="p-2 -mr-2"
-                      >
-                        <Ionicons 
-                          name={passwordVisible ? 'eye' : 'eye-off'}
-                          size={20} 
-                          color="#9CA3AF"
-                        />
-                      </TouchableOpacity>
-                    )}
-                    {field.key === 'confirmPassword' && (
-                      <TouchableOpacity 
-                        onPress={() => setConfirmPasswordVisible(!confirmPasswordVisible)}
-                        className="p-2 -mr-2"
-                      >
-                        <Ionicons 
-                          name={confirmPasswordVisible ? 'eye' : 'eye-off'}
-                          size={20} 
-                          color="#9CA3AF"
-                        />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {field.key === 'password' && (
-                    <Text className="text-gray-400 text-xs pl-1">Use at least 8 characters with numbers & symbols</Text>
+              },
+              {
+                icon: "mail-outline",
+                label: "Email Address",
+                value: formData.email,
+                key: "email",
+                type: "email",
+                secure: false,
+              },
+              {
+                icon: "lock-outline",
+                label: "Password",
+                value: formData.password,
+                key: "password",
+                type: "password",
+                secure: true,
+              },
+              {
+                icon: "lock-outline",
+                label: "Confirm Password",
+                value: formData.confirmPassword,
+                key: "confirmPassword",
+                type: "password",
+                secure: true,
+              },
+            ].map((field) => (
+              <View key={field.key} className="bottom-2 space-y-0.5">
+                <View className="flex-row items-center">
+                  <Text className="text-white text-sm font-medium pl-1">
+                    {field.label}
+                  </Text>
+                  {field.key === "mobileNumber" && (
+                    <Image
+                      source={require("@/assets/philippines.png")}
+                      style={{
+                        width: 18,
+                        height: 12,
+                        marginLeft: 5,
+                        marginTop: 1,
+                        resizeMode: "contain",
+                      }}
+                    />
                   )}
                 </View>
-              ))}
-              
-            </Animated.View>
-          );
-      
-          case 1:
-            return (
-              <Animated.View 
-                style={[{
-                  opacity: fadeAnim,
-                  backgroundColor: 'rgba(30, 41, 59, 0.7)',
-                  borderRadius: 20,
-                  padding: 14,
-                  marginTop: -10,
-                  marginBottom: 15,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.1)',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 10,
-                }]}
-                className="space-y-6"
-              >
-                <View className="items-center">
-                  <Text className="text-white text-2xl font-bold mb-1">Teacher Verification</Text>
-                  <Text className="text-gray-400 text-center text-sm mb-4">Step 2 of 2: Verify your teaching credentials</Text>
-                  {renderProgressBar()}
-                </View>
-    
-    
-                <View className="space-y-2 mb-4">
-                  <Text className="text-white text-sm font-semibold pl-1">Document Type</Text>
-                  <View style={{ position: 'relative' }}>
-                    <TouchableOpacity 
-                      className="flex-row items-center justify-between bg-white/10 border border-white/20 rounded-lg px-4 py-2"
-                      onPress={() => setShowVerificationDropdown(!showVerificationDropdown)}
+                <View className="flex-row items-center bg-white/10 border border-white/10 rounded-lg px-3 py-0.1">
+                  <MaterialIcons
+                    name={field.icon as any}
+                    size={18}
+                    color="white"
+                    style={{ marginRight: 10 }}
+                  />
+                  {field.key === "mobileNumber" ? (
+                    <View className="flex-row items-center flex-1">
+                      <Text className="text-white/70 mr-1">(+63)</Text>
+                      <TextInput
+                        className="flex-1 text-white text-[15px]"
+                        placeholder=""
+                        placeholderTextColor="#9CA3AF"
+                        value={field.value.replace(/^\+?63/, "")}
+                        onChangeText={(text) => {
+                          // Remove any non-digit characters and leading zeros
+                          const cleaned = text
+                            .replace(/\D/g, "")
+                            .replace(/^0+/, "");
+                          setFormData({ ...formData, [field.key]: cleaned });
+                        }}
+                        keyboardType="phone-pad"
+                        maxLength={13}
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  ) : (
+                    <TextInput
+                      key={`${field.key}-${field.key === "password" ? passwordVisible : confirmPasswordVisible}`}
+                      className="flex-1 text-white text-[15px]"
+                      placeholder={`Enter your ${field.label.toLowerCase()}`}
+                      placeholderTextColor="#9CA3AF"
+                      value={field.value}
+                      onChangeText={(text) => {
+                        setFormData({ ...formData, [field.key]: text });
+                      }}
+                      secureTextEntry={
+                        field.key === "password"
+                          ? !passwordVisible
+                          : field.key === "confirmPassword"
+                            ? !confirmPasswordVisible
+                            : true
+                      }
+                      keyboardType={
+                        field.type === "email" ? "email-address" : "default"
+                      }
+                      autoCapitalize={field.key === "email" ? "none" : "words"}
+                    />
+                  )}
+                  {field.key === "password" && (
+                    <TouchableOpacity
+                      onPress={() => setPasswordVisible(!passwordVisible)}
+                      className="p-2 -mr-2"
                     >
-                      <Text className={`text-[15px] ${selectedVerificationType ? 'text-white' : 'text-gray-400'}`}>
-                        {selectedVerificationType 
-                          ? VERIFICATION_OPTIONS.find(opt => opt.id === selectedVerificationType)?.label 
-                          : 'Select document type'}
-                      </Text>
-                      <Ionicons name={showVerificationDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="white" />
+                      <Ionicons
+                        name={passwordVisible ? "eye" : "eye-off"}
+                        size={20}
+                        color="#9CA3AF"
+                      />
                     </TouchableOpacity>
-                    
-                    <Modal
-                      visible={showVerificationDropdown}
-                      transparent={true}
-                      animationType="fade"
-                      onRequestClose={() => setShowVerificationDropdown(false)}
+                  )}
+                  {field.key === "confirmPassword" && (
+                    <TouchableOpacity
+                      onPress={() =>
+                        setConfirmPasswordVisible(!confirmPasswordVisible)
+                      }
+                      className="p-2 -mr-2"
                     >
-                      <TouchableWithoutFeedback onPress={() => setShowVerificationDropdown(false)}>
-                        <View className="flex-1 bg-black/50">
-                          <View className="absolute top-1/2 left-4 right-4 bg-[#1e293b]/95 drop-shadow-xl border border-white/10 rounded-lg overflow-hidden" style={{
-                            transform: [{ translateY: -150 }],
-                            maxHeight: 300,
-                          }}>
-                            <ScrollView>
-                              {VERIFICATION_OPTIONS.map((option) => (
-                                <TouchableOpacity
-                                  key={option.id}
-                                  className="flex-row items-center px-4 py-3 space-x-3 active:bg-white/5"
-                                  onPress={() => {
-                                    setSelectedVerificationType(option.id);
-                                    setShowVerificationDropdown(false);
-                                  }}
-                                >
-                                  <MaterialCommunityIcons 
-                                    name={option.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-                                    size={20} 
-                                    color="#FFFFFF" 
-                                  />
-                                  <Text className="text-white text-sm">{option.label}</Text>
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                          </View>
-                        </View>
-                      </TouchableWithoutFeedback>
-                    </Modal>
-                  </View>
-    
-                  {selectedVerificationType && (
-                    <View className="space-y-4">
-                      <View className="space-y-2">
-                        <View>
-                          <Text className="text-white text-xs mb-1">School/University</Text>
-                          <View className="bg-white/10 border border-white/20 rounded-lg px-3 py-0.1">
-                            <TextInput
-                              className="text-white text-sm"
-                              placeholder="Enter your school or university name"
-                              placeholderTextColor="#9CA3AF"
-                              value={formData.schoolUniversity}
-                              onChangeText={(text) => setFormData({...formData, schoolUniversity: text})}
-                            />
-                          </View>
-                        </View>
-                      </View>
-                      <View className="space-y-2">
-                        <Text className="text-white text-sm font-semibold">Upload Document</Text>
-                        {verificationFile ? (
-                          <View className="bg-violet-500/20 border border-violet-400/30 rounded-lg p-2">
-                            <View className="flex-row items-center justify-between">
-                              <View className="flex-row items-center flex-1">
-                                <Ionicons name="document-text" size={16} color="white" style={{ marginRight: 8 }} />
-                                <Text className="text-white text-sm" numberOfLines={1} ellipsizeMode="tail">Document Uploaded</Text>
-                              </View>
-                              <View className="flex-row space-x-1">
-                                <TouchableOpacity 
-                                  className="bg-white/20 p-1 rounded"
-                                  onPress={() => setVerificationFile(null)}
-                                >
-                                  <Ionicons name="trash-outline" size={14} color="white" />
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                  className="bg-white/20 p-1 rounded"
-                                  onPress={pickImage}
-                                >
-                                  <Ionicons name="refresh" size={14} color="white" />
-                                </TouchableOpacity>
-                              </View>
-                            </View>
-                          </View>
-                        ) : (
-                          <TouchableOpacity 
-                            className="bg-violet-600/20 border border-dashed border-violet-400/30 rounded-lg p-6 items-center active:bg-violet-600/30"
-                            onPress={pickImage}
-                          >
-                            <View className="flex-row items-center">
-                              <Ionicons name="cloud-upload-outline" size={16} color="white" />
-                              <Text className="text-white text-sm ml-1">Tap to upload document</Text>
-                            </View>
-                            <Text className="text-gray-400 text-[12px] mt-2">JPG, PNG, PDF (Max 5MB)</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                      
-                      
-                      
-                      {hasSubmitted && !isFormValid() && (
-                        <Text className="text-red-400 text-xs text-center mt-2">
-                          Please complete all required fields and upload your document
-                        </Text>
-                      )}
-                      
-                      <View className="bg-white/5 border border-white/10 rounded-lg p-4 mt-4">
-                        <View className="flex-row items-start">
-                          <Ionicons name="information-circle" size={20} color="#A78BFA" style={{ marginTop: 2, marginRight: 10 }} />
-                          <View className="flex-1">
-                            <Text className="text-white font-medium mb-1">Why do we need this?</Text>
-                            <Text className="text-gray-400 text-xs">
-                              We need to verify your teaching credentials to ensure the quality of our tutoring platform. 
-                              Your documents will be kept secure and only used for verification purposes.
-                            </Text>
-                          </View>
-                        </View>
+                      <Ionicons
+                        name={confirmPasswordVisible ? "eye" : "eye-off"}
+                        size={20}
+                        color="#9CA3AF"
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {field.key === "password" && (
+                  <Text className="text-gray-400 text-xs pl-1">
+                    Use at least 8 characters with numbers & symbols
+                  </Text>
+                )}
+              </View>
+            ))}
+          </Animated.View>
+        );
+
+      case 1:
+        return (
+          <Animated.View
+            style={[
+              {
+                opacity: fadeAnim,
+                backgroundColor: "rgba(30, 41, 59, 0.7)",
+                borderRadius: 20,
+                padding: 14,
+                marginTop: -10,
+                marginBottom: 15,
+                borderWidth: 1,
+                borderColor: "rgba(255, 255, 255, 0.1)",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 10,
+              },
+            ]}
+            className="space-y-6"
+          >
+            <View className="items-center">
+              <Text className="text-white text-2xl font-bold mb-1">
+                Teacher Verification
+              </Text>
+              <Text className="text-gray-400 text-center text-sm mb-4">
+                Step 2 of 2: Verify your teaching credentials
+              </Text>
+              {renderProgressBar()}
+            </View>
+
+            <View className="space-y-2 mb-4">
+              <Text className="text-white text-sm font-semibold pl-1">
+                Document Type
+              </Text>
+              <View style={{ position: "relative" }}>
+                <TouchableOpacity
+                  className="flex-row items-center justify-between bg-white/10 border border-white/20 rounded-lg px-4 py-2"
+                  onPress={() =>
+                    setShowVerificationDropdown(!showVerificationDropdown)
+                  }
+                >
+                  <Text
+                    className={`text-[15px] ${selectedVerificationType ? "text-white" : "text-gray-400"}`}
+                  >
+                    {selectedVerificationType
+                      ? VERIFICATION_OPTIONS.find(
+                          (opt) => opt.id === selectedVerificationType
+                        )?.label
+                      : "Select document type"}
+                  </Text>
+                  <Ionicons
+                    name={
+                      showVerificationDropdown ? "chevron-up" : "chevron-down"
+                    }
+                    size={18}
+                    color="white"
+                  />
+                </TouchableOpacity>
+
+                <Modal
+                  visible={showVerificationDropdown}
+                  transparent={true}
+                  animationType="fade"
+                  onRequestClose={() => setShowVerificationDropdown(false)}
+                >
+                  <TouchableWithoutFeedback
+                    onPress={() => setShowVerificationDropdown(false)}
+                  >
+                    <View className="flex-1 bg-black/50">
+                      <View
+                        className="absolute top-1/2 left-4 right-4 bg-[#1e293b]/95 drop-shadow-xl border border-white/10 rounded-lg overflow-hidden"
+                        style={{
+                          transform: [{ translateY: -150 }],
+                          maxHeight: 300,
+                        }}
+                      >
+                        <ScrollView>
+                          {VERIFICATION_OPTIONS.map((option) => (
+                            <TouchableOpacity
+                              key={option.id}
+                              className="flex-row items-center px-4 py-3 space-x-3 active:bg-white/5"
+                              onPress={() => {
+                                setSelectedVerificationType(option.id);
+                                setShowVerificationDropdown(false);
+                              }}
+                            >
+                              <MaterialCommunityIcons
+                                name={
+                                  option.icon as keyof typeof MaterialCommunityIcons.glyphMap
+                                }
+                                size={20}
+                                color="#FFFFFF"
+                              />
+                              <Text className="text-white text-sm">
+                                {option.label}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
                       </View>
                     </View>
+                  </TouchableWithoutFeedback>
+                </Modal>
+              </View>
+
+              {selectedVerificationType && (
+                <View className="space-y-4">
+                  <View className="space-y-2">
+                    <View>
+                      <Text className="text-white text-xs mb-1">
+                        School/University
+                      </Text>
+                      <View className="bg-white/10 border border-white/20 rounded-lg px-3 py-0.1">
+                        <TextInput
+                          className="text-white text-sm"
+                          placeholder="Enter your school or university name"
+                          placeholderTextColor="#9CA3AF"
+                          value={formData.schoolUniversity}
+                          onChangeText={(text) =>
+                            setFormData({ ...formData, schoolUniversity: text })
+                          }
+                        />
+                      </View>
+                    </View>
+                  </View>
+                  <View className="space-y-2">
+                    <Text className="text-white text-sm font-semibold">
+                      Upload Document
+                    </Text>
+                    {verificationFile ? (
+                      <View className="bg-violet-500/20 border border-violet-400/30 rounded-lg p-2">
+                        <View className="flex-row items-center justify-between">
+                          <View className="flex-row items-center flex-1">
+                            <Ionicons
+                              name="document-text"
+                              size={16}
+                              color="white"
+                              style={{ marginRight: 8 }}
+                            />
+                            <Text
+                              className="text-white text-sm"
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
+                              Document Uploaded
+                            </Text>
+                          </View>
+                          <View className="flex-row space-x-1">
+                            <TouchableOpacity
+                              className="bg-white/20 p-1 rounded"
+                              onPress={() => setVerificationFile(null)}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={14}
+                                color="white"
+                              />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              className="bg-white/20 p-1 rounded"
+                              onPress={pickImage}
+                            >
+                              <Ionicons
+                                name="refresh"
+                                size={14}
+                                color="white"
+                              />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        className="bg-violet-600/20 border border-dashed border-violet-400/30 rounded-lg p-6 items-center active:bg-violet-600/30"
+                        onPress={pickImage}
+                      >
+                        <View className="flex-row items-center">
+                          <Ionicons
+                            name="cloud-upload-outline"
+                            size={16}
+                            color="white"
+                          />
+                          <Text className="text-white text-sm ml-1">
+                            Tap to upload document
+                          </Text>
+                        </View>
+                        <Text className="text-gray-400 text-[12px] mt-2">
+                          JPG, PNG, PDF (Max 5MB)
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {hasSubmitted && !isFormValid() && (
+                    <Text className="text-red-400 text-xs text-center mt-2">
+                      Please complete all required fields and upload your
+                      document
+                    </Text>
                   )}
+
+                  <View className="bg-white/5 border border-white/10 rounded-lg p-4 mt-4">
+                    <View className="flex-row items-start">
+                      <Ionicons
+                        name="information-circle"
+                        size={20}
+                        color="#A78BFA"
+                        style={{ marginTop: 2, marginRight: 10 }}
+                      />
+                      <View className="flex-1">
+                        <Text className="text-white font-medium mb-1">
+                          Why do we need this?
+                        </Text>
+                        <Text className="text-gray-400 text-xs">
+                          We need to verify your teaching credentials to ensure
+                          the quality of our tutoring platform. Your documents
+                          will be kept secure and only used for verification
+                          purposes.
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
                 </View>
-              </Animated.View>
-            );
+              )}
+            </View>
+          </Animated.View>
+        );
 
       case 2:
         return (
-          <Animated.View style={{ opacity: fadeAnim }} className="items-center space-y-6">
+          <Animated.View
+            style={{ opacity: fadeAnim }}
+            className="items-center space-y-6"
+          >
             <View className="items-center">
               <View className="bg-white/10 p-5 rounded-full mb-4">
                 <Ionicons name="checkmark-circle" size={44} color="#A78BFA" />
               </View>
-                <Text className="text-white text-2xl font-bold mb-1 text-center">Application Submitted!</Text>
-                <Text className="text-gray-400 text-center text-sm mb-4">Your teaching credentials are under review</Text>
+              <Text className="text-white text-2xl font-bold mb-1 text-center">
+                Application Submitted!
+              </Text>
+              <Text className="text-gray-400 text-center text-sm mb-4">
+                Your teaching credentials are under review
+              </Text>
               {renderProgressBar()}
             </View>
 
             <View className="bg-white/10 border border-white/20 rounded-lg p-6 w-full mb-5">
               <View className="flex-row items-start">
-                <Ionicons name="information-circle" size={20} color="#FFFFFF" style={{ marginTop: 2, marginRight: 10 }} />
+                <Ionicons
+                  name="information-circle"
+                  size={20}
+                  color="#FFFFFF"
+                  style={{ marginTop: 2, marginRight: 10 }}
+                />
                 <View className="flex-1">
-                  <Text className="text-white font-semibold text-xl mb-2">What's Next?</Text>
-                  <Text className="text-white/80 text-sm mb-3">We've sent verification codes to your email and mobile number for security.</Text>
+                  <Text className="text-white font-semibold text-xl mb-2">
+                    What's Next?
+                  </Text>
+                  <Text className="text-white/80 text-sm mb-3">
+                    We've sent verification codes to your email and mobile
+                    number for security.
+                  </Text>
                   {[
-                    { icon: 'time', text: '1-2 business days for verification' },
-                    { icon: 'school', text: 'Our team will verify your teaching credentials' },
-                    { icon: 'mail', text: `Verification email sent to: ${formData.email}` },
-                    { 
+                    {
+                      icon: "time",
+                      text: "1-2 business days for verification",
+                    },
+                    {
+                      icon: "school",
+                      text: "Our team will verify your teaching credentials",
+                    },
+                    {
+                      icon: "mail",
+                      text: `Verification email sent to: ${formData.email}`,
+                    },
+                    {
                       content: (
                         <View>
                           <View className="flex-row items-center">
-                            <Ionicons name="phone-portrait" size={14} color="#FFFFFF" style={{ marginRight: 8, marginTop: 2 }} />
-                            <Text className="text-white text-medium">SMS verification sent to:</Text>
+                            <Ionicons
+                              name="phone-portrait"
+                              size={14}
+                              color="#FFFFFF"
+                              style={{ marginRight: 8, marginTop: 2 }}
+                            />
+                            <Text className="text-white text-medium">
+                              SMS verification sent to:
+                            </Text>
                           </View>
-                          <Text className="text-white/80 text-sm ml-6">+63{formData.mobileNumber || 'your number'}</Text>
+                          <Text className="text-white/80 text-sm ml-6">
+                            +63{formData.mobileNumber || "your number"}
+                          </Text>
                         </View>
-                      )
+                      ),
                     },
-                    { icon: 'shield-checkmark', text: 'Class Code will be provided upon approval' }
+                    {
+                      icon: "shield-checkmark",
+                      text: "Class Code will be provided upon approval",
+                    },
                   ].map((item, index) => (
-                    <View key={index} className="flex-row items-center mb-2 last:mb-0">
-                      {!item.content && <Ionicons name={item.icon as any} size={14} color="#FFFFFF" style={{ marginRight: 8, marginTop: 2, alignSelf: 'flex-start' }} />}
-                      {item.content || <Text className="text-white text-medium">{item.text}</Text>}
+                    <View
+                      key={index}
+                      className="flex-row items-center mb-2 last:mb-0"
+                    >
+                      {!item.content && (
+                        <Ionicons
+                          name={item.icon as any}
+                          size={14}
+                          color="#FFFFFF"
+                          style={{
+                            marginRight: 8,
+                            marginTop: 2,
+                            alignSelf: "flex-start",
+                          }}
+                        />
+                      )}
+                      {item.content || (
+                        <Text className="text-white text-medium">
+                          {item.text}
+                        </Text>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -783,18 +1064,22 @@ export default function CreateAccountTeacher() {
             </View>
 
             <View className="w-full bottom-8 space-y-3">
-              <TouchableOpacity 
+              <TouchableOpacity
                 className="bg-violet-600/80 w-full py-3 rounded-lg items-center justify-center active:bg-violet-700/80"
-                onPress={() => router.push('/landing-page')}
+                onPress={() => router.push("/Auth/Login/role-selection")}
               >
-                <Text className="text-white font-semibold text-base">Landing Page</Text>
+                <Text className="text-white font-semibold text-base">
+                  Log In
+                </Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 className="bg-white/10 border border-white/10 w-full py-3 rounded-lg items-center justify-center active:bg-white/20"
-                onPress={handleResendEmail}   // ⬅️ now actually resends
+                onPress={() => router.push("/Auth/Login/landing-page")}
               >
-                <Text className="text-white font-medium">Resend Email</Text>
+                <Text className="text-white font-semibold text-base">
+                  Landing Page
+                </Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -827,12 +1112,12 @@ export default function CreateAccountTeacher() {
     <View className="flex-1 bg-gray-900" style={{ zIndex: 1 }}>
       <StatusBar barStyle="light-content" />
       <BackgroundDecor />
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
         style={{ zIndex: 1 }}
       >
-        <ScrollView 
+        <ScrollView
           ref={scrollViewRef}
           className="flex-1 px-5 pt-6 pb-2"
           contentContainerStyle={{ paddingBottom: 16 }}
@@ -879,7 +1164,9 @@ export default function CreateAccountTeacher() {
               <View className="mt-6">
                 <View className="flex-row items-center my-4">
                   <View className="flex-1 h-px bottom-16 bg-white/20" />
-                  <Text className="text-gray-400 text-xs bottom-16 font-medium px-3">or continue with</Text>
+                  <Text className="text-gray-400 text-xs bottom-16 font-medium px-3">
+                    or continue with
+                  </Text>
                   <View className="flex-1 h-px bottom-16 bg-white/20" />
                 </View>
 
@@ -892,7 +1179,9 @@ export default function CreateAccountTeacher() {
                       source={require("../../assets/Google.png")}
                       className="w-5 h-5 mr-3"
                     />
-                    <Text className="text-white font-medium">Continue with Google</Text>
+                    <Text className="text-white font-medium">
+                      Continue with Google
+                    </Text>
                   </TouchableOpacity>
                   {showVerificationDropdown && (
                     <View className="absolute top-full left-0 right-0 mt-1 bg-[#1e293b] border border-white/20 rounded-lg overflow-hidden">
@@ -905,10 +1194,10 @@ export default function CreateAccountTeacher() {
                             setShowVerificationDropdown(false);
                           }}
                         >
-                          <MaterialCommunityIcons 
-                            name={option.icon as any} 
-                            size={20} 
-                            color="#94a3b8" 
+                          <MaterialCommunityIcons
+                            name={option.icon as any}
+                            size={20}
+                            color="#94a3b8"
                           />
                           <Text className="text-gray-200">{option.label}</Text>
                         </TouchableOpacity>
@@ -917,8 +1206,8 @@ export default function CreateAccountTeacher() {
                   )}
                 </View>
                 <Text className="text-gray-400 text-xs text-center mt-2">
-                  Already have an account?{' '}
-                  <Text 
+                  Already have an account?{" "}
+                  <Text
                     className="text-violet-300 font-medium"
                     onPress={() => router.push("/login")}
                   >
@@ -930,10 +1219,15 @@ export default function CreateAccountTeacher() {
           )}
 
           {activeStep === 1 && (
-            <View className="mt-6 top-2.5 space-y-3" style={{ position: 'relative', zIndex: 1 }}>
+            <View
+              className="mt-6 top-2.5 space-y-3"
+              style={{ position: "relative", zIndex: 1 }}
+            >
               <TouchableOpacity
                 className={`py-3 rounded-lg items-center justify-center -top-10 w-full max-w-[320px] mx-auto ${
-                  isFormComplete() ? 'bg-violet-600/80 active:bg-violet-700/80' : 'bg-gray-600/50'
+                  isFormComplete()
+                    ? "bg-violet-600/80 active:bg-violet-700/80"
+                    : "bg-gray-600/50"
                 }`}
                 style={{ zIndex: 1 }}
                 onPress={handleSignUp}
@@ -942,7 +1236,9 @@ export default function CreateAccountTeacher() {
                 {loading ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text className="text-white font-semibold text-base">Submit Application</Text>
+                  <Text className="text-white font-semibold text-base">
+                    Submit Application
+                  </Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
@@ -950,43 +1246,48 @@ export default function CreateAccountTeacher() {
                 style={{ zIndex: 1 }}
                 onPress={handleBack}
               >
-                <Text className="text-white font-medium text-base">Previous</Text>
+                <Text className="text-white font-medium text-base">
+                  Previous
+                </Text>
               </TouchableOpacity>
             </View>
           )}
 
           {activeStep === 0 && (
-                <View className="mt-6">
-                  <View className="flex-row bottom-16 items-center my-4">
-                    <View className="flex-1  h-px bg-white/20" />
-                    <Text className="text-gray-400 text-xs font-medium px-3">Continue with</Text>
-                    <View className="flex-1 h-px bg-white/20" />
-                  </View>
+            <View className="mt-6">
+              <View className="flex-row bottom-16 items-center my-4">
+                <View className="flex-1  h-px bg-white/20" />
+                <Text className="text-gray-400 text-xs font-medium px-3">
+                  Continue with
+                </Text>
+                <View className="flex-1 h-px bg-white/20" />
+              </View>
 
-                  <View className="items-center">
-                    <TouchableOpacity
-                      className="flex-row items-center justify-center w-full bg-white/10 border border-white/20 bottom-16 rounded-lg py-3 mb-3"
-                      onPress={() => console.log("Google Sign In")}
-                    >
-                      <Image
-                        source={require("../../assets/Google.png")}
-                        className="w-5 h-5 mr-3"
-                      />
-                      <Text className="text-white font-medium">Continue with Google</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text className="text-gray-400 text-xs text-center mt-2">
-                    Already have an account?{' '}
-                    <Text 
-                      className="text-violet-300 font-medium"
-                      onPress={() => router.push("/login")}
-                    >
-                      Sign in
-                    </Text>
+              <View className="items-center">
+                <TouchableOpacity
+                  className="flex-row items-center justify-center w-full bg-white/10 border border-white/20 bottom-16 rounded-lg py-3 mb-3"
+                  onPress={() => console.log("Google Sign In")}
+                >
+                  <Image
+                    source={require("../../assets/Google.png")}
+                    className="w-5 h-5 mr-3"
+                  />
+                  <Text className="text-white font-medium">
+                    Continue with Google
                   </Text>
-
-                </View>
-              )}
+                </TouchableOpacity>
+              </View>
+              <Text className="text-gray-400 text-xs text-center mt-2">
+                Already have an account?{" "}
+                <Text
+                  className="text-violet-300 font-medium"
+                  onPress={() => router.push("/login")}
+                >
+                  Sign in
+                </Text>
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

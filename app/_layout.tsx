@@ -174,7 +174,7 @@ export default function Layout() {
     headerShown: false,
     animation: 'none' as const,
     contentStyle: { backgroundColor: '#1A1F2E' },
-    statusBarStyle: 'light',
+    statusBarStyle: 'light' as const,
   }), []);
 
   if (!isReady) {

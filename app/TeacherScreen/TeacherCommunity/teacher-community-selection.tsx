@@ -306,6 +306,7 @@ const STUDENTS: Student[] = [
 const StudentPresentation = () => {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
@@ -351,8 +352,9 @@ const StudentPresentation = () => {
   }, [isProfileMenuVisible]);
 
   const filteredStudents = STUDENTS.filter(student => {
-    const matchesSearch = query.trim() === '' || 
-      student.name.toLowerCase().includes(query.trim().toLowerCase());
+    const matchesSearch = searchQuery.trim() === '' || 
+      student.name.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+      student.lesson?.title?.toLowerCase().includes(searchQuery.trim().toLowerCase());
     const matchesFilter = selectedFilter === 'Everyone' || student.isMyStudent;
     return matchesSearch && matchesFilter;
   });
@@ -454,73 +456,75 @@ const StudentPresentation = () => {
               </Text>
             </View>
 
-            {/* Search and Filter Bar */}
-            <View className="mb-6 px-6">
-              <View className="flex-row items-center">
-                <View className="flex-1 rounded-xl bg-white/10 border border-white/10 flex-row items-center shadow-lg">
-                  <View className="pl-1 left-2">
-                    <Ionicons name="search" size={20} color="#a78bfa" />
-                  </View>
-                  <TextInput
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Search students..."
-                    placeholderTextColor="#9ca3af"
-                    className="text-white flex-1 ml-3 text-base"
-                    style={{ fontFamily: "Inter_400Regular" }}
-                  />
-                </View>
-                
-                <TouchableOpacity 
-                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
-                  className="ml-3 px-4 py-2.5 rounded-xl bg-white/10 border border-white/10 flex-row items-center"
-                >
-                  <Text className="text-white mr-2">
-                    {selectedFilter === 'Everyone' ? 'Everyone' : 'My Students'}
-                  </Text>
-                  <Ionicons 
-                    name={showFilterDropdown ? "chevron-up" : "chevron-down"} 
-                    size={18} 
-                    color="#a78bfa" 
-                  />
-                </TouchableOpacity>
-              </View>
-              
-              {/* Dropdown Menu */}
-              {showFilterDropdown && (
-                <View className="absolute right-6 top-12 mt-1 w-48 bg-gray-800 rounded-xl border border-white/10 z-50 overflow-hidden">
-                  <TouchableOpacity 
-                    onPress={() => toggleFilter('Everyone')}
-                    className={`px-4 py-3 flex-row items-center ${selectedFilter === 'Everyone' ? 'bg-indigo-600/20' : ''}`}
-                  >
-                    <Ionicons 
-                      name="people-outline" 
-                      size={18} 
-                      color={selectedFilter === 'Everyone' ? "#a78bfa" : "#9ca3af"} 
-                      className="mr-2"
-                    />
-                    <Text className={`${selectedFilter === 'Everyone' ? 'text-indigo-300' : 'text-gray-300'}`}>
-                      Everyone
-                    </Text>
-                  </TouchableOpacity>
-                  <View className="h-px bg-white/10 w-full" />
-                  <TouchableOpacity 
-                    onPress={() => toggleFilter('My Students')}
-                    className={`px-4 py-3 flex-row items-center ${selectedFilter === 'My Students' ? 'bg-indigo-600/20' : ''}`}
-                  >
-                    <Ionicons 
-                      name="person-outline" 
-                      size={18} 
-                      color={selectedFilter === 'My Students' ? "#a78bfa" : "#9ca3af"} 
-                      className="mr-2"
-                    />
-                    <Text className={`${selectedFilter === 'My Students' ? 'text-indigo-300' : 'text-gray-300'}`}>
-                      My Students
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
+            {/* Search and Filter Row */}
+                        <View className="flex-row items-center space-x-3 px-4 mb-4">
+                          {/* Search Bar */}
+                          <View className="relative flex-1">
+                            <TextInput
+                              className="bg-white/10 text-white rounded-xl pl-10 pr-6 py-2.5 text-sm"
+                              placeholder="Search by name or ..."
+                              placeholderTextColor="#94a3b8"
+                              value={searchQuery}
+                              onChangeText={setSearchQuery}
+                            />
+                            <Ionicons 
+                              name="search" 
+                              size={16} 
+                              color="#94a3b8" 
+                              style={{
+                                position: 'absolute',
+                                left: 12,
+                                top: 12,
+                              }} 
+                            />
+                            {searchQuery.length > 0 && (
+                              <TouchableOpacity
+                                onPress={() => setSearchQuery('')}
+                                style={{
+                                  position: 'absolute',
+                                  right: 12,
+                                  top: 12,
+                                }}
+                              >
+                                <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+            
+                          {/* Filter Dropdown */}
+                          <View className="relative">
+                            <TouchableOpacity
+                              className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
+                              onPress={() => setShowFilterDropdown(!showFilterDropdown)}
+                            >
+                              <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
+                              <Ionicons name="chevron-down" size={14} color="white" />
+                            </TouchableOpacity>
+            
+                            {showFilterDropdown && (
+                              <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
+                                <TouchableOpacity
+                                  className="px-4 py-2.5 border-b border-white/10"
+                                  onPress={() => {
+                                    setSelectedFilter("Everyone");
+                                    setShowFilterDropdown(false);
+                                  }}
+                                >
+                                  <Text className="text-white text-sm">Everyone</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  className="px-4 py-2.5"
+                                  onPress={() => {
+                                    setSelectedFilter("My Students");
+                                    setShowFilterDropdown(false);
+                                  }}
+                                >
+                                  <Text className="text-white text-sm">My Students</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        </View>
 
             {/* Selection Info (when students are selected) */}
             {selectedStudents.length > 0 && (

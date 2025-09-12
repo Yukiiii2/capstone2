@@ -7,6 +7,7 @@ import {
   Image,
   Animated,
   Dimensions,
+  SafeAreaView,
 } from "react-native";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import { Ionicons } from "@expo/vector-icons";
@@ -154,63 +155,49 @@ export default function LiveSession() {
           showsVerticalScrollIndicator={false}
         >
           <View className="px-6 pt-4">
-{/* Header */}
-        <View className="flex-row top-5 justify-between items-center px-4 py-3">
-          <TouchableOpacity
-            className="flex-row items-center"
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <Image
-              source={require("../../../assets/Speaksy.png")}
-              className="w-12 h-12 rounded-full right-2"
-              resizeMode="contain"
-            />
-            <Text className="text-white font-bold text-2xl ml-2 -left-5">
-              Voclaria
-            </Text>
-          </TouchableOpacity>
-  
-          <View className="flex-row items-center -right-1 space-x-3">
-            <TouchableOpacity
-              className="p-2 bg-white/10 rounded-full"
-              onPress={() => handleIconPress("chatbot")}
-              activeOpacity={0.7}
-            >
-              <View className="w-6 h-6 items-center justify-center">
-                <Image
-                  source={require("../../../assets/chatbot.png")}
-                  className="w-5 h-5"
-                  resizeMode="contain"
-                  tintColor="white"
-                />
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="p-2 bg-white/10 rounded-full"
-              onPress={() => handleIconPress("notifications")}
-              activeOpacity={0.7}
-            >
-              <View className="w-6 h-6 items-center justify-center">
-                <Ionicons name="notifications-outline" size={20} color="white" />
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="p-1"
-              onPress={() => setIsProfileMenuVisible(true)}
-              activeOpacity={0.7}
-            >
-              <View className="p-0.5 bg-white/10 rounded-full">
-                <Image
-                  source={{
-                    uri: "https://randomuser.me/api/portraits/women/44.jpg"
-                  }}
-                  className="w-8 h-8 rounded-full"
-                />
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
+ {/* Header */}
+            <View className="z-10 bottom-4">
+              <SafeAreaView>
+                <View className="flex-row justify-between items-center top-6 px-4 py-3">
+                  <View className="flex-row items-center">
+                    <Image
+                      source={require("../../../assets/Speaksy.png")}
+                      className="w-12 h-12 right-3 -mr-4 right-6"
+                      resizeMode="contain"
+                    />
+                    <Text className="text-white right-3 font-bold text-2xl">
+                      Voclaria
+                    </Text>
+                  </View>
+
+                  <View className="flex-row items-center right-2">
+                    <TouchableOpacity
+                      onPress={() => handleIconPress("/ButtonIcon/add-student")}
+                      activeOpacity={0.7}
+                      className="p-2 bg-white/10 left-6 rounded-full mr-4"
+                    >
+                      <Image
+                        source={require("../../../assets/add-student.png")}
+                        className="w-5 h-5"
+                        resizeMode="contain"
+                        tintColor="white"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setIsProfileMenuVisible(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Image
+                        source={{
+                          uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                        }}
+                        className="w-9 h-9 rounded-full left-6 border-2 border-white/80"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </SafeAreaView>
+            </View>
         
             {/* Main Content */}
             <View className="mt-2 mb-4">

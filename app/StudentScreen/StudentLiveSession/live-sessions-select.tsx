@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -51,8 +52,9 @@ const LiveSessions = () => {
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "My Teachers">("Everyone");
+  const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "Classmate">("Everyone");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
@@ -209,58 +211,96 @@ const LiveSessions = () => {
 
           {/* Live Sessions Section */}
           <View className="mb-5 bottom-8">
-            <View className="flex-row justify-between items-center mb-5">
-              <Text className="text-white text-xl font-bold">
+            <View className="mb-4">
+              <Text className="text-white text-xl font-bold mb-4">
                 People live now
               </Text>
-              <View className="relative">
-                <TouchableOpacity
-                  className="flex-row items-center bg-white/10 px-3 py-1.5 rounded-lg"
-                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
-                >
-                  <Text className="text-white mr-2">{selectedFilter}</Text>
-                  <Ionicons name="chevron-down" size={16} color="white" />
-                </TouchableOpacity>
+              <View className="flex-row items-center space-x-3">
+                {/* Search Bar */}
+                <View className="relative flex-1">
+                  <TextInput
+                    className="bg-white/10 text-white rounded-xl pl-10 pr-8 py-2.5 text-sm"
+                    placeholder="Search by name or title..."
+                    placeholderTextColor="#94a3b8"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                  <Ionicons 
+                    name="search" 
+                    size={16} 
+                    color="#94a3b8" 
+                    style={{
+                      position: 'absolute',
+                      left: 12,
+                      top: 12,
+                    }} 
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setSearchQuery('')}
+                      style={{
+                        position: 'absolute',
+                        right: 12,
+                        top: 12,
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {/* Filter Dropdown */}
+                <View className="relative">
+                  <TouchableOpacity
+                    className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
+                    onPress={() => setShowFilterDropdown(!showFilterDropdown)}
+                  >
+                    <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
+                    <Ionicons name="chevron-down" size={14} color="white" />
+                  </TouchableOpacity>
 
-                {showFilterDropdown && (
-                  <View className="absolute top-10 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
-                    <TouchableOpacity
-                      className="px-4 py-2 border-b border-white/10"
-                      onPress={() => {
-                        setSelectedFilter("Everyone");
-                        setShowFilterDropdown(false);
-                      }}
-                    >
-                      <Text className="text-white">Everyone</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      className="px-4 py-2"
-                      onPress={() => {
-                        setSelectedFilter("My Teachers");
-                        setShowFilterDropdown(false);
-                      }}
-                    >
-                      <Text className="text-white">My Teachers</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  {showFilterDropdown && (
+                    <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
+                      <TouchableOpacity
+                        className="px-4 py-2.5 border-b border-white/10"
+                        onPress={() => {
+                          setSelectedFilter("Everyone");
+                          setShowFilterDropdown(false);
+                        }}
+                      >
+                        <Text className="text-white text-sm">Everyone</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        className="px-4 py-2.5"
+                        onPress={() => {
+                          setSelectedFilter("Classmate");
+                          setShowFilterDropdown(false);
+                        }}
+                      >
+                        <Text className="text-white text-sm">Classmate</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
 
             {sessions
-              .filter(
-                (session) =>
-                  selectedFilter === "Everyone" ||
-                  (selectedFilter === "My Teachers" && session.isMyTeacher)
-              )
+              .filter(session => {
+                const matchesFilter = selectedFilter === "Everyone" || 
+                  (selectedFilter === "Classmate" && session.isMyTeacher);
+                const matchesSearch = searchQuery === "" || 
+                  session.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  session.title.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchesFilter && matchesSearch;
+              })
               .slice(
                 0,
-                selectedFilter === "My Teachers" ? 3 : sessions.length
+                selectedFilter === "Classmate" ? 3 : sessions.length
               )
               .map((session) => (
                 <View
                   key={session.id}
-                  className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
+                  className="mb-5 bg-white/5 rounded-2xl p-5 border border-white/20"
                 >
                   {/* Session Status Bar */}
                   <View className="flex-row justify-between items-center mb-4">
@@ -319,12 +359,12 @@ const LiveSessions = () => {
                   </TouchableOpacity>
                 </View>
               ))}
-            {selectedFilter === "My Teachers" &&
+            {selectedFilter === "Classmate" &&
               sessions.filter((session) => session.isMyTeacher).length === 0 && (
                 <View className="items-center justify-center py-8">
                   <Ionicons name="people-outline" size={48} color="#94a3b8" />
                   <Text className="text-slate-400 mt-2 text-center">
-                    No live sessions from your teachers at the moment
+                    No live sessions from your classmate at the moment
                   </Text>
                 </View>
               )}

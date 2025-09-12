@@ -15,15 +15,15 @@ import { BlurView } from "expo-blur";
 const studentFeatures = [
   "AI-powered speech analysis",
   "Real-time progress tracking",
-  "Live Video Practice and Community Feedback",
-  "Neural feedback system",
+  "Community Feedback and live Video Session",
+  "Recording Practice for Speaking and Reading",
 ];
 
 const teacherFeatures = [
   "Advanced analytics dashboard",
   "Smart classroom management",
-  "Live Video Practice and Community Feedback",
-  "Tracking and monitoring",
+  "Community Feedback and live Video Session",
+  "Tracking and monitoring for students Progress",
 ];
 
 export default function RoleSelection() {

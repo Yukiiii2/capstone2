@@ -294,8 +294,8 @@ export default function LiveVidSelection() {
                   {
                     title: "Instant Feedback",
                     desc: "AI-powered feedback, Advice and Guide",
-                    icon: "brain",
-                    iconLib: MaterialCommunityIcons,
+                    icon: "rocket-outline",
+                    iconLib: Ionicons,
                   },
                 ].map((feature, idx) => (
                   <View
@@ -383,7 +383,15 @@ export default function LiveVidSelection() {
       <ProfileMenu
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
-        user={userProfile}
+        onSignOut={async () => {
+          await supabase.auth.signOut();
+          router.replace('/(auth)/logout');
+        }}
+        user={{
+          name: fullName || "Student",
+          email: userEmail,
+          image: avatarUri ? { uri: avatarUri } : require('@/assets/student.png'),
+        }}
       />
 
       {/* Shared NavigationBar added with defaultActiveTab="Speaking" */}

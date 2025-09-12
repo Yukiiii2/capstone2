@@ -128,46 +128,48 @@ export default function LiveSession() {
         >
           <View className="px-6 bottom-2 pt-4">
             {/* Header */}
-                    <View className="z-10 bottom-4">
-                      <SafeAreaView>
-                        <View className="flex-row justify-between items-center top-6 px-4 py-3">
-                          <View className="flex-row items-center">
-                            <Image
-                              source={require("../../../assets/Speaksy.png")}
-                              className="w-12 h-12 right-3 -mr-4 right-6"
-                              resizeMode="contain"
-                            />
-                            <Text className="text-white right-3 font-bold text-2xl">Voclaria</Text>
-                          </View>
-            
-                          <View className="flex-row items-center right-2">
-                                      <TouchableOpacity
-                                        onPress={() => handleIconPress("/ButtonIcon/add-student")}
-                                        activeOpacity={0.7}
-                                        className="p-2 bg-white/10 left-6 rounded-full mr-4"
-                                      >
-                                          <Image
-                                            source={require("../../../assets/add-student.png")}
-                                            className="w-5 h-5"
-                                            resizeMode="contain"
-                                            tintColor="white"
-                                          />
-                                      </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => setIsProfileMenuVisible(true)}
-                              activeOpacity={0.7}
-                            >
-                              <Image
-                                source={{
-                                  uri: "https://randomuser.me/api/portraits/women/44.jpg",
-                                }}
-                                className="w-9 h-9 rounded-full left-6 border-2 border-white/80"
-                              />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      </SafeAreaView>
-                    </View>
+            <View className="z-10 bottom-4">
+              <SafeAreaView>
+                <View className="flex-row justify-between items-center top-6 px-4 py-3">
+                  <View className="flex-row items-center">
+                    <Image
+                      source={require("../../../assets/Speaksy.png")}
+                      className="w-12 h-12 right-3 -mr-4 right-6"
+                      resizeMode="contain"
+                    />
+                    <Text className="text-white right-3 font-bold text-2xl">
+                      Voclaria
+                    </Text>
+                  </View>
+
+                  <View className="flex-row items-center right-2">
+                    <TouchableOpacity
+                      onPress={() => handleIconPress("/ButtonIcon/add-student")}
+                      activeOpacity={0.7}
+                      className="p-2 bg-white/10 left-6 rounded-full mr-4"
+                    >
+                      <Image
+                        source={require("../../../assets/add-student.png")}
+                        className="w-5 h-5"
+                        resizeMode="contain"
+                        tintColor="white"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setIsProfileMenuVisible(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Image
+                        source={{
+                          uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                        }}
+                        className="w-9 h-9 rounded-full left-6 border-2 border-white/80"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </SafeAreaView>
+            </View>
 
             {/* Main Content */}
             <View className="mt-2 mb-4">
@@ -365,10 +367,10 @@ export default function LiveSession() {
 
         {/* Navigation Bar */}
         <NavigationBar defaultActiveTab="Live Session" />
-      <ProfileMenuTeacher
-        visible={isProfileMenuVisible}
-        onDismiss={() => setIsProfileMenuVisible(false)}
-      />
+        <ProfileMenuTeacher
+          visible={isProfileMenuVisible}
+          onDismiss={() => setIsProfileMenuVisible(false)}
+        />
 
         {/* Level Selection Modal */}
         <LevelSelectionModal
