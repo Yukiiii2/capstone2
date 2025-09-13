@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Ionicons } from '@expo/vector-icons';
 import {
   View,
@@ -9,7 +9,9 @@ import {
   Dimensions,
   ScrollView,
   StyleSheet,
-  Alert
+  Alert,
+  PanResponder,
+  TouchableWithoutFeedback,
 } from "react-native";
 
 const { height } = Dimensions.get("window");
@@ -44,9 +46,46 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
 }) => {
   const [studentToRemove, setStudentToRemove] = useState<Student | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
+  const pan = useRef(new Animated.ValueXY()).current;
+  const lastGestureDy = useRef(0);
+
+  const resetPosition = useCallback(() => {
+    Animated.spring(pan, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: true,
+    }).start();
+  }, [pan]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only respond to vertical swipes
+        return Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow swiping down
+        if (gestureState.dy > 0) {
+          pan.setValue({ x: 0, y: gestureState.dy });
+        }
+        lastGestureDy.current = gestureState.dy;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          // If swiped down enough or fast enough, close the modal
+          onClose();
+        } else {
+          // Otherwise, reset position
+          resetPosition();
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (visible) {
+      // Reset pan position when modal becomes visible
+      pan.setValue({ x: 0, y: 0 });
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 300,
@@ -59,7 +98,7 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
         useNativeDriver: true,
       }).start();
     }
-  }, [visible]);
+  }, [visible, pan, slideAnim]);
 
   const handleRemoveStudent = (student: Student) => {
     setStudentToRemove(student);
@@ -84,16 +123,21 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
         onRequestClose={onClose}
         animationType="none"
       >
-      <View style={styles.modalContainer}>
-        <Animated.View
-          style={[
-            styles.modalContent,
-            {
-              height: height * 0.85,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
-        >
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={styles.modalContainer}>
+          <View style={styles.overlay} />
+          <Animated.View
+            {...panResponder.panHandlers}
+            style={[
+              styles.modalContent,
+              {
+                height: height * 0.85,
+                transform: [
+                  { translateY: Animated.add(slideAnim, pan.y) },
+                ],
+              },
+            ]}
+          >
           <View style={styles.header}>
             <Text style={styles.headerText}>
               All Students ({students.length})
@@ -191,8 +235,9 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
           >
             <Text style={styles.closeButtonTextLarge}>Close</Text>
           </TouchableOpacity>
-        </Animated.View>
-      </View>
+          </Animated.View>
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
 
     {/* Confirmation Dialog */}
@@ -236,6 +281,10 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
   confirmationOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',

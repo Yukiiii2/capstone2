@@ -407,6 +407,23 @@ export default function Landing() {
         />
       </View>
 
+      {/* Gradient Background */}
+      <View
+        style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: -1 }}
+      >
+        <LinearGradient
+          colors={["#0F172A", "#1E293B", "#0F172A"]}
+          style={{ flex: 1 }}
+        />
+      </View>
+
+      {/* Decorative Circles */}
+      <View style={{ position: 'absolute', width: 160, height: 160, backgroundColor: '#a78bfa0d', borderRadius: 80, top: -120, left: -48, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 96, height: 96, backgroundColor: '#a78bfa0d', borderRadius: 48, top: 920, right: -40, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, bottom: 40, left: 48, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 144, height: 144, backgroundColor: '#a78bfa0d', borderRadius: 72, bottom: -20, right: -32, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, top: 112, left: 240, zIndex: 10 }} />
+
       <ScrollView 
         style={{ flex: 1, height: '70%' }}
         contentContainerStyle={{ 
@@ -416,16 +433,6 @@ export default function Landing() {
         }}
         showsVerticalScrollIndicator={false}
       >
-
-        {/* Decorative Circles */}
-        <View className="absolute w-40 h-40 bg-[#a78bfa]/10 rounded-full -top-20 -left-20" />
-        <View className="absolute w-24 h-24 bg-[#a78bfa]/10 rounded-full top-1/4 -right-12" />
-        <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full top-1/3 -left-16" />
-        <View className="absolute w-48 h-48 bg-[#a78bfa]/5 rounded-full bottom-1/4 -right-24" />
-        <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full bottom-0.5 right-8" />
-        <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full top-15 right-12" />
-        <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full bottom-24 left-1/6" />
-
         <View className="px-6 py-8 bottom-4 max-w-md mx-auto w-full">
           {/* Header */}
           <View className="flex-row justify-between items-center mb-2">
@@ -505,7 +512,7 @@ export default function Landing() {
               onPress={() => Linking.openURL('https://www.youtube.com/watch?v=OMbNoo4mCcI')}
               activeOpacity={0.7}
             >
-              <Text className="text-purple-400 text-center text-sm">
+              <Text className="text-purple-400 text-center text-sm underline">
               Watch the full video on YouTube.
               </Text>
             </TouchableOpacity>

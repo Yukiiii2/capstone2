@@ -1280,19 +1280,22 @@ export default function TeacherDashboard() {
               <Text className="text-white/80 text-sm">Avg. Progress</Text>
             </View>
 
-            {["ABM", "STEM", "HUMSS", "GAS", "TVL"].map((strand) => {
-              const strandStudents = students.filter(
-                (s) => s.strand === strand
-              );
-              const avgProgress =
-                strandStudents.length > 0
-                  ? Math.round(
-                      strandStudents.reduce((sum, s) => sum + s.progress, 0) /
-                        strandStudents.length
-                    )
-                  : 0;
-
-              return (
+            {["ABM", "STEM", "HUMSS", "GAS", "TVL"]
+              .map((strand) => {
+                const strandStudents = students.filter(
+                  (s) => s.strand === strand
+                );
+                const avgProgress =
+                  strandStudents.length > 0
+                    ? Math.round(
+                        strandStudents.reduce((sum, s) => sum + s.progress, 0) /
+                          strandStudents.length
+                      )
+                    : 0;
+                return { strand, avgProgress };
+              })
+              .sort((a, b) => b.avgProgress - a.avgProgress)
+              .map(({ strand, avgProgress }) => (
                 <View key={strand} className="mb-3">
                   <View className="flex-row justify-between mb-1">
                     <Text className="text-white font-medium">{strand}</Text>
@@ -1305,13 +1308,12 @@ export default function TeacherDashboard() {
                       className="h-full rounded-full"
                       style={{
                         width: `${avgProgress}%`,
-                        backgroundColor: "#8b5cf6",
+                        backgroundColor: "#8b5cf6"
                       }}
                     />
                   </View>
                 </View>
-              );
-            })}
+              ))}
           </View>
         </View>
       </ScrollView>

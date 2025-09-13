@@ -39,18 +39,46 @@ const BackgroundDecor = () => (
 );
 
 // Student Card Component
+// Helper function to get strand color
+const getStrandColor = (strand: string) => {
+  switch(strand) {
+    case 'ABM': return 'bg-yellow-500/20 border-yellow-500/30';
+    case 'STEM': return 'bg-green-500/20 border-green-500/30';
+    case 'HUMSS': return 'bg-red-500/20 border-red-500/30';
+    case 'TVL': return 'bg-blue-500/20 border-blue-500/30';
+    case 'GAS': return 'bg-orange-500/20 border-orange-500/30';
+    default: return 'bg-white/10 border-white/20';
+  }
+};
+
 const StudentCard = ({ 
   student, 
-  onApprove, 
-  onDecline 
+  onSelect, 
+  isSelected = false
 }: { 
   student: Student; 
-  onApprove: (id: string) => void; 
-  onDecline: (id: string) => void; 
+  onSelect: (id: string) => void;
+  isSelected: boolean;
 }) => {
+  // No background or border for grade level
   return (
-    <View className="bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-3 border border-white/10 shadow-sm">
-      <View className="flex-row items-center justify-between">
+    <TouchableOpacity 
+      onPress={() => onSelect(student.id)}
+      activeOpacity={0.8}
+      className={`bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-3 border ${isSelected ? 'border-purple-400' : 'border-white/10'} shadow-sm`}
+    >
+      <View className="flex-row items-center">
+        {/* Selection Checkbox */}
+        <TouchableOpacity 
+          onPress={(e) => {
+            e.stopPropagation();
+            onSelect(student.id);
+          }}
+          className={`w-5 h-5 rounded-full border-2 ${isSelected ? 'bg-purple-500 border-purple-500' : 'border-white/40'} items-center justify-center mr-3`}
+        >
+          {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
+        </TouchableOpacity>
+        
         {/* Profile Section */}
         <View className="flex-row items-center flex-1">
           <View 
@@ -59,52 +87,25 @@ const StudentCard = ({
             <Text className="text-white font-bold text-base">{student.initials}</Text>
           </View>
           
-          <View className="flex-1">
-            <Text className="text-white font-medium text-sm mb-1">{student.name}</Text>
-            <View className="flex-row items-center">
-              <View className="bg-white/10 px-2 py-1 rounded-sm mr-2">
-                <Text className="text-white text-xs font-medium">Grade {student.grade}</Text>
-              </View>
-              <View className="bg-white/10 px-2 py-1 rounded-sm">
+          <View className="flex-1 flex-row items-center">
+            <Text className="text-white font-medium text-base flex-1">{student.name}</Text>
+            <View className="items-end space-y-1">
+              <Text className="text-white text-sm font-medium mb-0.5">Grade {student.grade}</Text>
+              <View className={`${getStrandColor(student.strand)} px-2.5 py-0.5 rounded-md border`}>
                 <Text className="text-white text-xs font-medium">{student.strand}</Text>
               </View>
             </View>
           </View>
         </View>
-        
-        {/* Action Buttons */}
-        <View className="flex-row space-x-2">
-          <TouchableOpacity 
-            onPress={() => onApprove(student.id)}
-            className="p-1"
-            activeOpacity={0.7}
-          >
-            <Image 
-              source={require('../../assets/approved.png')} 
-              className="w-8 h-8"
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            onPress={() => onDecline(student.id)}
-            className="p-1"
-            activeOpacity={0.7}
-          >
-            <Image 
-              source={require('../../assets/declined.png')} 
-              className="w-8 h-8"
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
-        </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
 // Main Component
 export default function StudentApprovalScreen() {
+  const navigation = useNavigation();
+  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   const [students, setStudents] = useState<Student[]>([
     {
       id: "1",
@@ -348,97 +349,124 @@ export default function StudentApprovalScreen() {
     },
   ]);
 
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudents(prev => {
+      const newSelection = new Set(prev);
+      if (newSelection.has(studentId)) {
+        newSelection.delete(studentId);
+      } else {
+        newSelection.add(studentId);
+      }
+      return newSelection;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedStudents.size === students.length) {
+      setSelectedStudents(new Set());
+    } else {
+      setSelectedStudents(new Set(students.map(s => s.id)));
+    }
+  };
+
+  const handleApproveSelected = () => {
+    // In a real app, you would make an API call here to approve the selected students
+    console.log('Approving students:', Array.from(selectedStudents));
+    
+    // Remove approved students from the students list
+    setStudents(prevStudents => 
+      prevStudents.map(student => ({
+        ...student,
+        status: selectedStudents.has(student.id) ? 'approved' : student.status
+      }))
+    );
+    
+    // Clear selection after approval
+    setSelectedStudents(new Set());
+  };
+
   const handleApprove = (id: string) => {
-    setStudents(students.map(student => 
-      student.id === id ? { ...student, status: "approved" } : student
-    ));
+    // Handle single student approval
+    console.log('Approving student:', id);
+    // Update your state or API call here
   };
 
   const handleDecline = (id: string) => {
-    setStudents(students.map(student => 
-      student.id === id ? { ...student, status: "declined" } : student
-    ));
+    // Handle single student decline
+    console.log('Declining student:', id);
+    // Update your state or API call here
   };
 
-  const navigation = useNavigation();
   const pendingStudents = students.filter(student => student.status === "pending");
+  console.log('Pending students:', pendingStudents);
+  console.log('All students:', students);
 
   return (
     <View className="flex-1 bg-[#0F172A]">
       <BackgroundDecor />
       
-      <ScrollView 
-        className="flex-1 z-10 bottom-3 p-5" 
-        contentContainerStyle={{ 
-          flexGrow: 1,
-          paddingBottom: 5 // Add extra padding at the bottom
-        }}
-      >
-        {/* Header with Back Button and Title */}
-        <View className="mb-2">
-          <View className="flex-row items-center top-6 mb-6">
-            <TouchableOpacity 
-              className="p-1 left-1.5 -ml-2 mr-3"
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" size={30} color="white" />
-            </TouchableOpacity>
-            <Text className="text-white text-2xl font-semibold">Approval for the Class</Text>
-          </View>
+      {/* Header */}
+      <View className="pt-10 pb-4 px-6">
+        <View className="flex-row items-center justify-between mb-1">
+          <TouchableOpacity onPress={() => navigation.goBack()} className="p-2 -ml-2">
+            <Ionicons name="arrow-back" size={24} color="#E2E8F0" />
+          </TouchableOpacity>
+          <Text className="text-white text-xl font-bold">Add Students</Text>
+          <View className="w-8" />
         </View>
-
-        {/* Description */}
-        <Text className="text-white top text-xs mb-5">
-          Approve students to monitor their progress and performance
+        <Text className="text-white/60 text-sm mb-3 text-center">
+          {pendingStudents.length} pending student{pendingStudents.length !== 1 ? 's' : ''}
         </Text>
 
-        {/* Stats Card */}
-        <View className="bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-5 border border-white/10">
-          <View className="flex-row justify-between items-center">
-            <View className="flex-1">
-              <Text className="text-white font-medium text-sm mb-1">Pending Approvals</Text>
-              <Text className="text-gray-400 text-xs">
-                {pendingStudents.length} students awaiting confirmation
+        {/* Selection Actions */}
+        <View className="flex-row justify-between items-center mb-4">
+          <TouchableOpacity 
+            onPress={toggleSelectAll}
+            className="flex-row items-center"
+          >
+            <View className={`w-5 h-5 rounded border-2 ${selectedStudents.size === students.length && students.length > 0 ? 'bg-purple-500 border-purple-500' : 'border-white/40'} items-center justify-center mr-2`}>
+              {selectedStudents.size === students.length && students.length > 0 && (
+                <Ionicons name="checkmark" size={14} color="white" />
+              )}
+            </View>
+            <Text className="text-white/80 text-sm">Select All</Text>
+          </TouchableOpacity>
+          
+          {selectedStudents.size > 0 && (
+            <TouchableOpacity 
+              onPress={handleApproveSelected}
+              className="bg-purple-600 px-4 py-2 rounded-lg flex-row items-center"
+            >
+              <Ionicons name="person-add" size={16} color="white" />
+              <Text className="text-white font-medium ml-2">
+                Add Selected ({selectedStudents.size})
               </Text>
-            </View>
-            <View className="px-3 py-2 rounded-lg">
-              <Text className="text-white font-semibold text-2xl">{pendingStudents.length}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Students List Header */}
-        <View className="flex-row justify-between items-center mb-3">
-          <Text className="text-white font-medium text-xl">Student Requests</Text>
-        </View>
-
-        {/* Students List */}
-        <ScrollView 
-          showsVerticalScrollIndicator={false} 
-          className="flex-1"
-          contentContainerStyle={{
-            paddingBottom: 20
-          }}
-        >
-          {pendingStudents.length > 0 ? (
-            pendingStudents.map(student => (
-              <StudentCard
-                key={student.id}
-                student={student}
-                onApprove={handleApprove}
-                onDecline={handleDecline}
-              />
-            ))
-          ) : (
-            <View className="bg-white/5 backdrop-blur-xl rounded-xl p-6 items-center justify-center border border-white/10 mt-4">
-              <Ionicons name="checkmark-done" size={40} color="#A78BFA" />
-              <Text className="text-white font-medium text-base mt-3">All requests processed</Text>
-              <Text className="text-gray-400 text-sm text-center mt-2">
-                No pending student approvals. New requests will appear here.
-              </Text>
-            </View>
+            </TouchableOpacity>
           )}
-        </ScrollView>
+        </View>
+      </View>
+
+      {/* Student List */}
+      <ScrollView 
+        className="flex-1 px-4" 
+        testID="student-list"
+        indicatorStyle="black"
+      >
+        {pendingStudents.length === 0 ? (
+          <View className="bg-white/5 rounded-lg p-4 my-4 items-center justify-center">
+            <Ionicons name="people-outline" size={32} color="#64748B" />
+            <Text className="text-white/60 text-center mt-2">No pending students to display</Text>
+          </View>
+        ) : (
+          pendingStudents.map((student) => (
+            <StudentCard
+              key={student.id}
+              student={student}
+              isSelected={selectedStudents.has(student.id)}
+              onSelect={toggleStudentSelection}
+            />
+          ))
+        )}
       </ScrollView>
     </View>
   );

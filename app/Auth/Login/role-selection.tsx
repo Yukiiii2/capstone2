@@ -51,11 +51,11 @@ export default function RoleSelection() {
       </View>
 
       {/* Decorative Circles */}
-      <View className="absolute w-40 h-40 bg-purple-500/10 rounded-full -top-20 -left-20" />
-      <View className="absolute w-24 h-24 bg-blue-500/10 rounded-full top-1/4 -right-12" />
-      <View className="absolute w-28 h-28 bg-purple-500/5 rounded-full top-15 right-12" />
-      <View className="absolute w-32 h-32 bg-pink-500/5 rounded-full bottom-24 left-1/6" />
-      <View className="absolute w-36 h-36 bg-purple-400/5 rounded-full -bottom-5 -right-8 z-10" />
+      <View style={{ position: 'absolute', width: 160, height: 160, backgroundColor: '#a78bfa0d', borderRadius: 80, top: -120, left: -48, zIndex: 10 }} />
+          <View style={{ position: 'absolute', width: 96, height: 96, backgroundColor: '#a78bfa0d', borderRadius: 48, top: 920, right: -40, zIndex: 10 }} />
+          <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, bottom: 40, left: 48, zIndex: 10 }} />
+          <View style={{ position: 'absolute', width: 144, height: 144, backgroundColor: '#a78bfa0d', borderRadius: 72, bottom: -20, right: -32, zIndex: 10 }} />
+          <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, top: 112, left: 240, zIndex: 10 }} />
 
       <View className="flex-1 px-4 w-full max-w-[400px] self-center py-4">
         {/* Header */}

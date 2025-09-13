@@ -549,7 +549,7 @@ export default function AdvancedContents() {
                               Alert.alert("Locked", "Complete the previous module to unlock this lesson.");
                               return;
                             }
-                            router.push("StudentScreen/SpeakingExercise/live-vid-selection");
+                            router.push("StudentScreen/SpeakingExercise/lessons-advanced");
                           }}
                           disabled={isLocked}
                           style={({ pressed }) => ({

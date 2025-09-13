@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Dimensions,
   ScrollView,
   StyleSheet,
+  PanResponder,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -47,9 +49,46 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       : student.status === 'inactive'
   );
   const slideAnim = useRef(new Animated.Value(height)).current;
+  const pan = useRef(new Animated.ValueXY()).current;
+  const lastGestureDy = useRef(0);
+
+  const resetPosition = useCallback(() => {
+    Animated.spring(pan, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: true,
+    }).start();
+  }, [pan]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only respond to vertical swipes
+        return Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow swiping down
+        if (gestureState.dy > 0) {
+          pan.setValue({ x: 0, y: gestureState.dy });
+        }
+        lastGestureDy.current = gestureState.dy;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          // If swiped down enough or fast enough, close the modal
+          onClose();
+        } else {
+          // Otherwise, reset position
+          resetPosition();
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (visible) {
+      // Reset pan position when modal becomes visible
+      pan.setValue({ x: 0, y: 0 });
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 300,
@@ -62,7 +101,7 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
         useNativeDriver: true,
       }).start();
     }
-  }, [visible]);
+  }, [visible, pan, slideAnim]);
 
   return (
     <Modal
@@ -71,16 +110,21 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       onRequestClose={onClose}
       animationType="none"
     >
-      <View style={styles.modalContainer}>
-        <Animated.View
-          style={[
-            styles.modalContent,
-            {
-              height: height * 0.85,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
-        >
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={styles.modalContainer}>
+          <View style={styles.overlay} />
+          <Animated.View
+            {...panResponder.panHandlers}
+            style={[
+              styles.modalContent,
+              {
+                height: height * 0.85,
+                transform: [
+                  { translateY: Animated.add(slideAnim, pan.y) },
+                ],
+              },
+            ]}
+          >
           <View style={styles.header}>
             <Text style={styles.headerText}>
               {activeTab === 'active' ? 'Active' : 'Inactive'} Students ({filteredStudents.length})
@@ -144,6 +188,7 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
           </TouchableOpacity>
         </Animated.View>
       </View>
+    </TouchableWithoutFeedback>
     </Modal>
   );
 };
@@ -221,6 +266,10 @@ const StudentCard: React.FC<StudentCardProps> = ({ student, isInactive = false }
 );
 
 const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
   tabContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
