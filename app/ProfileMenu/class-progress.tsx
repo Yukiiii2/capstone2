@@ -584,7 +584,7 @@ const PerformanceTypeModal: React.FC<PerformanceTypeModalProps> = ({ visible, on
       onPress={() => onSelect(type)}
       activeOpacity={0.8}
     >
-      <View className="w-12 h-12 bg-white/20 rounded-xl items-center justify-center mr-4">
+      <View className="w-12 h-12 bg-white/10 rounded-xl items-center justify-center mr-4">
         <Ionicons name={icon as any} size={24} color="#FFFFFF" />
       </View>
       <View className="flex-1">
@@ -607,7 +607,7 @@ const PerformanceTypeModal: React.FC<PerformanceTypeModalProps> = ({ visible, on
       <View className="flex-1 bg-black/30 justify-center items-center p-3">
         <View className="w-full max-w-md rounded-3xl overflow-hidden shadow-2xl">
           <BlurView intensity={30} tint="dark" className="w-full">
-            <View className="p-6 bg-[#1A1F2E]/95 border border-white/10 backdrop-blur-2xl rounded-3xl">
+            <View className="p-6 bg-[#1A1F2E] backdrop-blur-2xl rounded-3xl">
               <View className="flex-row justify-between items-center mb-6">
                 <Text className="text-2xl font-bold text-white">Performance Type</Text>
                 <TouchableOpacity

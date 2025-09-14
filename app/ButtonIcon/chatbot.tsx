@@ -212,7 +212,7 @@ const ChatBot = () => {
       key={message.id}
       className={`mb-3 ${message.isUser ? 'items-end' : 'items-start'}`}
     >
-      <View className={`max-w-[85%] ${message.isUser ? 'bg-indigo-600' : 'bg-gray-800/90'} rounded-2xl p-4`}>
+      <View className={`max-w-[85%] ${message.isUser ? 'bg-indigo-600/90' : 'bg-white/10'} rounded-2xl border border-white/20 p-4`}>
         {!message.isUser && (
           <View className="flex-row items-center mb-2">
             <View className="w-6 h-6 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full items-center justify-center mr-2">
@@ -251,8 +251,19 @@ const ChatBot = () => {
   ), []);
 
   return (
-    <View className="flex-1 bg-gray-950">
-      <StatusBar barStyle="light-content" backgroundColor="#4c1d95" translucent />
+    <View className="flex-1">
+      <StatusBar barStyle="light-content" backgroundColor="#0F172A" translucent />
+      
+      {/* Background Decorations */}
+      <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
+        <View className="absolute left-0 right-0 top-0 bottom-0">
+          <LinearGradient colors={["#0F172A", "#1E293B", "#0F172A"]} className="flex-1" />
+        </View>
+        <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute bottom-[100px] left-[50px] w-9 h-9 bg-[#a78bfa]/10 rounded-full" />
+        <View className="absolute bottom-5 right-10 w-12 h-12 bg-[#a78bfa]/10 rounded-full" />
+      </View>
       
       {/* Header */}
       <LinearGradient
@@ -370,7 +381,7 @@ const ChatBot = () => {
           
           {isTyping && (
             <View className="items-start mb-4">
-              <View className="bg-gray-800/90 rounded-2xl p-3 max-w-[85%] shadow-sm">
+              <View className="bg-gray-800/80 rounded-2xl p-3 max-w-[85%] shadow-sm">
                 <View className="flex-row items-center">
                   <View className="w-6 h-6 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full items-center justify-center mr-2 shadow">
                     <Text className="text-white text-xs font-bold">A</Text>
@@ -437,10 +448,10 @@ const ChatBot = () => {
               className="w-9 h-9 bg-gray-800/80 rounded-xl items-center justify-center border border-gray-700/50"
               activeOpacity={0.8}
             >
-              <Ionicons name="image-outline" size={18} color="#A78BFA" />
+              <Ionicons name="image-outline" size={18} color="#FFFFFF" />
             </TouchableOpacity>
             
-            <View className="flex-1 bg-gray-800/80 rounded-xl border border-gray-700/50 px-3 py-1 min-h-[40px] justify-center">
+            <View className="flex-1 bg-gray-800/80 rounded-xl border border-gray-700/50 px-3 py min-h-[30px] justify-center">
               <TextInput
                 value={inputText}
                 onChangeText={setInputText}

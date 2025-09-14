@@ -95,12 +95,6 @@ export default function FullResultReading() {
               <Text className="text-white font-semibold text-lg mb-2">
                 Speaking Proficiency
               </Text>
-              <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mb-3">
-                <View
-                  className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
-                  style={{ width: "78%" }}
-                />
-              </View>
               <Text className="text-sm text-gray-300 leading-relaxed">
                 Your speaking skills demonstrate strong command of language and
                 clear articulation. Focus on varying your tone for greater
@@ -124,15 +118,23 @@ export default function FullResultReading() {
             </View>
             <View className="bottom-1 space-y-4 top-4">
               {[
-                { skill: "Clear Voice", level: 85 },
-                { skill: "Pacing", level: 78 },
-                { skill: "Projection", level: 82 },
-                { skill: "Engagement", level: 80 },
+                { skill: "Gestures", level: 85, trend: "up" },
+                { skill: "Pacing", level: 78, trend: "up" },
+                { skill: "Grammar", level: 82, trend: "up" },
+                { skill: "Engagement", level: 80, trend: "up" },
               ].map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="text-sm text-gray-300">{item.skill}</Text>
-                    <Text className="text-xs text-[#8A5CFF]">
+                    <View className="flex-row items-center">
+                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                      <Ionicons
+                        name={item.trend === "up" ? "trending-up" : "trending-down"}
+                        size={12}
+                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                        className="ml-1"
+                      />
+                    </View>
+                    <Text className="text-xs text-[#FFFFFF]"> 
                       {item.level}%
                     </Text>
                   </View>
@@ -159,15 +161,23 @@ export default function FullResultReading() {
             </View>
             <View className="bottom-1 space-y-4">
               {[
-                { skill: "Articulation", level: 65 },
-                { skill: "Clarity", level: 58 },
-                { skill: "Projection", level: 62 },
-                { skill: "Response Time", level: 70 },
+                { skill: "Clarity", level: 65, trend: "down" },
+                { skill: "Vocal Tone", level: 58, trend: "down" },
+                { skill: "Articulation", level: 62, trend: "down" },
+                { skill: "Pronounciation", level: 70, trend: "down" },
               ].map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="text-sm text-gray-300">{item.skill}</Text>
-                    <Text className="text-xs text-[#8A5CFF]">
+                    <View className="flex-row items-center">
+                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                      <Ionicons
+                        name={item.trend === "up" ? "trending-up" : "trending-down"}
+                        size={12}
+                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                        className="ml-1"
+                      />
+                    </View>
+                    <Text className="text-xs text-[#FFFFFF]">
                       {100 - item.level}%
                     </Text>
                   </View>
@@ -197,28 +207,28 @@ export default function FullResultReading() {
           <View className="space-y-6">
             {[
               {
-                label: "Overall Confidence",
+                label: "Fluency Score",
                 value: 75,
                 icon: "bar-chart",
                 trend: "up",
                 change: 3.2,
               },
               {
-                label: "Voice Clarity",
+                label: "Clarity Precision",
                 value: 82,
                 icon: "volume-high",
                 trend: "up",
                 change: 1.8,
               },
               {
-                label: "Response Time",
+                label: "Filler Word Reduction",
                 value: 76,
                 icon: "time",
                 trend: "down",
                 change: 2.4,
               },
               {
-                label: "Fluency",
+                label: "Speaking Rate (WPM)",
                 value: 73,
                 icon: "pulse",
                 trend: "up",

@@ -454,8 +454,8 @@ function StudentPresentation() {
   // Navigate to student watch page
   const goToWatch = (student: Student) => {
     router.push({
-      pathname: "/StudentScreen/StudentCommunity/community-page",
-      params: { studentId: student.id },
+  pathname: "/StudentScreen/StudentCommunity/community-page",
+  params: { postId: student.id },
     });
   };
 

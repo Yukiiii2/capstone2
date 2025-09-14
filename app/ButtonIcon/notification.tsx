@@ -75,12 +75,12 @@ const UserAvatar = ({ imageUrl, name, role }: { imageUrl: string; name: string; 
         position: 'absolute',
         bottom: -8,
         right: -8,
-        backgroundColor: '#a78bfa',
-        borderRadius: 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 8,
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)'
+        borderColor: 'rgba(255, 255, 255, 0.2)'
       }}>
         <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{role}</Text>
       </View>
@@ -94,7 +94,7 @@ const NotificationScreen = () => {
     {
       id: '1',
       user: 'Alex Johnson',
-      action: 'liked your recent speaking exercise',
+      action: 'liked 👍 your recent speaking exercise',
       time: '2h ago',
       type: 'like',
       profilePic: 'https://randomuser.me/api/portraits/men/32.jpg',
@@ -107,7 +107,7 @@ const NotificationScreen = () => {
     {
       id: '2',
       user: 'Sarah Chen',
-      action: 'commented: "Excellent analysis! Your insights are very thoughtful."',
+      action: 'commented 💬: "Excellent analysis! Your insights are very thoughtful."',
       time: '5h ago',
       type: 'comment',
       profilePic: 'https://randomuser.me/api/portraits/women/44.jpg',
@@ -146,7 +146,7 @@ const NotificationScreen = () => {
     {
       id: '5',
       user: 'Maya Chen',
-      action: 'commented: "Great content!"',
+      action: 'commented 💬: "Great content!"',
       time: '12m ago',
       type: 'comment',
       profilePic: 'https://randomuser.me/api/portraits/women/28.jpg',
@@ -172,7 +172,7 @@ const NotificationScreen = () => {
     {
       id: '7',
       user: 'Jordan Lee',
-      action: 'commented: "Amazing progress! Keep it up!"',
+      action: 'commented 💬: "Amazing progress! Keep it up!"',
       time: '1h ago',
       type: 'comment',
       profilePic: 'https://randomuser.me/api/portraits/men/45.jpg',
@@ -198,7 +198,7 @@ const NotificationScreen = () => {
     {
       id: '9',
       user: 'Carlos Mendez',
-      action: 'liked your latest post',
+      action: 'liked 👍 your latest post',
       time: '3h ago',
       type: 'like',
       profilePic: 'https://randomuser.me/api/portraits/men/52.jpg',
@@ -226,8 +226,7 @@ const NotificationScreen = () => {
     return (
       <TouchableOpacity 
         key={id}
-        style={[styles.notificationItem, !isRead && styles.unreadNotification]}
-        onPress={() => markAsRead(id)}
+        style={styles.notificationItem}
       >
         <UserAvatar imageUrl={profilePic} name={user} role={role} />
         <View style={styles.notificationContent}>
@@ -242,13 +241,6 @@ const NotificationScreen = () => {
           )}
           <Text style={styles.timeText}>{time}</Text>
         </View>
-        <Ionicons 
-          name={reactionIcon} 
-          size={24} 
-          color={color} 
-          style={styles.reactionIcon} 
-        />
-        {!isRead && <View style={styles.unreadBadge} />}
       </TouchableOpacity>
     );
   };
@@ -310,11 +302,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
     marginHorizontal: 8,
   },
-  unreadNotification: {
-    backgroundColor: 'rgba(167, 139, 250, 0.1)',
-    borderLeftWidth: 3,
-    borderLeftColor: '#a78bfa',
-  },
+  // Removed unread notification styling for consistent appearance
   notificationContent: {
     flex: 1,
     marginLeft: 16,
@@ -345,18 +333,6 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 12,
     marginTop: 4,
-  },
-  reactionIcon: {
-    marginLeft: 12,
-  },
-  unreadBadge: {
-    position: 'absolute' as const,
-    right: 16,
-    top: 16,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#3B82F6',
   },
 });
 

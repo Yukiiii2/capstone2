@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,36 @@ import LivesessionCommunityModal from "../../../components/StudentModal/Livesess
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 
-// Background Decorator Component
+/* ───────────── Supabase + avatar helpers (data only, no UI changes) ───────────── */
+import { supabase } from "@/lib/supabaseClient";
+
+const TRANSPARENT_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
+
+async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
+  const stored = (storedPath ?? userId).toString();
+  const normalized = stored.replace(/^avatars\//, "");
+  let objectPath: string | null = null;
+
+  if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+    objectPath = normalized;
+  } else {
+    const { data: listed, error } = await supabase.storage
+      .from("avatars")
+      .list(normalized, { sortBy: { column: "created_at", order: "desc" }, limit: 1 });
+    if (error) return null;
+    if (listed && listed.length > 0) objectPath = `${normalized}/${listed[0].name}`;
+  }
+  if (!objectPath) return null;
+
+  const signedRes = await supabase.storage.from("avatars").createSignedUrl(objectPath, 3600);
+  if (signedRes.error) return null;
+  return signedRes.data?.signedUrl ?? null;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────── */
+
+/* Background Decorator (unchanged) */
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -34,6 +63,7 @@ const BackgroundDecor = () => (
   </View>
 );
 
+/* Your original UI type */
 type Session = {
   id: string;
   name: string;
@@ -45,14 +75,55 @@ type Session = {
   isMyTeacher?: boolean;
 };
 
+/* Minimal DB rows */
+type LiveSessionRow = {
+  id: string;
+  host_id: string;
+  title: string | null;
+  viewers: number | null;
+  status: string | null;          // 'live'
+  level?: string | null;
+  started_at?: string | null;
+};
+
+type ProfileRow = {
+  id: string;
+  name: string | null;
+};
+
+const LIVE_TABLE = "live_sessions";
+const TEACHER_STUDENTS = "teacher_students";
+
+/* One static card kept exactly like your design */
+const STATIC_SESSION: Session = {
+  id: "static-1",
+  name: "Michael Chen",
+  title: "Voice Warm-Up & Articulation Techniques",
+  level: "Basic",
+  viewers: "1.2k",
+  time: "LIVE NOW",
+  duration: "45 min session",
+  isMyTeacher: false, // it will show under “Everyone”
+};
+
 const LiveSessions = () => {
   const router = useRouter();
   const pathname = usePathname();
+
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "My Teachers">("Everyone");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+
+  /* header avatar like Home */
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [fullName, setFullName] = useState<string>("Student");
+  const [email, setEmail] = useState<string>("");
+
+  /* dynamic sessions coming from Supabase + the static one */
+  const [sessions, setSessions] = useState<Session[]>([STATIC_SESSION]);
+  const [myTeacherIds, setMyTeacherIds] = useState<Set<string>>(new Set());
 
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
@@ -73,48 +144,133 @@ const LiveSessions = () => {
     }
   };
 
-  const sessions: Session[] = [
-    {
-      id: "1",
-      name: "Michael Chen",
-      title: "Voice Warm-Up & Articulation Techniques",
-      level: "Basic",
-      viewers: "1.2k",
-      time: "LIVE NOW",
-      duration: "45 min session",
-      isMyTeacher: true,
-    },
-    {
-      id: "2",
-      name: "David Kim",
-      title: "Advanced Debate Strategies & Practice",
-      level: "Advanced",
-      viewers: "856",
-      time: "LIVE NOW",
-      duration: "60 min session",
-      isMyTeacher: true,
-    },
-    {
-      id: "3",
-      name: "Lisa Park",
-      title: "Mastering Eye Contact & Facial Expressions",
-      level: "Basic",
-      viewers: "723",
-      time: "LIVE NOW",
-      duration: "30 min session",
-      isMyTeacher: false,
-    },
-    {
-      id: "4",
-      name: "Sarah Johnson",
-      title: "Public Speaking for Beginners",
-      level: "Basic",
-      viewers: "512",
-      time: "LIVE NOW",
-      duration: "40 min session",
-      isMyTeacher: false,
-    },
-  ];
+  /* load user + avatar */
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!mounted || !uid) return;
+
+      setEmail(auth?.user?.email ?? "");
+
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", uid)
+        .single();
+
+      const name =
+        (prof?.name ??
+          auth?.user?.user_metadata?.full_name ??
+          auth?.user?.email ??
+          "Student") + "";
+
+      if (!mounted) return;
+      setFullName(name.trim());
+
+      const signed = await resolveSignedAvatar(uid, (prof as any)?.avatar_url ?? null);
+      if (!mounted) return;
+      setAvatarUri(signed);
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  /* load my teachers (for the "My Teachers" filter) */
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid || !mounted) return;
+
+      const { data, error } = await supabase
+        .from(TEACHER_STUDENTS)
+        .select("teacher_id, student_id, status")
+        .eq("student_id", uid);
+
+      if (error || !mounted) return;
+
+      const setIds = new Set<string>();
+      (data ?? []).forEach((r: any) => {
+        if (!r) return;
+        setIds.add(r.teacher_id);
+      });
+      setMyTeacherIds(setIds);
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  /* fetch + subscribe to live sessions */
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchLive = async () => {
+      try {
+        const { data, error } = await supabase
+          .from(LIVE_TABLE)
+          .select("id, host_id, title, viewers, status, level, started_at")
+          .eq("status", "live")
+          .order("started_at", { ascending: false });
+
+        if (error || !mounted) return;
+
+        const rows = (data as LiveSessionRow[]) ?? [];
+
+        if (rows.length === 0) {
+          // keep the single static card when nothing is live
+          setSessions([STATIC_SESSION]);
+          return;
+        }
+
+        const hostIds = Array.from(new Set(rows.map(r => r.host_id)));
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, name")
+          .in("id", hostIds);
+
+        const byId = new Map<string, ProfileRow>(
+          ((profs as ProfileRow[]) ?? []).map((p) => [p.id, p])
+        );
+
+        const mapped: Session[] = rows.map((r) => {
+          const host = byId.get(r.host_id);
+          return {
+            id: r.id,
+            name: (host?.name || "Unknown").toString(),
+            title: (r.title || "Live Session").toString(),
+            level: (r.level || "Basic").toString(),
+            viewers: String(r.viewers ?? 0),
+            time: "LIVE NOW",
+            duration: "45 min session",
+            isMyTeacher: myTeacherIds.has(r.host_id),
+          };
+        });
+
+        // always keep ONE static at the top + dynamic lives
+        setSessions([STATIC_SESSION, ...mapped]);
+      } catch {
+        // on any error, still keep static
+        setSessions([STATIC_SESSION]);
+      }
+    };
+
+    fetchLive();
+
+    const ch = supabase
+      .channel(`live_sessions:live`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: LIVE_TABLE, filter: "status=eq.live" },
+        () => fetchLive()
+      )
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(ch); } catch {}
+      mounted = false;
+    };
+  }, [myTeacherIds]);
 
   return (
     <View className="flex-1 bg-[#0F172A]">
@@ -174,7 +330,7 @@ const LiveSessions = () => {
               <View className="p-0.5 bg-white/10 rounded-full">
                 <Image
                   source={{
-                    uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                    uri: avatarUri || "https://randomuser.me/api/portraits/women/44.jpg",
                   }}
                   className="w-8 h-8 rounded-full"
                 />
@@ -207,7 +363,7 @@ const LiveSessions = () => {
             </View>
           </View>
 
-          {/* Live Sessions Section */}
+          {/* Live Sessions Section (UI unchanged) */}
           <View className="mb-5 bottom-8">
             <View className="flex-row justify-between items-center mb-5">
               <Text className="text-white text-xl font-bold">
@@ -330,7 +486,7 @@ const LiveSessions = () => {
               )}
           </View>
 
-          {/* Community Recordings Section */}
+          {/* Community Recordings Section (unchanged) */}
           <View className="mb-8 bottom-14">
             <View className="flex-row justify-between items-center mb-5">
               <Text className="text-white text-xl top-2 font-bold">
@@ -444,11 +600,9 @@ const LiveSessions = () => {
             visible={isProfileMenuVisible}
             onDismiss={() => setIsProfileMenuVisible(false)}
             user={{
-              name: "Sarah Johnson",
-              email: "sarah@gmail.com",
-              image: {
-                uri: "https://randomuser.me/api/portraits/women/44.jpg",
-              },
+              name: fullName,
+              email: email,
+              image: { uri: avatarUri || TRANSPARENT_PNG },
             }}
           />
         </View>

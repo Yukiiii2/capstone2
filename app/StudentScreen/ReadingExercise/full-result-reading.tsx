@@ -5,47 +5,27 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Modal,
-  Animated,
+  StatusBar,
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 
 export default function FullResultReading() {
-  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState("Speaking");
-  const slideAnim = useRef(new Animated.Value(-20)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
   const router = useRouter();
-  const params = useLocalSearchParams();
 
-  const handleIconPress = (icon: string) => {
-    console.log(`${icon} pressed`);
-    // Add specific actions for each icon if needed
-  };
-
-  const handleSettings = () => {
-    console.log("Settings pressed");
-    // Navigate to settings or show settings modal
-  };
-
-  const navigateToTab = (tab: string) => {
-    setActiveTab(tab);
-    // Add navigation logic here if needed
-  };
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: '#0F172A' }}
-      contentContainerStyle={{ minHeight: '100%' }}
-      showsVerticalScrollIndicator={false}
-    >
+  /**
+   * Background decoration component
+   */
+  const BackgroundDecor = () => (
+    <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       {/* Gradient Background */}
-      <LinearGradient
-        colors={["#0F172A", "#1E293B", "#0F172A"]}
-        className="absolute inset-0"
-      />
+      <View className="absolute inset-0">
+        <LinearGradient
+          colors={["#0F172A", "#1E293B", "#0F172A"]}
+          style={{ flex: 1 }}
+        />
+      </View>
 
       {/* Decorative Circles */}
       <View className="absolute w-40 h-40 bg-[#a78bfa]/10 rounded-full -top-20 -left-20" />
@@ -55,14 +35,36 @@ export default function FullResultReading() {
       <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full bottom-2 right-8" />
       <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full top-15 right-12" />
       <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full bottom-24 left-1/6" />
+    </View>
+  );
 
-      <View className="w-full max-w-[1000px] self-center px-4">
-        {/* Header removed as requested */}
+  return (
+    <View className="flex-1 bg-gray-900">
+      {/* Full screen background with status bar cover */}
+      <View className="absolute top-0 left-0 right-0 bottom-0 bg-gray-900">
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+        <View className="flex-1 bg-gray-900 pt-12">
+          <BackgroundDecor />
+        </View>
       </View>
 
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+        <View className="w-full max-w-[1000px] self-center px-4">
+          {/* Header with back button only */}
+          <View className="flex-row items-start w-full left-0.1 top-1 mt-4">
+            <TouchableOpacity
+              className="p-3 -ml-1"
+              onPress={() => router.back()}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* AI Detailed Analysis Heading */}
-        <View className="mx-4 top mb-4 mt-10">
-          <Text className="text-white font-bold text-2xl text-center">
+        <View className="mx-4 mb-5 -mt-3">
+          <Text className="text-white font-bold text-xl text-center">
             AI DETAILED ANALYSIS
           </Text>
         </View>
@@ -71,12 +73,12 @@ export default function FullResultReading() {
         <View className="mx-4 mb-6 p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20 shadow-2xl">
           <View className="flex-row items-start">
             {/* Left side - Confidence Circle */}
-            <View className="relative w-24 h-24 items-center justify-center -top-3">
+            <View className="relative w-24 h-24 items-center justify-center top-5">
               <View className="w-20 h-20 items-center justify-center">
                 <View className="w-20 h-20 rounded-full border-4 border-[#8A5CFF] items-center justify-center">
                   <View className="w-16 h-16 rounded-full bg-white/10 items-center justify-center shadow-lg">
                     <Text className="text-2xl font-bold items-center justify-center text-white">
-                      85%
+                      78%
                     </Text>
                   </View>
                 </View>
@@ -91,17 +93,11 @@ export default function FullResultReading() {
             {/* Right side - Details */}
             <View className="flex-1 ml-6">
               <Text className="text-white font-semibold text-lg mb-2">
-                Excellent Reading
+              Reading Proficiency
               </Text>
-              <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mb-3">
-                <View
-                  className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
-                  style={{ width: "78%" }}
-                />
-              </View>
               <Text className="text-sm text-gray-300 leading-relaxed">
-                Your reading skills are strong, with excellent comprehension and
-                speed.
+              Your reading skills demonstrate strong comprehension and analysis. 
+              Build speed and vocabulary to improve further.
               </Text>
             </View>
           </View>
@@ -109,25 +105,35 @@ export default function FullResultReading() {
 
         {/* Strengths & Improvements */}
         <View className="mx-4 flex-row space-x-4 mb-6">
+          {/* Strengths Card */}
           <View className="flex-1 p-4 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20">
             <View className="flex-row items-center mb-3">
-              <View className="right-1 w-6 h-6 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
-                <Ionicons name="checkmark-circle" size={14} color="#FFFFFF" />
+              <View className="right-2.5 w-8 h-8 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
+                <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
               </View>
-              <Text className="right-1 text-white font-medium text-base">
+              <Text className="right-3 text-white font-medium text-lg">
                 Key Strengths
               </Text>
             </View>
-            <View className="bottom-2 space-y-4 top-2">
+            <View className="bottom-1 space-y-4 top-4">
               {[
-                { skill: "Vocabulary Mastery", level: 92 },
-                { skill: "Inference Skills", level: 78 },
-                { skill: "Text Structure", level: 82 },
+                { skill: "Volume", level: 85, trend: "up" },
+                { skill: "Pacing", level: 78, trend: "up" },
+                { skill: "Grammar", level: 82, trend: "up" },
+                { skill: "Phrasing", level: 80, trend: "up" },
               ].map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="text-xs text-gray-300">{item.skill}</Text>
-                    <Text className="text-xs text-[#8A5CFF]">
+                    <View className="flex-row items-center">
+                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                      <Ionicons
+                        name={item.trend === "up" ? "trending-up" : "trending-down"}
+                        size={12}
+                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                        className="ml-1"
+                      />
+                    </View>
+                    <Text className="text-xs text-[#FFFFFF]"> 
                       {item.level}%
                     </Text>
                   </View>
@@ -142,25 +148,35 @@ export default function FullResultReading() {
             </View>
           </View>
 
+          {/* Improvements Card */}
           <View className="flex-1 p-4 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20">
-            <View className="flex-row items-center mb-4">
-              <View className="bottom-1 right-2.5 w-6 h-6 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
+            <View className="flex-row items-center mb-3">
+              <View className="bottom-2.5 right-2.5 w-8 h-8 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
                 <Ionicons name="trending-up" size={16} color="#FFFFFF" />
               </View>
-              <Text className="right-3 text-white font-medium text-sm bottom-1">
+              <Text className="right-2 text-white font-medium text-base bottom-2">
                 Improvement Areas
               </Text>
             </View>
             <View className="bottom-1 space-y-4">
               {[
-                { skill: "Reading Speed", level: 65 },
-                { skill: "Critical Analysis", level: 58 },
-                { skill: "Genre Diversity", level: 62 },
+                { skill: "Clarity", level: 65, trend: "down" },
+                { skill: "Vocal Tone", level: 58, trend: "down" },
+                { skill: "Accuracy", level: 62, trend: "down" },
+                { skill: "Pronounciation", level: 70, trend: "down" },
               ].map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="text-sm text-gray-300">{item.skill}</Text>
-                    <Text className="text-xs text-[#8A5CFF]">
+                    <View className="flex-row items-center">
+                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                      <Ionicons
+                        name={item.trend === "up" ? "trending-up" : "trending-down"}
+                        size={12}
+                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                        className="ml-1"
+                      />
+                    </View>
+                    <Text className="text-xs text-[#FFFFFF]">
                       {100 - item.level}%
                     </Text>
                   </View>
@@ -180,7 +196,7 @@ export default function FullResultReading() {
         <View className="mx-4 p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20 mb-6">
           <View className="mb-6">
             <Text className="text-white font-semibold text-lg">
-              Performance Breakdown
+              Performance Metrics
             </Text>
             <Text className="text-gray-400 text-sm">
               Detailed analysis of your speaking performance
@@ -190,10 +206,32 @@ export default function FullResultReading() {
           <View className="space-y-6">
             {[
               {
-                label: "Reading Comprehension",
-                value: 85,
-                icon: "book-outline",
+                label: "Fluency Score",
+                value: 75,
+                icon: "bar-chart",
                 trend: "up",
+                change: 3.2,
+              },
+              {
+                label: "Clarity Precision",
+                value: 82,
+                icon: "volume-high",
+                trend: "up",
+                change: 1.8,
+              },
+              {
+                label: "Filler Word Reduction",
+                value: 76,
+                icon: "time",
+                trend: "down",
+                change: 2.4,
+              },
+              {
+                label: "Speaking Rate (WPM)",
+                value: 73,
+                icon: "pulse",
+                trend: "up",
+                change: 1.1,
               },
             ].map((item, i) => {
               const isPositive = item.trend === "up";
@@ -253,7 +291,6 @@ export default function FullResultReading() {
         <View className="mx-4 p-6 bg-white/5 rounded-3xl border border-white/20 mb-10 overflow-hidden">
           <View className="relative z-10">
             <View className="flex-row items-center justify-center mb-4">
-              <View className="flex items-center justify-center mr-3"></View>
               <Text className="text-white font-semibold text-2xl">
                 Next Steps
               </Text>
@@ -318,7 +355,7 @@ export default function FullResultReading() {
               <TouchableOpacity
                 className="flex-row items-center bg-violet-500/80 border border-white/30 px-6 py-2.5 rounded-xl w-[45%] justify-center"
                 activeOpacity={0.9}
-                onPress={() => router.replace('/StudentScreen/ReadingExercise/student-voice-reading-recording')}
+                onPress={() => router.replace("/live-vid-selection")}
               >
                 <Text className="text-white font-semibold text-base">
                   Retake
@@ -328,13 +365,14 @@ export default function FullResultReading() {
               <TouchableOpacity
                 className="flex-row items-center bg-white/30 border border-white/40 px-6 py-2.5 rounded-xl w-[47%] justify-center"
                 activeOpacity={0.9}
-                onPress={() => router.replace("StudentScreen/HomePage/home-page")}
+                onPress={() => router.replace("/home-page")}
               >
                 <Text className="text-white font-semibold text-base">Home</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
-  </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
