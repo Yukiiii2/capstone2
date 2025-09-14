@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  SafeAreaView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -52,10 +51,9 @@ const LiveSessions = () => {
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState<'Everyone' | 'My Teachers'>('Everyone');
+  const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "My Teachers">("Everyone");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
-  // (Removed unused getActiveTab and activeTab)
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
@@ -63,21 +61,17 @@ const LiveSessions = () => {
       router.push("/ButtonIcon/chatbot");
     } else if (iconName === "notifications") {
       router.push("/ButtonIcon/notification");
-    } else if (iconName === "menu-outline") {
-      // Handle menu press if needed
     }
   };
 
-  const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
+  const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
-    if (option === 'Live Session') {
-      router.push('/live-sessions-select');
-    } else if (option === 'Community Post') {
-      router.push('/community-selection');
+    if (option === "Live Session") {
+      router.push("/live-sessions-select");
+    } else if (option === "Community Post") {
+      router.push("/community-selection");
     }
   };
-
-  // (Removed unused handleTabPress)
 
   const sessions: Session[] = [
     {
@@ -88,7 +82,7 @@ const LiveSessions = () => {
       viewers: "1.2k",
       time: "LIVE NOW",
       duration: "45 min session",
-      isMyTeacher: true
+      isMyTeacher: true,
     },
     {
       id: "2",
@@ -98,7 +92,7 @@ const LiveSessions = () => {
       viewers: "856",
       time: "LIVE NOW",
       duration: "60 min session",
-      isMyTeacher: true
+      isMyTeacher: true,
     },
     {
       id: "3",
@@ -108,7 +102,7 @@ const LiveSessions = () => {
       viewers: "723",
       time: "LIVE NOW",
       duration: "30 min session",
-      isMyTeacher: false
+      isMyTeacher: false,
     },
     {
       id: "4",
@@ -118,7 +112,7 @@ const LiveSessions = () => {
       viewers: "512",
       time: "LIVE NOW",
       duration: "40 min session",
-      isMyTeacher: false
+      isMyTeacher: false,
     },
   ];
 
@@ -147,7 +141,7 @@ const LiveSessions = () => {
               Voclaria
             </Text>
           </TouchableOpacity>
-  
+
           <View className="flex-row items-center -right-1 space-x-3">
             <TouchableOpacity
               className="p-2 bg-white/10 rounded-full"
@@ -180,7 +174,7 @@ const LiveSessions = () => {
               <View className="p-0.5 bg-white/10 rounded-full">
                 <Image
                   source={{
-                    uri: "https://randomuser.me/api/portraits/women/44.jpg"
+                    uri: "https://randomuser.me/api/portraits/women/44.jpg",
                   }}
                   className="w-8 h-8 rounded-full"
                 />
@@ -220,29 +214,29 @@ const LiveSessions = () => {
                 People live now
               </Text>
               <View className="relative">
-                <TouchableOpacity 
+                <TouchableOpacity
                   className="flex-row items-center bg-white/10 px-3 py-1.5 rounded-lg"
                   onPress={() => setShowFilterDropdown(!showFilterDropdown)}
                 >
                   <Text className="text-white mr-2">{selectedFilter}</Text>
                   <Ionicons name="chevron-down" size={16} color="white" />
                 </TouchableOpacity>
-                
+
                 {showFilterDropdown && (
                   <View className="absolute top-10 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       className="px-4 py-2 border-b border-white/10"
                       onPress={() => {
-                        setSelectedFilter('Everyone');
+                        setSelectedFilter("Everyone");
                         setShowFilterDropdown(false);
                       }}
                     >
                       <Text className="text-white">Everyone</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       className="px-4 py-2"
                       onPress={() => {
-                        setSelectedFilter('My Teachers');
+                        setSelectedFilter("My Teachers");
                         setShowFilterDropdown(false);
                       }}
                     >
@@ -254,76 +248,86 @@ const LiveSessions = () => {
             </View>
 
             {sessions
-              .filter(session => selectedFilter === 'Everyone' || (selectedFilter === 'My Teachers' && session.isMyTeacher))
-              .slice(0, selectedFilter === 'My Teachers' ? 3 : sessions.length)
+              .filter(
+                (session) =>
+                  selectedFilter === "Everyone" ||
+                  (selectedFilter === "My Teachers" && session.isMyTeacher)
+              )
+              .slice(
+                0,
+                selectedFilter === "My Teachers" ? 3 : sessions.length
+              )
               .map((session) => (
-              <View
-                key={session.id}
-                className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
-              >
-                {/* Session Status Bar */}
-                <View className="flex-row justify-between items-center mb-4">
-                  <View className="flex-row items-center">
-                    <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
-                      <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
-                      <Text className="text-white text-xs font-bold">
-                        {session.time}
+                <View
+                  key={session.id}
+                  className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
+                >
+                  {/* Session Status Bar */}
+                  <View className="flex-row justify-between items-center mb-4">
+                    <View className="flex-row items-center">
+                      <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
+                        <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
+                        <Text className="text-white text-xs font-bold">
+                          {session.time}
+                        </Text>
+                      </View>
+                    </View>
+                    <View className="flex-row items-center">
+                      <Ionicons name="people-outline" size={16} color="white" />
+                      <Text className="text-white text-xs ml-1">
+                        {session.viewers} watching
                       </Text>
                     </View>
                   </View>
-                  <View className="flex-row items-center">
-                    <Ionicons name="people-outline" size={16} color="white" />
-                    <Text className="text-white text-xs ml-1">
-                      {session.viewers} watching
-                    </Text>
-                  </View>
-                </View>
 
-                {/* Host Profile */}
-                <View className="flex-row items-center mb-4">
-                  <View className="w-12 h-12 bg-white/10 rounded-full items-center justify-center mr-3">
-                    <Ionicons name="person" size={20} color="white" />
+                  {/* Host Profile */}
+                  <View className="flex-row items-center mb-4">
+                    <View className="w-12 h-12 bg-white/10 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="person" size={20} color="white" />
+                    </View>
+                    <View>
+                      <Text className="text-white font-medium">
+                        {session.name}
+                      </Text>
+                      <Text className="text-violet-300 text-xs">Student</Text>
+                    </View>
                   </View>
-                  <View>
-                    <Text className="text-white font-medium">
-                      {session.name}
-                    </Text>
-                    <Text className="text-violet-300 text-xs">Student</Text>
-                  </View>
-                </View>
 
-                {/* Session Details */}
-                <Text className="text-white text-lg font-semibold mb-3 leading-tight">
-                  {session.title}
-                </Text>
-
-                {/* Join Button */}
-                <TouchableOpacity
-                  className="bg-violet-600/80 border border-white/20 rounded-xl py-4 items-center"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/StudentScreen/StudentLiveSession/live-session",
-                      params: {
-                        id: session.id,
-                        title: session.title,
-                        name: session.name,
-                        viewers: session.viewers,
-                      },
-                    })
-                  }
-                >
-                  <Text className="text-white text-based font-bold">
-                    Join Session
+                  {/* Session Details */}
+                  <Text className="text-white text-lg font-semibold mb-3 leading-tight">
+                    {session.title}
                   </Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-            {selectedFilter === 'My Teachers' && sessions.filter(session => session.isMyTeacher).length === 0 && (
-              <View className="items-center justify-center py-8">
-                <Ionicons name="people-outline" size={48} color="#94a3b8" />
-                <Text className="text-slate-400 mt-2 text-center">No live sessions from your teachers at the moment</Text>
-              </View>
-            )}
+
+                  {/* Join Button */}
+                  <TouchableOpacity
+                    className="bg-violet-600/80 border border-white/20 rounded-xl py-4 items-center"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/StudentScreen/StudentLiveSession/live-session",
+                        params: {
+                          id: session.id,
+                          title: session.title,
+                          name: session.name,
+                          viewers: session.viewers,
+                        },
+                      })
+                    }
+                  >
+                    <Text className="text-white text-based font-bold">
+                      Join Session
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            {selectedFilter === "My Teachers" &&
+              sessions.filter((session) => session.isMyTeacher).length === 0 && (
+                <View className="items-center justify-center py-8">
+                  <Ionicons name="people-outline" size={48} color="#94a3b8" />
+                  <Text className="text-slate-400 mt-2 text-center">
+                    No live sessions from your teachers at the moment
+                  </Text>
+                </View>
+              )}
           </View>
 
           {/* Community Recordings Section */}
@@ -338,7 +342,9 @@ const LiveSessions = () => {
               {/* Recording Card 1 */}
               <TouchableOpacity
                 className="bg-white/5 rounded-xl p-3 border border-white/20"
-                onPress={() => router.push("/StudentScreen/StudentCommunity/community-page")}
+                onPress={() =>
+                  router.push("/StudentScreen/StudentCommunity/community-page")
+                }
               >
                 <View className="flex-row items-start">
                   <View className="relative mr-3">
@@ -365,7 +371,9 @@ const LiveSessions = () => {
                         1.2k views
                       </Text>
                       <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
-                      <Text className="text-slate-400 text-xs">2 days ago</Text>
+                      <Text className="text-slate-400 text-xs">
+                        2 days ago
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -374,7 +382,9 @@ const LiveSessions = () => {
               {/* Recording Card 2 */}
               <TouchableOpacity
                 className="bg-white/5 rounded-xl p-3 border border-white/20"
-                onPress={() => router.push("/StudentScreen/StudentCommunity/community-page")}
+                onPress={() =>
+                  router.push("/StudentScreen/StudentCommunity/community-page")
+                }
               >
                 <View className="flex-row items-start">
                   <View className="relative mr-3">
@@ -401,7 +411,9 @@ const LiveSessions = () => {
                         856 views
                       </Text>
                       <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
-                      <Text className="text-slate-400 text-xs">1 week ago</Text>
+                      <Text className="text-slate-400 text-xs">
+                        1 week ago
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -410,7 +422,9 @@ const LiveSessions = () => {
               {/* Find More Button */}
               <TouchableOpacity
                 className="bg-white/20 rounded-xl border border-white/20 py-3 flex-row items-center justify-center mt-4"
-                onPress={() => router.push("/StudentScreen/StudentCommunity/community-selection")}
+                onPress={() =>
+                  router.push("/StudentScreen/StudentCommunity/community-selection")
+                }
               >
                 <Ionicons
                   name="search"
@@ -450,16 +464,17 @@ const LiveSessions = () => {
       <LevelSelectionModal
         visible={showLevelModal}
         onDismiss={() => setShowLevelModal(false)}
-        onSelectLevel={(level: 'Basic' | 'Advanced') => {
+        onSelectLevel={(level: "Basic" | "Advanced") => {
           setShowLevelModal(false);
-          const route = level === 'Basic' 
-            ? '/basic-exercise-reading' 
-            : '/advance-execise-reading';
+          const route =
+            level === "Basic"
+              ? "/basic-exercise-reading"
+              : "/advance-execise-reading";
           router.push(route);
         }}
       />
 
-  <NavigationBar defaultActiveTab="Community" />
+      <NavigationBar defaultActiveTab="Community" />
     </View>
   );
 };

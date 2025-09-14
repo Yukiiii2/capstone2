@@ -19,7 +19,7 @@ import {
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useFocusEffect } from "expo-router"; // ⬅️ added useFocusEffect
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
 import ProfileMenu, { UserProfile } from "../../../components/ProfileModal/ProfileMenuNew";
@@ -124,6 +124,31 @@ function CircularProgress({
   );
 }
 
+// 🔧 helper to resolve avatar signed URL (private bucket)
+async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
+  const stored = (storedPath ?? userId).toString();
+  const normalized = stored.replace(/^avatars\//, "");
+  let objectPath: string | null = null;
+
+  if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+    objectPath = normalized;
+  } else {
+    const { data: files, error: listErr } = await supabase.storage
+      .from("avatars")
+      .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+    if (listErr) return null;
+    if (files && files.length > 0) objectPath = `${normalized}/${files[0].name}`;
+  }
+
+  if (!objectPath) return null;
+
+  const { data: signed, error: signErr } = await supabase.storage
+    .from("avatars")
+    .createSignedUrl(objectPath, 60 * 60);
+  if (signErr) return null;
+  return signed?.signedUrl ?? null;
+}
+
 function HomePage() {
   // ===== Hooks =====
   const router = useRouter();
@@ -156,44 +181,29 @@ function HomePage() {
   const onSidebarLayout = useCallback(
     (event: any) => {
       const { width } = event.nativeEvent.layout;
-      if (width > 0 && width !== sidebarWidth) {
-        setSidebarWidth(width);
-      }
+      if (width > 0 && width !== sidebarWidth) setSidebarWidth(width);
     },
     [sidebarWidth]
   );
 
   // Optimized sidebar toggle to prevent scheduling conflicts
-  // Sidebar toggle using layout transform
   const toggleSidebar = useCallback(() => {
     if (showSidebar) {
-      // Hide sidebar using layout transform
       setTransform(256);
-
-      Animated.timing(overlayAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: false,
-      }).start(() => setShowSidebar(false));
+      Animated.timing(overlayAnim, { toValue: 0, duration: 300, useNativeDriver: false }).start(
+        () => setShowSidebar(false)
+      );
     } else {
-      // Show sidebar using layout transform
       setShowSidebar(true);
       setTransform(0);
-
-      Animated.timing(overlayAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: false,
-      }).start();
+      Animated.timing(overlayAnim, { toValue: 1, duration: 300, useNativeDriver: false }).start();
     }
   }, [showSidebar, setTransform, overlayAnim]);
 
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
   const [showModuleModal, setShowModuleModal] = useState(false);
-  const [moduleModalType, setModuleModalType] = useState<"completed" | "upcoming">(
-    "completed"
-  );
+  const [moduleModalType, setModuleModalType] = useState<"completed" | "upcoming">("completed");
   const [moduleModalCategory, setModuleModalCategory] = useState<"speaking" | "reading">(
     "speaking"
   );
@@ -239,9 +249,9 @@ function HomePage() {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
 
+  // ---- mount: initial profile load (kept) ----
   useEffect(() => {
     let mounted = true;
-
     const loadUser = async () => {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
@@ -258,48 +268,18 @@ function HomePage() {
 
       // Name → first name + initials
       const fullNameValue =
-        (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "").trim(); // 👈 renamed
+        (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "").trim();
       const parts = fullNameValue.split(/\s+/).filter(Boolean);
       const f = parts[0] ?? "";
-      const inits =
-        (parts[0]?.[0] ?? "").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase();
+      const inits = (parts[0]?.[0] ?? "").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase();
+
       if (!mounted) return;
-      setFullName(fullNameValue); // 👈 store full name for the modal
-      setFirstName(f || "Student"); // 👈 keep greeting as first name
+      setFullName(fullNameValue);
+      setFirstName(f || "Student");
       setInitials(inits || (f[0]?.toUpperCase() ?? "S"));
 
-      // Resolve avatar from private "avatars" bucket (folder = user.id or value in avatar_url).
-      const resolveAndSign = async (): Promise<string | null> => {
-        const stored = profile?.avatar_url?.toString() || user.id;
-        const normalized = stored.replace(/^avatars\//, "");
-        let objectPath: string | null = null;
-
-        // If stored already includes a filename (has extension), use it
-        if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
-          objectPath = normalized;
-        } else {
-          // Otherwise list the folder and take the newest
-          const { data: files, error: listErr } = await supabase.storage
-            .from("avatars")
-            .list(normalized, {
-              limit: 1,
-              sortBy: { column: "created_at", order: "desc" },
-            });
-          if (listErr) return null;
-          if (files && files.length > 0) objectPath = `${normalized}/${files[0].name}`;
-        }
-
-        if (!objectPath) return null;
-
-        const { data: signed, error: signErr } = await supabase.storage
-          .from("avatars")
-          .createSignedUrl(objectPath, 60 * 60); // 1 hour
-        if (signErr) return null;
-        return signed?.signedUrl ?? null;
-      };
-
       try {
-        const url = await resolveAndSign();
+        const url = await resolveSignedAvatar(user.id, profile?.avatar_url?.toString());
         if (!mounted) return;
         setAvatarUri(url);
       } catch {
@@ -370,7 +350,7 @@ function HomePage() {
     if (pathname?.includes("home-page")) return "Overview";
     if (pathname?.includes("exercise-speaking")) return "Speaking";
     if (pathname?.includes("exercise-reading")) return "Reading";
-    return "Overview"; // Don't set active tab to Community when on community pages
+    return "Overview";
   }, [pathname]);
 
   const activeTab = getActiveTab();
@@ -380,12 +360,10 @@ function HomePage() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => showSidebar,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to horizontal swipes when sidebar is open
         return showSidebar && Math.abs(gestureState.dx) > Math.abs(gestureState.dy * 2);
       },
       onPanResponderMove: (evt, gestureState) => {
         if (showSidebar && gestureState.dx > 0) {
-          // Only allow swiping to the right to close
           const newPosition = Math.min(gestureState.dx, sidebarWidth);
           sidebarAnim.setValue(newPosition);
         }
@@ -393,18 +371,176 @@ function HomePage() {
       onPanResponderRelease: (evt, gestureState) => {
         if (showSidebar) {
           if (gestureState.dx > 50 || gestureState.vx > 0.5) {
-            // Swipe to right (close sidebar) using layout transform
             setTransform(sidebarWidth);
             setShowSidebar(false);
             resetTransform();
           } else {
-            // Reset position if not swiped enough using layout transform
             resetTransform();
           }
         }
       },
     })
   ).current;
+
+  // ====== COUNTERS: only unlocked count as "upcoming" ======
+  const fetchCounts = useCallback(async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+
+    type Cat = "speaking" | "reading";
+
+    const countFor = async (category: Cat) => {
+      // pull active modules for this category
+      const { data: mods } = await supabase
+        .from("modules")
+        .select("id, level, order_index, active")
+        .eq("category", category)
+        .eq("active", true);
+
+      if (!mods || mods.length === 0) return { upcoming: 0, completed: 0 };
+
+      // pull progress for this user in these modules
+      const ids = mods.map((m: any) => m.id);
+      const { data: prog } = await supabase
+        .from("student_progress")
+        .select("module_id, progress")
+        .eq("student_id", uid)
+        .in("module_id", ids);
+
+      const pMap = new Map<string, number>();
+      (prog ?? []).forEach((p: any) => pMap.set(p.module_id, p.progress ?? 0));
+
+      // group by level (or 'default' if missing)
+      const groups = new Map<string, any[]>();
+      (mods as any[]).forEach((m) => {
+        const key = (m.level ? String(m.level).toLowerCase() : "default") as string;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(m);
+      });
+
+      let completed = 0;
+      let upcoming = 0;
+
+      // evaluate each level-sequence independently
+      for (const [, list] of groups) {
+        list.sort((a, b) => {
+          const ai = Number.isFinite(a.order_index) ? a.order_index : 0;
+          const bi = Number.isFinite(b.order_index) ? b.order_index : 0;
+          return ai - bi;
+        });
+
+        let previousCompleted = false;
+        list.forEach((m, idx) => {
+          const progress = pMap.get(m.id) ?? 0;
+          const isCompleted = progress >= 100;
+
+          // unlocked if first in sequence OR previous is completed
+          const unlocked = idx === 0 ? true : previousCompleted;
+
+          if (isCompleted) {
+            completed += 1;
+          } else {
+            // upcoming only counts if progress==0 AND unlocked
+            if (progress === 0 && unlocked) {
+              upcoming += 1;
+            }
+          }
+
+          previousCompleted = isCompleted;
+        });
+      }
+
+      return { upcoming, completed };
+    };
+
+    const [s, r] = await Promise.all([countFor("speaking"), countFor("reading")]);
+
+    setModuleCounts((prev) => ({
+      ...prev,
+      upcomingSpeaking: s.upcoming,
+      completedSpeaking: s.completed,
+      upcomingReading: r.upcoming,
+      completedReading: r.completed,
+    }));
+  }, []);
+
+  // refresh on screen focus (avatar + counts)
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      (async () => {
+        const { data: auth } = await supabase.auth.getUser();
+        const user = auth?.user;
+        if (!user || cancelled) return;
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("name, avatar_url")
+          .eq("id", user.id)
+          .single();
+
+        const fullNameValue =
+          (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "").trim();
+        if (cancelled) return;
+
+        setFullName(fullNameValue);
+        const f = fullNameValue.split(/\s+/)[0] ?? "Student";
+        const inits =
+          (fullNameValue.split(/\s+/)[0]?.[0] ?? "S").toUpperCase() +
+          (fullNameValue.split(/\s+/)[1]?.[0] ?? "").toUpperCase();
+        setFirstName(f);
+        setInitials(inits || (f[0]?.toUpperCase() ?? "S"));
+
+        const url = await resolveSignedAvatar(user.id, profile?.avatar_url?.toString());
+        if (cancelled) return;
+        setAvatarUri(url);
+
+        await fetchCounts();
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [fetchCounts])
+  );
+
+  // realtime: recompute when this user's progress changes
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return;
+
+      channel = supabase
+        .channel("rt-student-progress-home")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "student_progress",
+            filter: `student_id=eq.${uid}`,
+          },
+          () => {
+            fetchCounts();
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [fetchCounts]);
+
+  // initial fetch so numbers show on very first mount
+  useEffect(() => {
+    fetchCounts();
+  }, [fetchCounts]);
 
   // ===== UI Components =====
 
@@ -651,9 +787,7 @@ function HomePage() {
   // Handle join session
   const handleJoinSession = (sessionId: string) => {
     setShowLiveSessionModal(false);
-    // Set hasJoinedClass to true when joining a session
     setHasJoinedClass(true);
-    // Navigate to live session page with the session ID
     router.push(`/live-session/${sessionId}`);
   };
 
@@ -695,7 +829,7 @@ function HomePage() {
 
   // User data for ProfileMenu (now dynamic)
   const userProfile: UserProfile = {
-    name: fullName || "Student", // 👈 use full name in modal
+    name: fullName || "Student",
     email: userEmail,
     image: { uri: avatarUri || TRANSPARENT_PNG },
   };
@@ -737,7 +871,6 @@ function HomePage() {
         hasJoinedClass={hasJoinedClass}
         setHasJoinedClass={setHasJoinedClass}
         onLeaveClass={() => {
-          // This will be called when user leaves class from the profile menu
           setHasJoinedClass(false);
         }}
       />
@@ -746,7 +879,7 @@ function HomePage() {
       <ScrollView
         contentContainerStyle={{
           paddingBottom: 60,
-          paddingTop: insets.top + 10, // Add status bar height + padding
+          paddingTop: insets.top + 10,
         }}
         showsVerticalScrollIndicator={false}
         bounces={false}

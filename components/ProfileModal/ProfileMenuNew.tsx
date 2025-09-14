@@ -19,6 +19,7 @@ import JoinClassModal from "../StudentModal/JoinClassModal";
 // ⬇️ same import style as your project
 import { supabase } from "@/lib/supabaseClient";
 
+
 export interface UserProfile {
   name: string;
   email: string;
