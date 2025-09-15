@@ -18,6 +18,7 @@ import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import { Switch } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
+import { supabase } from "@/lib/supabaseClient";
 
 const CreatePost = () => {
   const { videoUri } = useLocalSearchParams<{ videoUri: string }>();
@@ -54,6 +55,36 @@ const CreatePost = () => {
     durationMillis: 0,
     positionMillis: 0,
   });
+
+  // ------- NEW: module selected for DB (no UI change) -------
+  // We’ll resolve the first active speaking module for Basic/Advanced
+  const [moduleTitle, setModuleTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    // level: true => "Advanced" in your chip, false => "Basic"
+    const level = isPublic ? "advanced" : "basic";
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("modules")
+          .select("title")
+          .eq("category", "speaking")
+          .eq("level", level)
+          .eq("active", true)
+          .order("order_index", { ascending: true })
+          .limit(1);
+        if (error) {
+          console.log("[create-post] modules query error:", error.message);
+          setModuleTitle(null);
+          return;
+        }
+        setModuleTitle(data?.[0]?.title ?? null);
+      } catch (e) {
+        console.log("[create-post] modules query threw:", e);
+        setModuleTitle(null);
+      }
+    })();
+  }, [isPublic]);
 
   // Initialize video on mount and when videoUri changes
   useEffect(() => {
@@ -164,12 +195,57 @@ const CreatePost = () => {
 
   /**
    * Handles posting content
+   * (DB insert only; UI unchanged)
    */
-  const handlePost = () => {
-    if (postText.trim()) {
+  const handlePost = async () => {
+    if (!postText.trim()) {
+      Alert.alert("Add something first", "Write a short caption before posting.");
+      return;
+    }
+
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user) {
+        Alert.alert("Not signed in", "Please log in again.");
+        return;
+      }
+
+      // Your title block in the card says "Business Presentation Practice".
+      // We’ll keep that as the DB title to match visual.
+      const titleForDb = "Business Presentation Practice";
+
+      const { error: insertErr } = await supabase
+        .from("posts")
+        .insert([
+          {
+            user_id: user.id,
+            title: titleForDb,
+            content: postText.trim(),
+            media_url: (videoUri as string) || null,
+            module: moduleTitle,            // resolved from modules table
+            type: "speaking",
+            status: "published",            // it’s going to community
+            visibility: "public",           // visible in community-selection
+            allow_comments: allowComments,  // NEW column
+            allow_reviews: allowRatings,    // NEW column
+          },
+        ])
+        .select("id")
+        .single();
+
+      if (insertErr) {
+        console.log("[create-post] insert error:", insertErr.message);
+        Alert.alert("Post failed", insertErr.message);
+        return;
+      }
+
       Alert.alert("Posted!", "Your post has been shared successfully.");
       setPostText("");
-      router.back();
+      router.back(); // keep your original behavior
+    } catch (e: any) {
+      console.log("[create-post] unhandled error:", e?.message || e);
+      Alert.alert("Post failed", e?.message || "Something went wrong.");
     }
   };
 

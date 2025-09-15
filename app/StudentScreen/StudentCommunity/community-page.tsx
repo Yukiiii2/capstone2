@@ -86,12 +86,17 @@ interface Review {
   id: string;
   role: "Teacher" | "Student" | "Peer" | "Reviewer";
   name: string;
-  stars?: number;
+  stars?: number;            // keep to satisfy ReviewsService.overall()
   time: string;
   text: string;
   // ⬇️ optional fields used only for avatar rendering
   avatar?: string | null;
   initials?: string;
+
+  // ⬇️ NEW: ratings persisted per comment
+  ratingDelivery?: number | null;
+  ratingConfidence?: number | null;
+  ratingOverall?: number | null; // rounded avg of delivery + confidence
 }
 
 // Helper function to generate unique IDs - only for React keys, not for rendering
@@ -392,6 +397,9 @@ const CommunityPage: React.FC = () => {
   );
   const [postMediaUrl, setPostMediaUrl] = useState<string | null>(null);
 
+  // NEW: post owner id (for notifications)
+  const [postOwnerId, setPostOwnerId] = useState<string | null>(null); // NEW
+
   // ===== likes =====
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(24);
@@ -413,15 +421,15 @@ const CommunityPage: React.FC = () => {
   const [commentEntered, setCommentEntered] = useState("");
   const [localOverall, setLocalOverall] = useState(0);
   const [canSubmit, setCanSubmit] = useState(false);
-  const [overall, setOverall] = useState(0);
+  const [overall, setOverall] = useState<number | null>(null); // allow fallback to local
 
   // current user id cache
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     setCommentEntered(typed.trim().length > 0 ? "y" : "");
-    const ov = (ratingDelivery + ratingConfidence) / 2;
-    setLocalOverall(ov);
+    const rounded = Math.round((ratingDelivery + ratingConfidence) / 2);
+    setLocalOverall(rounded);
     setCanSubmit(typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0);
   }, [typed, ratingDelivery, ratingConfidence]);
 
@@ -495,6 +503,7 @@ const CommunityPage: React.FC = () => {
       return ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
     })();
 
+    setPostOwnerId(data.user_id); // NEW
     setPostAuthorName(authorName);
     setPostAuthorInitials(initials);
     setPostCreatedAgo(`Posted ${timeAgo(data.created_at)}`);
@@ -536,11 +545,48 @@ const CommunityPage: React.FC = () => {
     } catch (e) {
       console.warn("[likes] load error:", e);
     }
-  }, [effectivePostId, currentUserId]);
+  }, [effectivePostId, currentUserId]); // NEW
 
   useEffect(() => {
     loadLikes();
-  }, [loadLikes]);
+  }, [loadLikes]); // NEW
+
+  // realtime: likes
+  useEffect(() => {
+    if (!effectivePostId) return;
+    const channel = supabase
+      .channel(`likes-${effectivePostId}`) // NEW
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "likes",
+        filter: `post_id=eq.${effectivePostId}`,
+      }, () => {
+        loadLikes(); // NEW
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel); // NEW
+    };
+  }, [effectivePostId, loadLikes]); // NEW
+
+  const insertNotification = useCallback(async (type: "like" | "comment") => {
+    // NEW
+    try {
+      if (!effectivePostId || !currentUserId || !postOwnerId) return;
+      if (postOwnerId === currentUserId) return; // don't notify myself
+      await supabase.from("notifications").insert({
+        recipient_id: postOwnerId,
+        actor_id: currentUserId,
+        post_id: effectivePostId,
+        type,
+        is_read: false,
+      });
+    } catch (e) {
+      console.log("[notifications] insert error:", e);
+    }
+  }, [effectivePostId, currentUserId, postOwnerId]); // NEW
 
   const toggleLike = useCallback(async () => {
     if (!effectivePostId || !currentUserId) return;
@@ -558,6 +604,7 @@ const CommunityPage: React.FC = () => {
           user_id: currentUserId,
         });
         if (error) throw error;
+        insertNotification("like"); // NEW
       } else {
         const { error } = await supabase
           .from("likes")
@@ -573,8 +620,8 @@ const CommunityPage: React.FC = () => {
       return;
     }
 
-    loadLikes();
-  }, [effectivePostId, currentUserId, isLiked, loadLikes]);
+    loadLikes(); // NEW ensure consistency
+  }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]); // CHANGED deps
 
   // ===== comments/reviews: list + add =====
   const loadComments = useCallback(async () => {
@@ -588,6 +635,8 @@ const CommunityPage: React.FC = () => {
         content,
         created_at,
         user_id,
+        rating_delivery,
+        rating_confidence,
         profiles!comments_user_id_fkey (
           name,
           avatar_url
@@ -599,6 +648,7 @@ const CommunityPage: React.FC = () => {
     if (error || !data) {
       console.warn("[comments] load error:", error);
       setReviews(MOCK_REVIEWS);
+      setOverall(null);
       setLoadingReviews(false);
       return;
     }
@@ -615,6 +665,10 @@ const CommunityPage: React.FC = () => {
           avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
         }
 
+        const rd = row.rating_delivery ?? null;
+        const rc = row.rating_confidence ?? null;
+        const ro = rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+
         return {
           id: row.id,
           role: "Student",
@@ -623,14 +677,87 @@ const CommunityPage: React.FC = () => {
           text: row.content || "",
           avatar,
           initials,
+          ratingDelivery: rd,
+          ratingConfidence: rc,
+          ratingOverall: ro,
         } as Review;
       })
     );
 
+    const rated = mapped.filter(r => r.ratingOverall != null) as Array<Review & {ratingOverall: number}>;
+    const postAvgRounded = rated.length
+      ? Math.round(rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length)
+      : null;
+
     setReviews(mapped);
-    setOverall(0);
+    setOverall(postAvgRounded);
     setLoadingReviews(false);
-  }, [effectivePostId]);
+  }, [effectivePostId]); // NEW
+
+  // realtime: comments INSERT
+  useEffect(() => {
+    if (!effectivePostId) return;
+    const channel = supabase
+      .channel(`comments-${effectivePostId}`) // NEW
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "comments",
+        filter: `post_id=eq.${effectivePostId}`,
+      }, async (payload) => {
+        try {
+          const row: any = payload.new;
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("name, avatar_url")
+            .eq("id", row.user_id)
+            .single();
+
+          const name = prof?.name || "User";
+          const parts = name.trim().split(/\s+/).filter(Boolean);
+          const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+
+          let avatar: string | null = null;
+          if (prof?.avatar_url) avatar = await resolveSignedAvatar(row.user_id, prof.avatar_url);
+
+          const rd = row.rating_delivery ?? null;
+          const rc = row.rating_confidence ?? null;
+          const ro = rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+
+          const review: Review = {
+            id: String(row.id),
+            role: "Student",
+            name: `Student • ${name}`,
+            time: timeAgo(row.created_at),
+            text: row.content || "",
+            avatar,
+            initials,
+            ratingDelivery: rd,
+            ratingConfidence: rc,
+            ratingOverall: ro,
+          };
+
+          setReviews(prev => {
+            const next = [review, ...prev];
+            const rated = next.filter(r => r.ratingOverall != null) as Array<Review & {ratingOverall: number}>;
+            const postAvgRounded =
+              rated.length
+                ? Math.round(rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length)
+                : null;
+            setOverall(postAvgRounded);
+            return next;
+          });
+        } catch (e) {
+          console.log("[comments realtime] hydrate error:", e);
+          loadComments(); // fallback
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel); // NEW
+    };
+  }, [effectivePostId, loadComments]); // NEW
 
   const postReview = useCallback(async () => {
     setSubmitting(true);
@@ -644,6 +771,9 @@ const CommunityPage: React.FC = () => {
         post_id: effectivePostId,
         user_id: currentUserId,
         content: typed.trim(),
+        // NEW ratings
+        rating_delivery: ratingDelivery,
+        rating_confidence: ratingConfidence,
       });
 
       if (error) {
@@ -652,14 +782,17 @@ const CommunityPage: React.FC = () => {
         return;
       }
 
+      // notify post owner
+      await insertNotification("comment"); // NEW
+
       setTyped("");
       setRatingDelivery(0);
       setRatingConfidence(0);
-      await loadComments();
+      await loadComments(); // keep consistent with realtime
     } finally {
       setSubmitting(false);
     }
-  }, [effectivePostId, currentUserId, typed, loadComments]);
+  }, [effectivePostId, currentUserId, typed, insertNotification, loadComments, ratingDelivery, ratingConfidence]); // CHANGED deps
 
   // boot: when param changes, load everything
   useEffect(() => {
@@ -668,7 +801,7 @@ const CommunityPage: React.FC = () => {
       await loadLikes();
       await loadComments();
     })();
-  }, [loadPost, loadLikes, loadComments]);
+  }, [loadPost, loadLikes, loadComments]); // NEW
 
   const handleCommunityPress = () => {
     console.log(`Pressed on Community`);
