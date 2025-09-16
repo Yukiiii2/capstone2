@@ -10,6 +10,7 @@ import {
   StatusBar,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Linking
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -158,7 +159,7 @@ const RoleSelectionModal = ({ visible, onClose, onSelectRole }: { visible: boole
     onRequestClose={onClose}
   >
     <View className="flex-1 justify-center items-center bg-black/60">
-      <View className="w-4/5 bg-[#1A1F2E]/95 backdrop-blur-xl rounded-2xl p-6">
+      <View className="w-4/5 bg-[#1A1F2E] backdrop-blur-xl rounded-2xl p-6">
         <Text className="text-white text-2xl font-bold text-center mb-2">Create account</Text>
         <Text className="text-gray-300 text-center mb-6">Choose your role</Text>
         
@@ -392,36 +393,46 @@ export default function Landing() {
   ];
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: '#1e293b' }}
-      contentContainerStyle={{ minHeight: '100%', paddingBottom: 5 }}
-      onScroll={handleScroll}
-      scrollEventThrottle={200}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={{ flex: 1 }}>
-        {/* Make Status Bar transparent */}
-        <StatusBar translucent backgroundColor="transparent" />
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      {/* Make Status Bar transparent */}
+      <StatusBar translucent backgroundColor="transparent" />
 
-        {/* Gradient Background */}
-        <View
-          style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
-        >
-          <LinearGradient
-            colors={["#0F172A", "#1E293B", "#0F172A"]}
-            style={{ flex: 1 }}
-          />
-        </View>
+      {/* Gradient Background */}
+      <View
+        style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
+      >
+        <LinearGradient
+          colors={["#0F172A", "#1E293B", "#0F172A"]}
+          style={{ flex: 1 }}
+        />
+      </View>
 
-        {/* Decorative Circles */}
-        <View className="absolute w-40 h-40 bg-[#a78bfa]/10 rounded-full -top-20 -left-20" />
-        <View className="absolute w-24 h-24 bg-[#a78bfa]/10 rounded-full top-1/4 -right-12" />
-        <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full top-1/3 -left-16" />
-        <View className="absolute w-48 h-48 bg-[#a78bfa]/5 rounded-full bottom-1/4 -right-24" />
-        <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full bottom-0.5 right-8" />
-        <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full top-15 right-12" />
-        <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full bottom-24 left-1/6" />
+      {/* Gradient Background */}
+      <View
+        style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: -1 }}
+      >
+        <LinearGradient
+          colors={["#0F172A", "#1E293B", "#0F172A"]}
+          style={{ flex: 1 }}
+        />
+      </View>
 
+      {/* Decorative Circles */}
+      <View style={{ position: 'absolute', width: 160, height: 160, backgroundColor: '#a78bfa0d', borderRadius: 80, top: -120, left: -48, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 96, height: 96, backgroundColor: '#a78bfa0d', borderRadius: 48, top: 920, right: -40, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, bottom: 40, left: 48, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 144, height: 144, backgroundColor: '#a78bfa0d', borderRadius: 72, bottom: -20, right: -32, zIndex: 10 }} />
+      <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, top: 112, left: 240, zIndex: 10 }} />
+
+      <ScrollView 
+        style={{ flex: 1, height: '70%' }}
+        contentContainerStyle={{ 
+          paddingBottom: 0,
+          paddingTop: 0,
+          flexGrow: 0
+        }}
+        showsVerticalScrollIndicator={false}
+      >
         <View className="px-6 py-8 bottom-4 max-w-md mx-auto w-full">
           {/* Header */}
           <View className="flex-row justify-between items-center mb-2">
@@ -457,7 +468,7 @@ export default function Landing() {
 
             <View className="flex-row space-x-4 mb-6">
               <Link href="Auth/Login/role-selection" asChild>
-                <TouchableOpacity className=" bg-purple-500/70 border border-white/40 px-4 mb-2 py-3 rounded-lg flex-1 items-center">
+                <TouchableOpacity className=" bg-purple-500 border border-white/40 px-4 mb-2 py-3 rounded-lg flex-1 items-center">
                   <Text className="text-white text-sm font-bold">LOG IN</Text>
                 </TouchableOpacity>
               </Link>
@@ -492,13 +503,19 @@ export default function Landing() {
           </View>
 
           {/* Video Preview */}
-          <View className="mb-8 px-4">
-            <Text className="text-2xl font-bold text-white mb-2 text-center">
-              Public Speaking
+          <View className="mb-2 px-4">
+            <Text className="text-white text-lg mb-1 text-center">
+              Example of how to speak confidently
             </Text>
-            <Text className="text-gray-300 mb-4 text-center">
-              Here is an example of how to speak confidently
-            </Text>
+            <TouchableOpacity 
+              className="mb-4"
+              onPress={() => Linking.openURL('https://www.youtube.com/watch?v=OMbNoo4mCcI')}
+              activeOpacity={0.7}
+            >
+              <Text className="text-purple-400 text-center text-sm underline">
+              Watch the full video on YouTube.
+              </Text>
+            </TouchableOpacity>
 
             <View 
               ref={videoContainerRef}
@@ -541,6 +558,10 @@ export default function Landing() {
                 </TouchableOpacity>
               )}
             </View>
+            
+            <Text className="text-white mb-4 text-[10px] mt-4 text-center">
+              © Education For All by Cameron Allen, TEDxKids@ElCajon
+            </Text>
           </View>
 
           {/* Features Section */}
@@ -602,7 +623,7 @@ export default function Landing() {
           <View className="bg-white/5 border border-white/20 rounded-2xl p-6 bottom-16 -mb-10">
             <View className="items-center mb-6">
               <View className="w-16 h-16 rounded-2xl items-center justify-center mb-2">
-                <Ionicons name="rocket-outline" size={50} color="#a855f7" />
+                <Ionicons name="rocket-outline" size={50} color="#FFFFFF" />
               </View>
               <Text className="text-white text-2xl font-bold mb-4 mt-1">
                 Ready to get started?
@@ -685,18 +706,19 @@ export default function Landing() {
             </View>
 
             <View className="pt-4 border-t border-white/30 mt-4">
-              <Text className="text-gray-500 text-sm text-center">
+              <Text className="text-white text-sm text-center">
                 {new Date().getFullYear()} Voclaria. All rights reserved.
               </Text>
             </View>
           </View>
         </View>
-        <RoleSelectionModal 
-          visible={showRoleModal} 
-          onClose={() => setShowRoleModal(false)}
-          onSelectRole={handleRoleSelect}
-        />
-      </View>
-    </ScrollView>
+      </ScrollView>
+      
+      <RoleSelectionModal 
+        visible={showRoleModal} 
+        onClose={() => setShowRoleModal(false)}
+        onSelectRole={handleRoleSelect}
+      />
+    </View>
   );
 }

@@ -231,6 +231,7 @@ function HomePage() {
   const readingPercent = Math.round(readingProgress * 100);
 
   const [showReadingLevelModal, setShowReadingLevelModal] = useState(false);
+  const [showCommunityLevelModal, setShowCommunityLevelModal] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
 
   // ⬇️ Start confidence at ZERO
@@ -337,9 +338,21 @@ function HomePage() {
     (level: "Basic" | "Advanced") => {
       setShowReadingLevelModal(false);
       if (level === "Basic") {
-        router.push("/basic-exercise-reading");
+        router.push("/StudentScreen/ReadingExercise/reading-exercise?level=basic");
       } else {
-        router.push("/advance-execise-reading");
+        router.push("/StudentScreen/ReadingExercise/reading-exercise?level=advanced");
+      }
+    },
+    [router]
+  );
+
+  const handleCommunityLevelSelect = useCallback(
+    (level: "Basic" | "Advanced") => {
+      setShowCommunityLevelModal(false);
+      if (level === "Basic") {
+        router.push("/StudentScreen/Community/basic-community");
+      } else {
+        router.push("/StudentScreen/Community/advanced-community");
       }
     },
     [router]
@@ -543,6 +556,55 @@ function HomePage() {
   }, [fetchCounts]);
 
   // ===== UI Components =====
+  const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
+  const buttonScale = useRef(new Animated.Value(1)).current;
+
+  const animatePressIn = () => {
+    Animated.spring(buttonScale, {
+      toValue: 0.97,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const animatePressOut = () => {
+    Animated.spring(buttonScale, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const QuickActionButton = ({ 
+    onPress, 
+    icon, 
+    title, 
+    subtitle,
+    iconColor = "#FFFFFF" 
+  }: {
+    onPress: () => void;
+    icon: string;
+    title: string;
+    subtitle: string;
+    iconColor?: string;
+  }) => (
+    <AnimatedTouchable
+      className="py-3 px-2 border border-white/10 rounded-lg bg-white/5 mb-2 overflow-hidden"
+      activeOpacity={0.7}
+      onPress={onPress}
+      onPressIn={animatePressIn}
+      onPressOut={animatePressOut}
+      style={{
+        transform: [{ scale: buttonScale }],
+      }}
+    >
+      <View className="flex-row items-center">
+        <Ionicons name={icon as any} size={20} color={iconColor} />
+        <Text className="text-white ml-3 font-medium">{title}</Text>
+      </View>
+      <Text className="text-gray-400 text-xs mt-1 ml-8">{subtitle}</Text>
+    </AnimatedTouchable>
+  );
 
   // Sidebar Component
   const Sidebar = ({
@@ -594,65 +656,49 @@ function HomePage() {
         </View>
 
         {/* Quick Action Items */}
-        <TouchableOpacity
-          className="py-3 px-2 border border-white/10  rounded-lg bg-white/5 mb-2"
-          activeOpacity={0.7}
+        <QuickActionButton
           onPress={() => {
             toggleSidebar();
-            router.push("/exercise-speaking");
+            setShowLevelModal(true);
           }}
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="mic-outline" size={20} color="#FFFFFF" />
-            <Text className="text-violet-500 ml-3 font-medium">SPEAKING EXERCISE</Text>
-          </View>
-          <Text className="text-gray-400 text-xs mt-1 ml-8">Practice Speaking with AI</Text>
-        </TouchableOpacity>
+          icon="mic-outline"
+          title="SPEAKING EXERCISE"
+          subtitle="Practice Speaking with AI"
+          iconColor="#FFFFFF"
+        />
 
-        <TouchableOpacity
-          className="py-3 px-2 border border-white/10  rounded-lg bg-white/5 mb-2"
-          activeOpacity={0.7}
+        <QuickActionButton
           onPress={() => {
             toggleSidebar();
             setShowReadingLevelModal(true);
           }}
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="book-outline" size={20} color="#FFFFFF" />
-            <Text className="text-violet-500 ml-3 font-medium">READING EXERCISES</Text>
-          </View>
-          <Text className="text-gray-400 text-xs mt-1 ml-8">Practice Reading with AI</Text>
-        </TouchableOpacity>
+          icon="book-outline"
+          title="READING EXERCISES"
+          subtitle="Practice Reading with AI"
+          iconColor="#FFFFFF"
+        />
 
-        <TouchableOpacity
-          className="py-3 px-2 border border-white/10  rounded-lg bg-white/5 mb-2"
-          activeOpacity={0.7}
+        <QuickActionButton
           onPress={() => {
             toggleSidebar();
-            setShowCommunityModal(true);
+            setShowCommunityLevelModal(true);
           }}
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="people-outline" size={20} color="#FFFFFF" />
-            <Text className="text-violet-500 ml-3 font-medium">PEER REVIEW</Text>
-          </View>
-          <Text className="text-gray-400 text-xs mt-1 ml-8">Community Feedback</Text>
-        </TouchableOpacity>
+          icon="people-outline"
+          title="PEER REVIEW"
+          subtitle="Community Feedback"
+          iconColor="#FFFFFF"
+        />
 
-        <TouchableOpacity
-          className="py-3 px-2 border border-white/10 rounded-lg bg-white/5"
-          activeOpacity={0.7}
+        <QuickActionButton
           onPress={() => {
             toggleSidebar();
-            router.push("/live-sessions-select");
+            router.push("/StudentScreen/StudentLiveSession/live-sessions-select");
           }}
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="videocam-outline" size={20} color="#FFFFFF" />
-            <Text className="text-violet-500 ml-3 font-medium">LIVE SESSION</Text>
-          </View>
-          <Text className="text-gray-400 text-xs mt-1 ml-8">Join sessions with peers</Text>
-        </TouchableOpacity>
+          icon="videocam-outline"
+          title="LIVE SESSION"
+          subtitle="Join sessions with peers"
+          iconColor="#FFFFFF"
+        />
       </View>
     </Animated.View>
   );
@@ -964,7 +1010,7 @@ function HomePage() {
                 </TouchableOpacity>
               </View>
 
-              <Text className="text-white text-xl font-semibold text-start top-1">
+              <Text className="text-white text-xl font-semibold text-start mt-2 top-1">
                 Speaking Skills
               </Text>
 
@@ -982,22 +1028,16 @@ function HomePage() {
                   {/* Performance Stats */}
                   <View className="flex-1 ml-4">
                     <View className="mb-4">
-                      <Text className="text-violet-300 text-xs font-medium mb-1">
+                    <Text className="text-violet-300 top-2 text-lg font-medium mb-1">
                         Overall Performance
                       </Text>
-                      <View className="h-2 bg-white/10 rounded-full overflow-hidden">
-                        <View
-                          className="bg-gradient-to-r from-violet-500 to-violet-400 rounded-full h-2"
-                          style={{ width: `${speakingPercent}%` }}
-                        />
-                      </View>
                     </View>
-                    <View className="flex-row items-center px-3 py-1.5 self-start">
-                      <View className="w-7 h-7 bg-violet-500 right-3 rounded-full items-center justify-center mr-2">
-                        <Ionicons name="checkmark" size={20} color="white" />
+                    <View className="flex-row items-center px-3 py-1.5 bottom-2 self-start">
+                      <View className="w-5 h-5 bg-violet-500 right-3 rounded-full items-center justify-center mr-2">
+                        <Ionicons name="checkmark" size={10} color="white" />
                       </View>
                       <Text className="text-white/90 text-lg right-3 font-medium">
-                        Confident Level
+                        Confidence Level
                       </Text>
                     </View>
                   </View>
@@ -1005,7 +1045,7 @@ function HomePage() {
               </View>
 
               {/* Reading Results Section */}
-              <Text className="text-white text-xl font-semibold text-start mt-1">
+              <Text className="text-white text-xl font-semibold text-start mt-1 top-1">
                 Reading Skills
               </Text>
               <View className="bg-white/5 top-3 backdrop-blur-xl rounded-xl p-4 mb-5 border border-white/20 shadow-lg shadow-violet-900/20">
@@ -1021,22 +1061,16 @@ function HomePage() {
                   {/* Performance Stats */}
                   <View className="flex-1 ml-4">
                     <View className="mb-4">
-                      <Text className="text-violet-300 text-xs font-medium mb-1">
+                      <Text className="text-violet-300 top-2 text-lg font-medium mb-1">
                         Overall Performance
                       </Text>
-                      <View className="h-2 bg-white/10 rounded-full overflow-hidden">
-                        <View
-                          className="bg-gradient-to-r from-violet-500 to-violet-400 rounded-full h-2"
-                          style={{ width: `${readingPercent}%` }}
-                        />
-                      </View>
                     </View>
-                    <View className="flex-row items-center px-3 py-1.5 self-start">
-                      <View className="w-7 h-7 bg-violet-500 right-3 rounded-full items-center justify-center mr-2">
-                        <Ionicons name="checkmark" size={20} color="white" />
+                    <View className="flex-row items-center px-3 py-1.5 bottom-2 self-start">
+                      <View className="w-5 h-5 bg-violet-500 right-3 rounded-full items-center justify-center mr-2">
+                        <Ionicons name="checkmark" size={10} color="white" />
                       </View>
                       <Text className="text-white/90 text-lg right-3 font-medium">
-                        Confident Level
+                        Confidence Level
                       </Text>
                     </View>
                   </View>
@@ -1099,11 +1133,18 @@ function HomePage() {
 
       <NavigationBar />
 
-      {/* Level Selection Modal */}
+      {/* Reading Level Selection Modal */}
       <LevelSelectionModal
-        visible={showLevelModal}
-        onDismiss={() => setShowLevelModal(false)}
-        onSelectLevel={handleLevelSelect}
+        visible={showReadingLevelModal}
+        onDismiss={() => setShowReadingLevelModal(false)}
+        onSelectLevel={handleReadingLevelSelect}
+      />
+
+      {/* Community Level Selection Modal */}
+      <LevelSelectionModal
+        visible={showCommunityLevelModal}
+        onDismiss={() => setShowCommunityLevelModal(false)}
+        onSelectLevel={handleCommunityLevelSelect}
       />
 
       {/* Module Tracking Modal */}

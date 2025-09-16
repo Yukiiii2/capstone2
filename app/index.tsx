@@ -706,17 +706,6 @@ export default function Index() {
             shadowRadius: 25,
           }}
         >
-          {/* White circle background */}
-          <Animated.View 
-            className="absolute w-52 h-52 rounded-full bg-white/20"
-            style={{
-              opacity: logoOpacity.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 0.7]
-              }),
-              transform: [{ scale: logoScale }],
-            }}
-          />
           
           {/* Logo */}
           <Image
@@ -724,6 +713,7 @@ export default function Index() {
             className="w-40 h-40 z-10"
             resizeMode="contain"
             style={{
+              top: 20,
               shadowColor: '#fff',
               shadowOffset: { width: 0, height: 0 },
               shadowOpacity: 0.5,
@@ -742,7 +732,7 @@ export default function Index() {
           <AnimatedWord 
             text="VOCLARIA" 
             delay={2000}
-            style={{ fontSize: 50, fontWeight: '900', textAlign: 'center', marginBottom: 8 }}
+            style={{ fontSize: 50, fontWeight: '900', textAlign: 'center', marginBottom: 4, bottom: 40 }}
           />
         </Animated.View>
 
@@ -761,10 +751,10 @@ export default function Index() {
             ],
           }}
         >
-          <Text className="text-purple-200 text-xl bottom-6 font-semibold tracking-wide text-center mb-1">
+          <Text className="text-purple-200 text-xl bottom-14 font-semibold tracking-wide text-center mb-1">
             AI-Powered Speaking
           </Text>
-          <Text className="text-purple-200 text-xl bottom-6 font-semibold tracking-wide text-center">
+          <Text className="text-purple-200 text-xl bottom-14 font-semibold tracking-wide text-center">
             & Reading Assistant
           </Text>
         </Animated.View>
@@ -774,7 +764,7 @@ export default function Index() {
           {[0, 1, 2].map((i) => (
             <Animated.View 
               key={i}
-              className="w-3 h-3 rounded-full mx-2 border-2 border-white/50"
+              className="w-3 h-3 rounded-full mx-2 bottom-14 border-2 border-white/50"
               style={{
                 opacity: subtitleOpacity.interpolate({
                   inputRange: [0, 0.5, 1],

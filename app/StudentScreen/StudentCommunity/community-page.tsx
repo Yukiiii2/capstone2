@@ -72,13 +72,31 @@ async function resolveSignedAvatar(
   }
 }
 
+const timeAgo = (iso?: string | null) => {
+  if (!iso) return "";
+  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  const steps = [60, 60, 24, 7, 4.345, 12];
+  const labels = ["s", "m", "h", "d", "w", "mo", "y"];
+  let i = 0, acc = s;
+  while (i < steps.length && acc >= steps[i]) { acc = Math.floor(acc / steps[i]); i++; }
+  return `${acc}${labels[i] || "s"} ago`;
+};
+
 interface Review {
   id: string;
   role: "Teacher" | "Student" | "Peer" | "Reviewer";
   name: string;
-  stars?: number;
+  stars?: number;            // keep to satisfy ReviewsService.overall()
   time: string;
   text: string;
+  // ⬇️ optional fields used only for avatar rendering
+  avatar?: string | null;
+  initials?: string;
+
+  // ⬇️ NEW: ratings persisted per comment
+  ratingDelivery?: number | null;
+  ratingConfidence?: number | null;
+  ratingOverall?: number | null; // rounded avg of delivery + confidence
 }
 
 // Helper function to generate unique IDs - only for React keys, not for rendering
@@ -357,7 +375,8 @@ const BottomNav: React.FC<BottomNavProps & { onCommunityPress: () => void }> = (
 const CommunityPage: React.FC = () => {
   const router = useRouter?.() || { replace: () => {} };
   const pathname = usePathname?.() || "";
-  const { postId } = useLocalSearchParams<{ postId?: string }>();
+  const { postId, studentId } = useLocalSearchParams<{ postId?: string; studentId?: string }>();
+  const effectivePostId = (postId || studentId) as string | undefined;
 
   // ===== profile menu wiring (like Home-page) =====
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
@@ -367,23 +386,63 @@ const CommunityPage: React.FC = () => {
   const [fullName, setFullName] = useState<string>("");
   const [initials, setInitials] = useState<string>("");
 
-  // ===== backend-driven post fields (defaults = your static UI) =====
-  const [authorName, setAuthorName] = useState<string>("Sarah Johnson");
-  const [authorAvatar, setAuthorAvatar] = useState<string>("https://randomuser.me/api/portraits/women/32.jpg");
-  const [postedAgo, setPostedAgo] = useState<string>("Posted 2 hours ago");
+  // ===== post header data (author + post) =====
+  const [postAuthorName, setPostAuthorName] = useState<string>("Sarah Johnson");
+  const [postAuthorAvatar, setPostAuthorAvatar] = useState<string | null>(null);
+  const [postAuthorInitials, setPostAuthorInitials] = useState<string>("SJ");
+  const [postCreatedAgo, setPostCreatedAgo] = useState<string>("Posted 2 hours ago");
   const [postTitle, setPostTitle] = useState<string>("Quarterly Sales Presentation");
-  const [postDesc, setPostDesc] = useState<string>("This is a focused practice session to refine delivery, structure, and slide flow.");
-  const [videoThumb, setVideoThumb] = useState<string>("https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80");
+  const [postContent, setPostContent] = useState<string>(
+    "This is a focused practice session to refine delivery, structure, and slide flow."
+  );
+  const [postMediaUrl, setPostMediaUrl] = useState<string | null>(null);
 
+  // NEW: post owner id (for notifications)
+  const [postOwnerId, setPostOwnerId] = useState<string | null>(null); // NEW
+
+  // ===== likes =====
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(24);
+
+  // ===== reviews/comments =====
+  const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+
+  // ===== rest of your original state =====
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("Community");
+  const [showLevelModal, setShowLevelModal] = useState(false);
+  const [showCommunityModal, setShowCommunityModal] = useState(false);
+  const [level, setLevel] = useState<"Basic" | "Advanced">("Basic");
+  const [submitting, setSubmitting] = useState(false);
+  const [ratingDelivery, setRatingDelivery] = useState(0);
+  const [ratingConfidence, setRatingConfidence] = useState(0);
+  const [typed, setTyped] = useState("");
+  const [commentEntered, setCommentEntered] = useState("");
+  const [localOverall, setLocalOverall] = useState(0);
+  const [canSubmit, setCanSubmit] = useState(false);
+  const [overall, setOverall] = useState<number | null>(null); // allow fallback to local
+
+  // current user id cache
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCommentEntered(typed.trim().length > 0 ? "y" : "");
+    const rounded = Math.round((ratingDelivery + ratingConfidence) / 2);
+    setLocalOverall(rounded);
+    setCanSubmit(typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0);
+  }, [typed, ratingDelivery, ratingConfidence]);
+
+  // ===== boot: auth + header avatar (unchanged) =====
   useEffect(() => {
     let mounted = true;
 
     (async () => {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
+      if (mounted) setCurrentUserId(user?.id ?? null);
       if (!user || !mounted) return;
 
-      // pull profile name + avatar_url
       const { data: profile } = await supabase
         .from("profiles")
         .select("name, avatar_url")
@@ -401,7 +460,6 @@ const CommunityPage: React.FC = () => {
       setFullName(name);
       setInitials(inits || "S");
 
-      // resolve avatar
       const url = await resolveSignedAvatar(user.id, profile?.avatar_url ?? undefined);
       if (!mounted) return;
       setAvatarUri(url);
@@ -412,88 +470,340 @@ const CommunityPage: React.FC = () => {
     };
   }, []);
 
-  // ===== load the selected post (by postId) and map into the same UI =====
-  useEffect(() => {
-    let alive = true;
+  // ===== fetch post + author (keeps UI, swaps values) =====
+  const loadPost = useCallback(async () => {
+    if (!effectivePostId) return;
 
-    (async () => {
-      if (!postId) return; // keep static defaults as offline fallback
+    const { data, error } = await supabase
+      .from("posts")
+      .select(`
+        id,
+        user_id,
+        title,
+        content,
+        media_url,
+        created_at,
+        profiles!posts_user_id_fkey (
+          name,
+          avatar_url
+        )
+      `)
+      .eq("id", effectivePostId)
+      .single();
 
-      const { data, error } = await supabase
-        .from("posts")
-        .select(`
-          id,
-          user_id,
-          title,
-          content,
-          media_url,
-          created_at,
-          profiles!posts_user_id_fkey (
-            name,
-            avatar_url
-          )
-        `)
-        .eq("id", postId)
-        .single();
+    if (error || !data) return; // fallback to static mock
 
-      if (error || !data || !alive) return; // keep static UI on any failure
-
-      // map into UI state
-      setPostTitle(data.title || postTitle);
-      setPostDesc(data.content || postDesc);
-
-      const prof = (data as any).profiles as { name?: string | null; avatar_url?: string | null } | null;
-      setAuthorName((prof?.name ?? "User") || "User");
-
-      const signedAuthor = await resolveSignedAvatar(data.user_id, prof?.avatar_url ?? null);
-      if (!alive) return;
-      setAuthorAvatar(signedAuthor ?? authorAvatar);
-
-      // simple "posted" text fallback (you can format relative time if you want)
-      try {
-        const when = new Date(data.created_at);
-        setPostedAgo(`Posted ${when.toLocaleString()}`);
-      } catch {
-        setPostedAgo("Posted");
-      }
-
-      // if you store thumbnails/video poster in media_url, show it; else keep fallback
-      if (data.media_url) setVideoThumb(data.media_url);
+    const author = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
+    const authorName =
+      author?.name ??
+      "User";
+    const initials = (() => {
+      const s = (authorName || "User").trim();
+      const parts = s.split(/\s+/).filter(Boolean);
+      return ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
     })();
 
-    return () => {
-      alive = false;
-    };
-  }, [postId]);
+    setPostOwnerId(data.user_id); // NEW
+    setPostAuthorName(authorName);
+    setPostAuthorInitials(initials);
+    setPostCreatedAgo(`Posted ${timeAgo(data.created_at)}`);
+    setPostTitle(data.title || postTitle);
+    setPostContent(data.content || postContent);
+    setPostMediaUrl(data.media_url || null);
 
-  // ===== other original state (unchanged UI) =====
-  const [profileOpen, setProfileOpen] = useState(false); // ⚠️ we’ll stop using this bottom sheet
-  const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
-  const [activeTab, setActiveTab] = useState("Community");
-  const [showLevelModal, setShowLevelModal] = useState(false);
-  const [showCommunityModal, setShowCommunityModal] = useState(false);
-  const [level, setLevel] = useState<"Basic" | "Advanced">("Basic");
-  const [submitting, setSubmitting] = useState(false);
-  const [ratingDelivery, setRatingDelivery] = useState(0);
-  const [ratingConfidence, setRatingConfidence] = useState(0);
-  const [typed, setTyped] = useState("");
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(24);
-  const [loadingReviews, setLoadingReviews] = useState(false);
-  const [commentEntered, setCommentEntered] = useState("");
-  const [localOverall, setLocalOverall] = useState(0);
-  const [canSubmit, setCanSubmit] = useState(false);
-  const [overall, setOverall] = useState(0);
+    const signed = await resolveSignedAvatar(data.user_id, author?.avatar_url ?? null);
+    setPostAuthorAvatar(signed);
+  }, [effectivePostId, postTitle, postContent]);
+
+  // ===== likes: count + current user's like =====
+  // efficient like loader: count via HEAD + row check for current user
+  const loadLikes = useCallback(async () => {
+    if (!effectivePostId) return;
+
+    try {
+      // total count (metadata only)
+      const { count: totalCount, error: totalErr } = await supabase
+        .from("likes")
+        .select("id", { head: true, count: "exact" })
+        .eq("post_id", effectivePostId);
+
+      if (totalErr) throw totalErr;
+
+      // did THIS user like? (need rows, not head)
+      const { data: mineRows, error: mineErr } = currentUserId
+        ? await supabase
+            .from("likes")
+            .select("id")
+            .eq("post_id", effectivePostId)
+            .eq("user_id", currentUserId)
+        : { data: null, error: null };
+
+      if (mineErr) throw mineErr;
+
+      setLikeCount(typeof totalCount === "number" ? totalCount : 0);
+      setIsLiked(Boolean(mineRows && mineRows.length > 0));
+    } catch (e) {
+      console.warn("[likes] load error:", e);
+    }
+  }, [effectivePostId, currentUserId]); // NEW
 
   useEffect(() => {
-    setCommentEntered(typed.trim().length > 0 ? "y" : "");
-    const ov = (ratingDelivery + ratingConfidence) / 2;
-    setLocalOverall(ov);
-    setCanSubmit(typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0);
-  }, [typed, ratingDelivery, ratingConfidence]);
+    loadLikes();
+  }, [loadLikes]); // NEW
+
+  // realtime: likes
+  useEffect(() => {
+    if (!effectivePostId) return;
+    const channel = supabase
+      .channel(`likes-${effectivePostId}`) // NEW
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "likes",
+        filter: `post_id=eq.${effectivePostId}`,
+      }, () => {
+        loadLikes(); // NEW
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel); // NEW
+    };
+  }, [effectivePostId, loadLikes]); // NEW
+
+  const insertNotification = useCallback(async (type: "like" | "comment") => {
+    // NEW
+    try {
+      if (!effectivePostId || !currentUserId || !postOwnerId) return;
+      if (postOwnerId === currentUserId) return; // don't notify myself
+      await supabase.from("notifications").insert({
+        recipient_id: postOwnerId,
+        actor_id: currentUserId,
+        post_id: effectivePostId,
+        type,
+        is_read: false,
+      });
+    } catch (e) {
+      console.log("[notifications] insert error:", e);
+    }
+  }, [effectivePostId, currentUserId, postOwnerId]); // NEW
+
+  const toggleLike = useCallback(async () => {
+    if (!effectivePostId || !currentUserId) return;
+
+    const next = !isLiked;
+
+    // optimistic UI
+    setIsLiked(next);
+    setLikeCount(prev => (next ? prev + 1 : Math.max(0, prev - 1)));
+
+    try {
+      if (next) {
+        const { error } = await supabase.from("likes").insert({
+          post_id: effectivePostId,
+          user_id: currentUserId,
+        });
+        if (error) throw error;
+        insertNotification("like"); // NEW
+      } else {
+        const { error } = await supabase
+          .from("likes")
+          .delete()
+          .eq("post_id", effectivePostId)
+          .eq("user_id", currentUserId);
+        if (error) throw error;
+      }
+    } catch (e) {
+      setIsLiked(!next);
+      setLikeCount(prev => (next ? Math.max(0, prev - 1) : prev + 1));
+      console.warn("[likes] toggle error:", e);
+      return;
+    }
+
+    loadLikes(); // NEW ensure consistency
+  }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]); // CHANGED deps
+
+  // ===== comments/reviews: list + add =====
+  const loadComments = useCallback(async () => {
+    if (!effectivePostId) return;
+    setLoadingReviews(true);
+
+    const { data, error } = await supabase
+      .from("comments")
+      .select(`
+        id,
+        content,
+        created_at,
+        user_id,
+        rating_delivery,
+        rating_confidence,
+        profiles!comments_user_id_fkey (
+          name,
+          avatar_url
+        )
+      `)
+      .eq("post_id", effectivePostId)
+      .order("created_at", { ascending: false });
+
+    if (error || !data) {
+      console.warn("[comments] load error:", error);
+      setReviews(MOCK_REVIEWS);
+      setOverall(null);
+      setLoadingReviews(false);
+      return;
+    }
+
+    const mapped: Review[] = await Promise.all(
+      data.map(async (row: any) => {
+        const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+        const name = p?.name || "User";
+        const parts = name.trim().split(/\s+/).filter(Boolean);
+        const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+
+        let avatar: string | null = null;
+        if (p?.avatar_url) {
+          avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
+        }
+
+        const rd = row.rating_delivery ?? null;
+        const rc = row.rating_confidence ?? null;
+        const ro = rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+
+        return {
+          id: row.id,
+          role: "Student",
+          name: `Student • ${name}`,
+          time: timeAgo(row.created_at),
+          text: row.content || "",
+          avatar,
+          initials,
+          ratingDelivery: rd,
+          ratingConfidence: rc,
+          ratingOverall: ro,
+        } as Review;
+      })
+    );
+
+    const rated = mapped.filter(r => r.ratingOverall != null) as Array<Review & {ratingOverall: number}>;
+    const postAvgRounded = rated.length
+      ? Math.round(rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length)
+      : null;
+
+    setReviews(mapped);
+    setOverall(postAvgRounded);
+    setLoadingReviews(false);
+  }, [effectivePostId]); // NEW
+
+  // realtime: comments INSERT
+  useEffect(() => {
+    if (!effectivePostId) return;
+    const channel = supabase
+      .channel(`comments-${effectivePostId}`) // NEW
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "comments",
+        filter: `post_id=eq.${effectivePostId}`,
+      }, async (payload) => {
+        try {
+          const row: any = payload.new;
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("name, avatar_url")
+            .eq("id", row.user_id)
+            .single();
+
+          const name = prof?.name || "User";
+          const parts = name.trim().split(/\s+/).filter(Boolean);
+          const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+
+          let avatar: string | null = null;
+          if (prof?.avatar_url) avatar = await resolveSignedAvatar(row.user_id, prof.avatar_url);
+
+          const rd = row.rating_delivery ?? null;
+          const rc = row.rating_confidence ?? null;
+          const ro = rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+
+          const review: Review = {
+            id: String(row.id),
+            role: "Student",
+            name: `Student • ${name}`,
+            time: timeAgo(row.created_at),
+            text: row.content || "",
+            avatar,
+            initials,
+            ratingDelivery: rd,
+            ratingConfidence: rc,
+            ratingOverall: ro,
+          };
+
+          setReviews(prev => {
+            const next = [review, ...prev];
+            const rated = next.filter(r => r.ratingOverall != null) as Array<Review & {ratingOverall: number}>;
+            const postAvgRounded =
+              rated.length
+                ? Math.round(rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length)
+                : null;
+            setOverall(postAvgRounded);
+            return next;
+          });
+        } catch (e) {
+          console.log("[comments realtime] hydrate error:", e);
+          loadComments(); // fallback
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel); // NEW
+    };
+  }, [effectivePostId, loadComments]); // NEW
+
+  const postReview = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      if (!effectivePostId || !currentUserId || !typed.trim()) {
+        setSubmitting(false);
+        return;
+      }
+
+      const { error } = await supabase.from("comments").insert({
+        post_id: effectivePostId,
+        user_id: currentUserId,
+        content: typed.trim(),
+        // NEW ratings
+        rating_delivery: ratingDelivery,
+        rating_confidence: ratingConfidence,
+      });
+
+      if (error) {
+        console.warn("[comments] insert error:", error);
+        setSubmitting(false);
+        return;
+      }
+
+      // notify post owner
+      await insertNotification("comment"); // NEW
+
+      setTyped("");
+      setRatingDelivery(0);
+      setRatingConfidence(0);
+      await loadComments(); // keep consistent with realtime
+    } finally {
+      setSubmitting(false);
+    }
+  }, [effectivePostId, currentUserId, typed, insertNotification, loadComments, ratingDelivery, ratingConfidence]); // CHANGED deps
+
+  // boot: when param changes, load everything
+  useEffect(() => {
+    (async () => {
+      await loadPost();
+      await loadLikes();
+      await loadComments();
+    })();
+  }, [loadPost, loadLikes, loadComments]); // NEW
 
   const handleCommunityPress = () => {
-    // Handle community item press
     console.log(`Pressed on Community`);
   };
 
@@ -503,17 +813,6 @@ const CommunityPage: React.FC = () => {
       router.push('/live-sessions-select');
     } else if (option === 'Community Post') {
       router.push('/community-selection');
-    }
-  };
-
-  const postReview = async () => {
-    setSubmitting(true);
-    try {
-      // your review posting logic (left as-is to keep UI identical)
-      setSubmitting(false);
-    } catch (error) {
-      console.error('Error posting review:', error);
-      setSubmitting(false);
     }
   };
 
@@ -667,18 +966,28 @@ const CommunityPage: React.FC = () => {
             <GlassContainer className="mb-5 -bottom- overflow-hidden">
               <View className="relative">
                 <View className="flex-row right-2 items-center mb-1 ml-4">
-                  <Image
-                    source={{
-                      uri: authorAvatar || "https://randomuser.me/api/portraits/women/32.jpg",
-                    }}
-                    className="w-12 h-12 rounded-full border-2 border-white/20"
-                  />
+                  {/* avatar: author photo if any, initials fallback — sizing kept */}
+                  {postAuthorAvatar ? (
+                    <Image
+                      source={{ uri: postAuthorAvatar }}
+                      className="w-12 h-12 rounded-full border-2 border-white/20"
+                    />
+                  ) : (
+                    <View
+                      className="w-12 h-12 rounded-full border-2 border-white/20 items-center justify-center"
+                      style={{ backgroundColor: "rgba(167,139,250,0.25)" }}
+                    >
+                      <Text className="text-white font-bold">
+                        {postAuthorInitials}
+                      </Text>
+                    </View>
+                  )}
                   <View className="ml-4 flex-1">
                     <Text className="text-white font-semibold text-base">
-                      {authorName}
+                      {postAuthorName}
                     </Text>
                     <Text className="text-gray-400 text-sm">
-                      {postedAgo}
+                      {postCreatedAgo}
                     </Text>
                   </View>
                 </View>
@@ -686,14 +995,16 @@ const CommunityPage: React.FC = () => {
                   {postTitle}
                 </Text>
                 <Text className="text-gray-300 text-base leading-relaxed mb-4">
-                  {postDesc}
+                  {postContent}
                 </Text>
 
-                {/* Video */}
+                {/* Video (kept visual; still shows image thumb if media_url absent) */}
                 <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
                   <Image
                     source={{
-                      uri: videoThumb,
+                      uri:
+                        postMediaUrl ||
+                        "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
                     }}
                     className="w-full h-full"
                     resizeMode="cover"
@@ -737,13 +1048,7 @@ const CommunityPage: React.FC = () => {
                     <View className="flex-row items-center space-x-6">
                       <TouchableOpacity
                         className="flex-row items-center left-1 p-2 rounded-full bg-white/10"
-                        onPress={() => {
-                          const newLikeState = !isLiked;
-                          setIsLiked(newLikeState);
-                          setLikeCount((prev) =>
-                            newLikeState ? prev + 1 : Math.max(0, prev - 1)
-                          );
-                        }}
+                        onPress={toggleLike}
                       >
                         <Ionicons
                           name={isLiked ? "heart" : "heart-outline"}
@@ -914,11 +1219,18 @@ const CommunityPage: React.FC = () => {
                       >
                         <View className="flex-row items-start mb-2">
                           <View className="flex-row items-center">
-                            <View className="w-10 h-10 bg-violet-500/20 rounded-full items-center justify-center mr-3">
-                              <Text className="text-white font-bold">
-                                {review.name.charAt(0).toUpperCase()}
-                              </Text>
-                            </View>
+                            {review.avatar ? (
+                              <Image
+                                source={{ uri: review.avatar }}
+                                className="w-10 h-10 rounded-full mr-3 border border-white/20"
+                              />
+                            ) : (
+                              <View className="w-10 h-10 bg-violet-500/20 rounded-full items-center justify-center mr-3">
+                                <Text className="text-white font-bold">
+                                  {review.initials || review.name.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
                             <View>
                               <Text className="text-white font-medium">
                                 {review.name}
@@ -1045,7 +1357,6 @@ const CommunityPage: React.FC = () => {
         onSelectLevel={(selectedLevel) => {
           setLevel(selectedLevel);
           setShowLevelModal(false);
-          // Navigate to the appropriate reading page based on level
           if (selectedLevel === "Basic") {
             router.push("/basic-exercise-reading");
           } else {
@@ -1060,8 +1371,8 @@ const CommunityPage: React.FC = () => {
         onDismiss={() => setIsProfileMenuVisible(false)}
         user={{
           name: fullName || "Student",
-          email: "", // keep empty to avoid extra email text duplication
-          image: { uri: avatarUri || "" }, // ProfileMenuNew will handle empty gracefully
+          email: "",
+          image: { uri: avatarUri || "" },
         }}
       />
 

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,63 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import ProfileMenuTeacher from "@/components/ProfileModal/ProfileMenuTeacher";
 import NavigationBar from "@/components/NavigationBar/nav-bar-teacher";
+
+/* ─────────────── Supabase + avatar + sessions (data-only) ─────────────── */
+import { supabase } from "@/lib/supabaseClient";
+
+const LIVE_TABLE = "live_sessions";
+const TEACHER_STUDENTS = "teacher_students";
+
+type DBLiveRow = {
+  id: string;
+  host_id: string | null;
+  title: string | null;
+  viewers: number | null;
+  status?: string | null;
+  started_at?: string | null;
+  level?: string | null;
+};
+
+type ProfileRow = {
+  id: string;
+  name: string | null;
+  avatar_url?: string | null;
+};
+
+const TRANSPARENT_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
+
+async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
+  const stored = (storedPath ?? userId).toString();
+  const normalized = stored.replace(/^avatars\//, "");
+  let objectPath: string | null = null;
+
+  if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+    objectPath = normalized;
+  } else {
+    const { data: listed, error } = await supabase.storage
+      .from("avatars")
+      .list(normalized, {
+        sortBy: { column: "created_at", order: "desc" },
+        limit: 1,
+      });
+    if (error) return null;
+    if (listed && listed.length > 0) objectPath = `${normalized}/${listed[0].name}`;
+  }
+  if (!objectPath) return null;
+
+  const signedRes = await supabase.storage.from("avatars").createSignedUrl(objectPath, 3600);
+  if (signedRes.error) return null;
+  return signedRes.data?.signedUrl ?? null;
+}
+
+const numToCompact = (n: number | null | undefined) => {
+  const v = Math.max(0, Number(n ?? 0));
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}m`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  return `${v}`;
+};
+/* ─────────────────────────────────────────────────────────────────────── */
 
 type DifficultyLevel = 'Basic' | 'Advanced';
 
@@ -47,8 +104,10 @@ type Session = {
   isMyStudent: boolean;
 };
 
+/* Your original static sessions (UNCHANGED). We’ll keep ONE of these as a
+   permanent static card to match your request; the rest will be driven
+   by realtime Supabase data. */
 const sessions: Session[] = [
-  // My Students (isMyStudent: true)
   {
     id: "1",
     name: "Lisa Park",
@@ -79,7 +138,6 @@ const sessions: Session[] = [
     duration: "55 min session",
     isMyStudent: true,
   },
-  // Other Students (isMyStudent: false)
   {
     id: "4",
     name: "Michael Chen",
@@ -116,14 +174,128 @@ const LiveSessions = () => {
   const router = useRouter();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
-  const [query, setQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<'Everyone' | 'My Students'>('Everyone');
+
+  /* avatar like home-page */
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [fullName, setFullName]   = useState<string>("Teacher");
+  const [email, setEmail]         = useState<string>("");
+  const teacherIdRef = useRef<string | null>(null);
+
+  /* dynamic live sessions + my-student set */
+  const [liveSessions, setLiveSessions] = useState<Session[]>([]);
+  const myStudentsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id ?? null;
+      if (!mounted || !uid) return;
+      teacherIdRef.current = uid;
+      setEmail(auth?.user?.email ?? "");
+
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", uid)
+        .single();
+
+      const name =
+        (prof?.name ??
+          auth?.user?.user_metadata?.full_name ??
+          auth?.user?.email ??
+          "Teacher") + "";
+
+      if (!mounted) return;
+      setFullName(name.trim());
+
+      const signed = await resolveSignedAvatar(uid, (prof as ProfileRow)?.avatar_url ?? null);
+      if (!mounted) return;
+      setAvatarUri(signed);
+    })();
+
+    return () => { mounted = false; };
+  }, []);
+
+  /* load "my students" set for filtering */
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const teacherId = teacherIdRef.current;
+      if (!teacherId) return;
+      const { data: rows } = await supabase
+        .from(TEACHER_STUDENTS)
+        .select("student_id, status")
+        .eq("teacher_id", teacherId)
+        .in("status", ["active", "graduated", "inactive"]);
+      if (!mounted) return;
+      const ids = new Set<string>((rows ?? []).map((r: any) => r.student_id));
+      myStudentsRef.current = ids;
+    })();
+    return () => { mounted = false; };
+  }, [teacherIdRef.current]);
+
+  /* pull live sessions + subscribe realtime */
+  useEffect(() => {
+    let mounted = true;
+
+    const mapRows = async (rows: DBLiveRow[]): Promise<Session[]> => {
+      if (!rows.length) return [];
+      const hostIds = Array.from(new Set(rows.map(r => r.host_id).filter(Boolean))) as string[];
+      let byHost = new Map<string, ProfileRow>();
+      if (hostIds.length) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, name")
+          .in("id", hostIds);
+        byHost = new Map(((profs as ProfileRow[]) ?? []).map(p => [p.id, p]));
+      }
+      return rows.map((r) => {
+        const host = r.host_id ? byHost.get(r.host_id) : undefined;
+        return {
+          id: r.id,
+          name: (host?.name || "Unknown").toString(),
+          title: (r.title || "Live Session").toString(),
+          level: ((r.level as any) || "Basic") as Session["level"],
+          viewers: numToCompact(r.viewers),
+          time: "LIVE NOW",
+          duration: r.started_at ? "Live" : "Live session",
+          isMyStudent: r.host_id ? myStudentsRef.current.has(r.host_id) : false,
+        };
+      });
+    };
+
+    const fetchAll = async () => {
+      const { data } = await supabase
+        .from(LIVE_TABLE)
+        .select("id, host_id, title, viewers, status, started_at, level")
+        .in("status", ["live", "LIVE", "active"]);
+      if (!mounted) return;
+      const mapped = await mapRows((data as DBLiveRow[]) ?? []);
+      setLiveSessions(mapped);
+    };
+
+    (async () => { await fetchAll(); })();
+
+    const ch = supabase
+      .channel(`live-sessions:all`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: LIVE_TABLE },
+        async () => { if (mounted) await fetchAll(); }
+      )
+      .subscribe();
+
+    return () => { mounted = false; try { supabase.removeChannel(ch); } catch {} };
+  }, []);
 
   const toggleFilter = (filter: 'Everyone' | 'My Students') => {
     if (selectedFilter !== filter) {
       setSelectedFilter(filter);
-      setQuery(''); // Clear search when changing filters
+      setSearchQuery('');
     }
     setShowFilterDropdown(false);
   };
@@ -134,341 +306,370 @@ const LiveSessions = () => {
     }
   };
 
+  /* combine: realtime live sessions + ONE static card (first of your list) */
+  const allSessions: Session[] = useMemo(() => {
+    const staticOne = sessions.slice(0, 1); // keep a single static card
+    // de-dup by id in case conflicts
+    const byId = new Map<string, Session>();
+    [...liveSessions, ...staticOne].forEach(s => byId.set(s.id, s));
+    return Array.from(byId.values());
+  }, [liveSessions]);
+
   // Filter sessions based on search query and selected filter
-  const filteredSessions = React.useMemo(() => {
-    let result = [...sessions];
-    
-    // First apply the filter (Everyone/My Students)
+  const filteredSessions = useMemo(() => {
+    let result = [...allSessions];
+
     if (selectedFilter === 'My Students') {
       result = result.filter(session => session.isMyStudent === true);
     }
-    
-    // Then apply the search query if there is one
-    if (query.trim() !== '') {
-      const searchTerm = query.trim().toLowerCase();
-      result = result.filter(session => 
+
+    if (searchQuery.trim() !== '') {
+      const searchTerm = searchQuery.trim().toLowerCase();
+      result = result.filter(session =>
         session.name.toLowerCase().includes(searchTerm) ||
         session.title.toLowerCase().includes(searchTerm)
       );
     }
-    
+
+    // sort: show "My Students" first when Everyone is selected, then by viewers desc
+    result.sort((a, b) => {
+      if (selectedFilter === 'Everyone' && a.isMyStudent !== b.isMyStudent) {
+        return a.isMyStudent ? -1 : 1;
+      }
+      const av = Number((a.viewers || "0").replace(/[^\d.]/g, "")) || 0;
+      const bv = Number((b.viewers || "0").replace(/[^\d.]/g, "")) || 0;
+      return bv - av;
+    });
+
     return result;
-  }, [sessions, query, selectedFilter]);
+  }, [allSessions, searchQuery, selectedFilter]);
 
   return (
     <View className="flex-1 bg-[#0F172A]">
       <BackgroundDecor />
-
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: 30 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View className="z-10">
-          <SafeAreaView>
-            <View className="flex-row justify-between items-center top-6 px-4 py-3">
-              <View className="flex-row items-center">
-                <Image
-                  source={require("../../../assets/Speaksy.png")}
-                  className="w-12 h-12 right-3 -mr-4"
-                  resizeMode="contain"
-                />
-                <Text className="text-white font-bold text-2xl">Voclaria</Text>
-              </View>
-
-              <View className="flex-row items-center right-2">
-                          <TouchableOpacity
-                            onPress={() => handleIconPress("/ButtonIcon/add-student")}
-                            activeOpacity={0.7}
-                            className="p-2 bg-white/10 rounded-full mr-4"
-                          >
-                              <Image
-                                source={require("../../../assets/add-student.png")}
-                                className="w-5 h-5"
-                                resizeMode="contain"
-                                tintColor="white"
-                              />
-                          </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setIsProfileMenuVisible(true)}
-                  activeOpacity={0.7}
-                >
+        <View className="flex-1">
+          {/* Header */}
+          <View className="z-10">
+            <SafeAreaView>
+              <View className="flex-row justify-between items-center top-6 px-4 py-3">
+                <View className="flex-row items-center">
                   <Image
-                    source={{
-                      uri: "https://randomuser.me/api/portraits/women/44.jpg",
-                    }}
-                    className="w-9 h-9 rounded-full border-2 border-white/80"
+                    source={require("../../../assets/Speaksy.png")}
+                    className="w-12 h-12 right-3 -mr-4"
+                    resizeMode="contain"
                   />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </SafeAreaView>
-        </View>
-
-        {/* Main Content */}
-        <View className="px-4">
-          {/* Page Title */}
-          <View className="mt-6 mb-6">
-            <Text className="text-white text-3xl font-bold mb-1">
-              Live Sessions
-            </Text>
-            <Text className="text-white/80 text-base">
-              Learn from experts in real-time
-            </Text>
-          </View>
-
-          {/* Live Sessions Info */}
-          <View className="mb-8">
-            <View className="flex-row items-center opacity-80">
-              <View className="bg-white/20 flex-row items-center rounded-lg px-3 py-1 self-start mb-6 -mt-2">
-                <Ionicons name="time-outline" size={18} color="white" />
-                <Text className="text-white ml-2 text-sm">
-                  Live sessions update in real-time
-                </Text>
-              </View>
-            </View>
-
-            {/* Search and Filter Bar */}
-            <View className="mb-6">
-              <View className="flex-row items-center">
-                <View className="flex-1 rounded-xl bg-white/10 border border-white/10 flex-row items-center shadow-lg">
-                  <Ionicons name="search" size={20} color="#a78bfa" style={{ marginLeft: 12 }} />
-                  <TextInput
-                    placeholder="Search sessions or students..."
-                    placeholderTextColor="#9CA3AF"
-                    className="flex-1 text-white p-3 text-base"
-                    value={query}
-                    onChangeText={setQuery}
-                  />
+                  <Text className="text-white font-bold text-2xl">Voclaria</Text>
                 </View>
-                <TouchableOpacity 
-                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
-                  className="ml-2 p-3 rounded-xl bg-white/10 border border-white/10 items-center justify-center"
-                >
-                  <Ionicons name="filter" size={20} color="#a78bfa" />
-                </TouchableOpacity>
-              </View>
-              
-              {/* Filter Dropdown */}
-              {showFilterDropdown && (
-                <View className="absolute top-14 right-0 w-48 bg-[#1E293B] rounded-xl border border-white/10 shadow-lg z-50 overflow-hidden">
-                  <TouchableOpacity 
-                    onPress={() => toggleFilter('Everyone')}
-                    className={`px-4 py-3 flex-row items-center ${selectedFilter === 'Everyone' ? 'bg-indigo-600/20' : ''}`}
+
+                <View className="flex-row items-center right-2">
+                  <TouchableOpacity
+                    onPress={() => handleIconPress("/ButtonIcon/add-student")}
+                    activeOpacity={0.7}
+                    className="p-2 bg-white/10 rounded-full mr-4"
                   >
-                    <Ionicons 
-                      name="people-outline" 
-                      size={18} 
-                      color={selectedFilter === 'Everyone' ? "#a78bfa" : "#9ca3af"} 
-                      className="mr-2"
+                    <Image
+                      source={require("../../../assets/add-student.png")}
+                      className="w-5 h-5"
+                      resizeMode="contain"
+                      tintColor="white"
                     />
-                    <Text className={`${selectedFilter === 'Everyone' ? 'text-indigo-300' : 'text-gray-300'}`}>
-                      Everyone
-                    </Text>
                   </TouchableOpacity>
-                  <View className="h-px bg-white/10 w-full" />
-                  <TouchableOpacity 
-                    onPress={() => toggleFilter('My Students')}
-                    className={`px-4 py-3 flex-row items-center ${selectedFilter === 'My Students' ? 'bg-indigo-600/20' : ''}`}
+                  <TouchableOpacity
+                    onPress={() => setIsProfileMenuVisible(true)}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons 
-                      name="person-outline" 
-                      size={18} 
-                      color={selectedFilter === 'My Students' ? "#a78bfa" : "#9ca3af"} 
-                      className="mr-2"
+                    <Image
+                      source={{ uri: avatarUri || TRANSPARENT_PNG }}
+                      className="w-9 h-9 rounded-full border-2 border-white/80"
                     />
-                    <Text className={`${selectedFilter === 'My Students' ? 'text-indigo-300' : 'text-gray-300'}`}>
-                      My Students
-                    </Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
+              </View>
+            </SafeAreaView>
           </View>
 
-          {/* Live Sessions Section */}
-          <View className="mb-5 bottom-8">
-            <View className="flex-row justify-between items-center mb-5">
-              <Text className="text-white text-xl font-bold">
-                People live now
+          {/* Main Content */}
+          <View className="px-4">
+            {/* Page Title */}
+            <View className="mt-6 mb-6">
+              <Text className="text-white text-3xl font-bold mb-1">
+                Live Sessions
               </Text>
-
+              <Text className="text-white/80 text-base">
+                Learn from experts in real-time
+              </Text>
             </View>
 
-            {filteredSessions.length === 0 ? (
-              <View key="no-sessions" className="items-center justify-center py-10">
-                <Ionicons name="people-outline" size={48} color="#4B5563" />
-                <Text className="text-gray-400 mt-4 text-center">
-                  {selectedFilter === 'My Students' 
-                    ? 'No live sessions from your students at the moment'
-                    : 'No live sessions found'}
-                </Text>
-              </View>
-            ) : (
-              filteredSessions.map((session) => (
-              <View
-                key={session.id}
-                className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
-              >
-                {/* Session Status Bar */}
-                <View className="flex-row justify-between items-center mb-4">
-                  <View className="flex-row items-center">
-                    <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
-                      <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
-                      <Text className="text-white text-xs font-bold">
-                        {session.time}
-                      </Text>
-                    </View>
-                  </View>
-                  <View className="flex-row items-center">
-                    <Ionicons name="people-outline" size={16} color="white" />
-                    <Text className="text-white text-xs ml-1">
-                      {session.viewers} watching
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Host Profile */}
-                <View className="flex-row items-center mb-4">
-                  <View className="w-12 h-12 bg-white/10 rounded-full items-center justify-center mr-3">
-                    <Ionicons name="person" size={20} color="white" />
-                  </View>
-                  <View>
-                    <Text className="text-white font-medium">
-                      {session.name}
-                    </Text>
-                    <Text className="text-violet-300 text-xs">Student</Text>
-                  </View>
-                </View>
-
-                {/* Session Details */}
-                <Text className="text-white text-lg font-semibold mb-3 leading-tight">
-                  {session.title}
-                </Text>
-
-                {/* Join Button */}
-                <TouchableOpacity
-                  className="bg-violet-600/80 active:bg-white border border-white/20 rounded-xl py-4 items-center"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/TeacherScreen/TeacherLiveSession/teacher-live-session",
-                      params: {
-                        id: session.id,
-                        title: session.title,
-                        name: session.name,
-                        viewers: session.viewers,
-                      },
-                    })
-                  }
-                >
-                  <Text className="text-white text-based font-bold">
-                    Join Session
+            {/* Live Sessions Info */}
+            <View className="mb-4">
+              <View className="flex-row items-center opacity-80">
+                <View className="bg-white/20 flex-row items-center rounded-lg px-3 py-1 self-start mb-4 -mt-2">
+                  <Ionicons name="time-outline" size={18} color="white" />
+                  <Text className="text-white ml-2 text-sm">
+                    Live sessions update in real-time
                   </Text>
-                </TouchableOpacity>
+                </View>
               </View>
-            )))}
-          </View>
 
-          {/* Community Recordings Section */}
-          <View className="mb-8 bottom-14">
-            <View className="flex-row justify-between items-center mb-5">
-              <Text className="text-white text-xl top-2 font-bold">
-                Community Recordings
-              </Text>
-            </View>
-
-            <View className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-4">
-              {/* Recording Card 1 */}
-              <TouchableOpacity
-                className="bg-white/5 rounded-xl p-3 border border-white/20"
-                onPress={() => router.push("/recording/1")}
-              >
-                <View className="flex-row items-start">
-                  <View className="relative mr-3">
-                    <View className="w-24 h-16 bg-violet-500/10 rounded-lg items-center justify-center">
-                      <Ionicons name="play-circle" size={32} color="white" />
-                    </View>
-                    <View className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded">
-                      <Text className="text-white text-2xs">45:22</Text>
-                    </View>
+              {/* Live Sessions Section */}
+              <View className="mb-5">
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-white text-xl font-bold">
+                    People live now
+                  </Text>
+                </View>
+                
+                {/* Search and Filter Row */}
+                <View className="flex-row items-center space-x-3 mb-4">
+                  {/* Search Bar */}
+                  <View className="relative flex-1">
+                    <TextInput
+                      className="bg-white/10 text-white rounded-xl pl-10 pr-6 py-2.5 text-sm"
+                      placeholder="Search by name or ..."
+                      placeholderTextColor="#94a3b8"
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                    />
+                    <Ionicons 
+                      name="search" 
+                      size={16} 
+                      color="#94a3b8" 
+                      style={{
+                        position: 'absolute',
+                        left: 12,
+                        top: 12,
+                      }} 
+                    />
+                    {searchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setSearchQuery('')}
+                        style={{
+                          position: 'absolute',
+                          right: 12,
+                          top: 12,
+                        }}
+                      >
+                        <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  <View className="flex-1">
-                    <Text
-                      className="text-white font-medium text-sm mb-1"
-                      numberOfLines={2}
+
+                  {/* Filter Dropdown */}
+                  <View className="relative">
+                    <TouchableOpacity
+                      className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
+                      onPress={() => setShowFilterDropdown(!showFilterDropdown)}
                     >
-                      Mastering Public Speaking: Tips & Tricks
-                    </Text>
-                    <Text className="text-violet-300 text-xs mb-1">
-                      @jameswilson
-                    </Text>
-                    <View className="flex-row items-center">
-                      <Ionicons name="eye-outline" size={14} color="#94a3b8" />
-                      <Text className="text-slate-400 text-xs ml-1">
-                        1.2k views
-                      </Text>
-                      <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
-                      <Text className="text-slate-400 text-xs">2 days ago</Text>
-                    </View>
+                      <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
+                      <Ionicons name="chevron-down" size={14} color="white" />
+                    </TouchableOpacity>
+
+                    {showFilterDropdown && (
+                      <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
+                        <TouchableOpacity
+                          className="px-4 py-2.5 border-b border-white/10"
+                          onPress={() => {
+                            setSelectedFilter("Everyone");
+                            setShowFilterDropdown(false);
+                          }}
+                        >
+                          <Text className="text-white text-sm">Everyone</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          className="px-4 py-2.5"
+                          onPress={() => {
+                            setSelectedFilter("My Students");
+                            setShowFilterDropdown(false);
+                          }}
+                        >
+                          <Text className="text-white text-sm">My Students</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 </View>
-              </TouchableOpacity>
 
-              {/* Recording Card 2 */}
-              <TouchableOpacity
-                className="bg-white/5 rounded-xl p-3 border border-white/20"
-                onPress={() => router.push("/recording/2")}
-              >
-                <View className="flex-row items-start">
-                  <View className="relative mr-3">
-                    <View className="w-24 h-16 bg-violet-500/10 rounded-lg items-center justify-center">
-                      <Ionicons name="play-circle" size={32} color="white" />
-                    </View>
-                    <View className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded">
-                      <Text className="text-white text-2xs">32:15</Text>
-                    </View>
+                {filteredSessions.length === 0 ? (
+                  <View key="no-sessions" className="items-center justify-center py-10">
+                    <Ionicons name="people-outline" size={48} color="#4B5563" />
+                    <Text className="text-gray-400 mt-4 text-center">
+                      {selectedFilter === 'My Students' 
+                        ? 'No live sessions from your students at the moment'
+                        : 'No live sessions found'}
+                    </Text>
                   </View>
-                  <View className="flex-1">
-                    <Text
-                      className="text-white font-medium text-sm mb-1"
-                      numberOfLines={2}
+                ) : (
+                  filteredSessions.map((session) => (
+                    <View
+                      key={session.id}
+                      className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
                     >
-                      Daily English Conversation Practice
-                    </Text>
-                    <Text className="text-violet-300 text-xs mb-1">
-                      @sarah_teaches
-                    </Text>
-                    <View className="flex-row items-center">
-                      <Ionicons name="eye-outline" size={14} color="#94a3b8" />
-                      <Text className="text-slate-400 text-xs ml-1">
-                        856 views
-                      </Text>
-                      <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
-                      <Text className="text-slate-400 text-xs">1 week ago</Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
+                      {/* Session Status Bar */}
+                      <View className="flex-row justify-between items-center mb-4">
+                        <View className="flex-row items-center">
+                          <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
+                            <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
+                            <Text className="text-white text-xs font-bold">
+                              {session.time}
+                            </Text>
+                          </View>
+                        </View>
+                        <View className="flex-row items-center">
+                          <Ionicons name="people-outline" size={16} color="white" />
+                          <Text className="text-white text-xs ml-1">
+                            {session.viewers} watching
+                          </Text>
+                        </View>
+                      </View>
 
-              {/* Find More Button */}
-              <TouchableOpacity
-                className="bg-white/20 rounded-xl border border-white/20 py-3 flex-row items-center justify-center mt-4"
-                onPress={() => router.push("/community-selection")}
-              >
-                <Ionicons
-                  name="search"
-                  size={20}
-                  color="white"
-                  style={{ marginRight: 8 }}
-                />
-                <Text className="text-white font-bold text-base">
-                  Find More Community Recordings
-                </Text>
-              </TouchableOpacity>
+                      {/* Host Profile */}
+                      <View className="flex-row items-center mb-4">
+                        <View className="w-12 h-12 bg-white/10 rounded-full items-center justify-center mr-3">
+                          <Ionicons name="person" size={20} color="white" />
+                        </View>
+                        <View>
+                          <Text className="text-white font-medium">
+                            {session.name}
+                          </Text>
+                          <Text className="text-violet-300 text-xs">Student</Text>
+                        </View>
+                      </View>
+
+                      {/* Session Details */}
+                      <Text className="text-white text-lg font-semibold mb-3 leading-tight">
+                        {session.title}
+                      </Text>
+
+                      {/* Join Button */}
+                      <TouchableOpacity
+                        className="bg-violet-600/80 active:bg-white border border-white/20 rounded-xl py-4 items-center"
+                        onPress={() =>
+                          router.push({
+                            pathname: "/TeacherScreen/TeacherLiveSession/teacher-live-session",
+                            params: {
+                              id: session.id,
+                              title: session.title,
+                              name: session.name,
+                              viewers: session.viewers,
+                            },
+                          })
+                        }
+                      >
+                        <Text className="text-white text-based font-bold">
+                          Join Session
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+
+              {/* Community Recordings Section */}
+              <View className="mb-8 bottom-14">
+                <View className="flex-row justify-between items-center mb-5">
+                  <Text className="text-white text-xl top-2 font-bold">
+                    Community Recordings
+                  </Text>
+                </View>
+
+                <View className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-4">
+                  {/* Recording Card 1 */}
+                  <TouchableOpacity
+                    className="bg-white/5 rounded-xl p-3 border border-white/20"
+                    onPress={() => router.push("/recording/1")}
+                  >
+                    <View className="flex-row items-start">
+                      <View className="relative mr-3">
+                        <View className="w-24 h-16 bg-violet-500/10 rounded-lg items-center justify-center">
+                          <Ionicons name="play-circle" size={32} color="white" />
+                        </View>
+                        <View className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded">
+                          <Text className="text-white text-2xs">45:22</Text>
+                        </View>
+                      </View>
+                      <View className="flex-1">
+                        <Text
+                          className="text-white font-medium text-sm mb-1"
+                          numberOfLines={2}
+                        >
+                          Mastering Public Speaking: Tips & Tricks
+                        </Text>
+                        <Text className="text-violet-300 text-xs mb-1">
+                          @jameswilson
+                        </Text>
+                        <View className="flex-row items-center">
+                          <Ionicons name="eye-outline" size={14} color="#94a3b8" />
+                          <Text className="text-slate-400 text-xs ml-1">
+                            1.2k views
+                          </Text>
+                          <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
+                          <Text className="text-slate-400 text-xs">2 days ago</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Recording Card 2 */}
+                  <TouchableOpacity
+                    className="bg-white/5 rounded-xl p-3 border border-white/20"
+                    onPress={() => router.push("/recording/2")}
+                  >
+                    <View className="flex-row items-start">
+                      <View className="relative mr-3">
+                        <View className="w-24 h-16 bg-violet-500/10 rounded-lg items-center justify-center">
+                          <Ionicons name="play-circle" size={32} color="white" />
+                        </View>
+                        <View className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded">
+                          <Text className="text-white text-2xs">32:15</Text>
+                        </View>
+                      </View>
+                      <View className="flex-1">
+                        <Text
+                          className="text-white font-medium text-sm mb-1"
+                          numberOfLines={2}
+                        >
+                          Daily English Conversation Practice
+                        </Text>
+                        <Text className="text-violet-300 text-xs mb-1">
+                          @sarah_teaches
+                        </Text>
+                        <View className="flex-row items-center">
+                          <Ionicons name="eye-outline" size={14} color="#94a3b8" />
+                          <Text className="text-slate-400 text-xs ml-1">
+                            856 views
+                          </Text>
+                          <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
+                          <Text className="text-slate-400 text-xs">1 week ago</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Find More Button */}
+                  <TouchableOpacity
+                    className="bg-white/20 rounded-xl border border-white/20 py-3 flex-row items-center justify-center mt-4"
+                    onPress={() => router.push("/community-selection")}
+                  >
+                    <Ionicons
+                      name="search"
+                      size={20}
+                      color="white"
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text className="text-white font-bold text-base">
+                      Find More Community Recordings
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           </View>
-
+          
           {/* Profile Menu */}
           <ProfileMenuTeacher
             visible={isProfileMenuVisible}
@@ -485,6 +686,5 @@ const LiveSessions = () => {
     </View>
   );
 };
-
 
 export default LiveSessions;

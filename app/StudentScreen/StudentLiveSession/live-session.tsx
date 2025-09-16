@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -16,9 +16,31 @@ import { BlurView } from "expo-blur";
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
+import { supabase } from "@/lib/supabaseClient";
 
+const LIVE_TABLE = "live_sessions";
+const REACT_TABLE = "live_session_reactions";
 
+async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
+  const stored = (storedPath ?? userId).toString();
+  const normalized = stored.replace(/^avatars\//, "");
+  let objectPath: string | null = null;
 
+  if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+    objectPath = normalized;
+  } else {
+    const { data: listed, error } = await supabase.storage
+      .from("avatars")
+      .list(normalized, { sortBy: { column: "created_at", order: "desc" }, limit: 1 });
+    if (error) return null;
+    if (listed && listed.length > 0) objectPath = `${normalized}/${listed[0].name}`;
+  }
+  if (!objectPath) return null;
+
+  const signedRes = await supabase.storage.from("avatars").createSignedUrl(objectPath, 3600);
+  if (signedRes.error) return null;
+  return signedRes.data?.signedUrl ?? null;
+}
 
 const { width, height } = Dimensions.get("window");
 
@@ -26,6 +48,10 @@ export default function LiveSession() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const pathname = usePathname?.() || "";
+
+  // session id (single source of truth)
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -36,87 +62,96 @@ export default function LiveSession() {
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  // Get parameters with type safety
-  const getParam = (key: string, defaultValue: string = ""): string => {
-    const value = params[key];
-    if (Array.isArray(value)) return value[0] || defaultValue;
-    return value || defaultValue;
+  // header avatar (home-page logic)
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [fullName, setFullName] = useState<string>("Student");
+  const [email, setEmail] = useState<string>("");
+
+  // live session state (from DB)
+  const [sTitle, setSTitle] = useState<string | null>(null);
+  const [sName, setSName] = useState<string | null>(null);
+  const [sViewers, setSViewers] = useState<number>(0);
+  const viewersRef = useRef<number>(0);
+
+  // realtime reaction counts
+  const [heartCount, setHeartCount] = useState<number>(0);
+  const [wowCount, setWowCount] = useState<number>(0);
+  const [likeCount, setLikeCount] = useState<number>(0);
+
+  // auth id
+  const userIdRef = useRef<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  const getParam = (key: string, def = ""): string => {
+    const v = params[key];
+    return (Array.isArray(v) ? v[0] : (v as string)) || def;
   };
 
-  // Session data with fallbacks
-  const sessionData = {
-    id: getParam("id", "1"),
-    title: getParam("title", "Public Speaking Practice"),
-    name: getParam("name", "Professional Coach"),
-    viewers: getParam("viewers", "0"),
-  };
+  // Resolve/ensure a session id (param → existing → create demo)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const paramId = getParam("id", "");
+      if (paramId) {
+        setSessionId(paramId);
+        return;
+      }
+      // Try to reuse the most recent session
+      const { data: found, error: findErr } = await supabase
+        .from(LIVE_TABLE)
+        .select("id")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (!mounted) return;
+      if (found?.[0]?.id) {
+        setSessionId(found[0].id as string);
+        return;
+      }
+      // Create a minimal demo/live row (only if nothing exists)
+      const { data: created, error: insErr } = await supabase
+        .from(LIVE_TABLE)
+        .insert({ title: "Voice Warm-Up & Articulation Techniques", viewers: 0, status: "live" })
+        .select("id")
+        .single();
+      if (!mounted) return;
+      if (created?.id) setSessionId(created.id as string);
+    })();
+    return () => { mounted = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.id]);
 
-  const handleNavigation = (page: string) => {
-    router.push(page);
-  };
+  const sessionTitle = sTitle ?? getParam("title", "Public Speaking Practice");
+  const coachName   = sName  ?? getParam("name", "Professional Coach");
+  const viewersText = Number.isFinite(sViewers) ? String(sViewers) : "0";
 
-  const handleReaction = (reaction: string) => {
-    setActiveReaction(reaction === activeReaction ? null : reaction);
-  };
-
-  const togglePlayPause = () => {
-    setIsPlaying(!isPlaying);
-  };
-
-  const toggleControls = () => {
-    setShowControls(!showControls);
-  };
+  const handleNavigation = (page: string) => router.push(page);
 
   useEffect(() => {
     if (isProfileMenuVisible) {
       Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: -50,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
+        Animated.timing(slideAnim, { toValue: -50, duration: 200, useNativeDriver: true }),
+        Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
       ]).start();
     }
   }, [isProfileMenuVisible]);
 
   const handleIconPress = (iconName: string) => {
-    if (iconName === "log-out-outline") {
-      router.replace("/login-page");
-    } else if (iconName === "chatbot") {
-      router.push("/ButtonIcon/chatbot");
-    } else if (iconName === "notifications") {
-      router.push("/ButtonIcon/notification");
-    }
+    if (iconName === "log-out-outline") router.replace("/login-page");
+    else if (iconName === "chatbot") router.push("/ButtonIcon/chatbot");
+    else if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
-  const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
+  const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
-    if (option === 'Live Session') {
-      router.push('/live-sessions-select');
-    } else if (option === 'Community Post') {
-      router.push('/community-selection');
-    }
+    if (option === "Live Session") router.push("/live-sessions-select");
+    else router.push("/community-selection");
   };
 
-  // Background Decorations
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -135,13 +170,270 @@ export default function LiveSession() {
     </View>
   );
 
+  const togglePlayPause = () => setIsPlaying((p) => !p);
+  const toggleControls = () => setShowControls((p) => !p);
+
+  // Load current user + avatar
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!mounted || !uid) return;
+
+      userIdRef.current = uid;
+      setUserId(uid);
+      setEmail(auth?.user?.email ?? "");
+
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", uid)
+        .single();
+
+      const name =
+        (prof?.name ??
+          auth?.user?.user_metadata?.full_name ??
+          auth?.user?.email ??
+          "Student") + "";
+
+      if (!mounted) return;
+      setFullName(name.trim());
+
+      const signed = await resolveSignedAvatar(uid, (prof as any)?.avatar_url ?? null);
+      if (!mounted) return;
+      setAvatarUri(signed);
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Load chosen session row + watch row changes
+  useEffect(() => {
+    if (!sessionId) return;
+    let mounted = true;
+
+    const fetchOne = async () => {
+      const { data: row } = await supabase
+        .from(LIVE_TABLE)
+        .select("id, host_id, title, viewers, status")
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (!mounted || !row) return;
+
+      setSTitle((row.title || "Live Session").toString());
+      viewersRef.current = Number(row.viewers ?? 0);
+      setSViewers(viewersRef.current);
+
+      if (row.host_id) {
+        const { data: host } = await supabase
+          .from("profiles")
+          .select("name")
+          .eq("id", row.host_id)
+          .maybeSingle();
+        if (mounted) setSName(((host?.name as string) || "Unknown").toString());
+      }
+    };
+
+    const changeViewers = async (delta: number) => {
+      try {
+        const next = Math.max(0, (viewersRef.current ?? 0) + delta);
+        const { data: updated } = await supabase
+          .from(LIVE_TABLE)
+          .update({ viewers: next })
+          .eq("id", sessionId)
+          .select("viewers")
+          .single();
+        if (updated && mounted) {
+          viewersRef.current = Number(updated.viewers ?? next);
+          setSViewers(viewersRef.current);
+        }
+      } catch {}
+    };
+
+    (async () => {
+      await fetchOne();
+      await changeViewers(1); // fallback increment
+    })();
+
+    const ch = supabase
+      .channel(`live:${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: LIVE_TABLE, filter: `id=eq.${sessionId}` },
+        (payload) => {
+          const row: any = payload.new || payload.old;
+          if (!row) return;
+          if (typeof row.viewers === "number") {
+            viewersRef.current = row.viewers;
+            setSViewers(row.viewers);
+          }
+          if (row.title) setSTitle(row.title);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      try { supabase.removeChannel(ch); } catch {}
+      changeViewers(-1); // fallback decrement
+    };
+  }, [sessionId]);
+
+  // Presence for accurate viewers
+  useEffect(() => {
+    if (!sessionId || !userId) return;
+
+    const presence = supabase.channel(`presence:live:${sessionId}`, {
+      config: { presence: { key: userId } },
+    });
+
+    presence
+      .on("presence", { event: "sync" }, () => {
+        const state = presence.presenceState();
+        setSViewers(Object.keys(state).length || 0);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try { await presence.track({ online_at: new Date().toISOString() }); } catch {}
+        }
+      });
+
+    return () => {
+      try { presence.untrack(); } catch {}
+      try { supabase.removeChannel(presence); } catch {}
+    };
+  }, [sessionId, userId]);
+
+  // Realtime reactions
+  useEffect(() => {
+    if (!sessionId) return;
+    let mounted = true;
+
+    const setByType = (type: string, n: number) => {
+      if (type === "heart") setHeartCount(Math.max(0, n));
+      if (type === "wow")   setWowCount(Math.max(0, n));
+      if (type === "like")  setLikeCount(Math.max(0, n));
+    };
+
+    const fetchCounts = async () => {
+      const types: Array<"heart" | "wow" | "like"> = ["heart", "wow", "like"];
+      await Promise.all(
+        types.map(async (t) => {
+          const { count, error } = await supabase
+            .from(REACT_TABLE)
+            .select("*", { count: "exact", head: true })
+            .eq("session_id", sessionId)
+            .eq("type", t);
+          if (error) console.warn("[reactions] count error:", error.message);
+          if (mounted) setByType(t, count || 0);
+        })
+      );
+    };
+
+    const fetchMine = async () => {
+      const uid = userIdRef.current;
+      if (!uid) return;
+      const { data: mine } = await supabase
+        .from(REACT_TABLE)
+        .select("type")
+        .eq("session_id", sessionId)
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (mounted && mine?.type) setActiveReaction(mine.type);
+    };
+
+    (async () => {
+      await fetchCounts();
+      await fetchMine();
+    })();
+
+    const adjust = (type: string, delta: number) => {
+      if (type === "heart") setHeartCount((n) => Math.max(0, n + delta));
+      if (type === "wow")   setWowCount((n)   => Math.max(0, n + delta));
+      if (type === "like")  setLikeCount((n)  => Math.max(0, n + delta));
+    };
+
+    const ch = supabase
+      .channel(`live_react:${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: REACT_TABLE, filter: `session_id=eq.${sessionId}` },
+        (payload: any) => {
+          if (payload.eventType === "INSERT") adjust(payload.new?.type, +1);
+          else if (payload.eventType === "DELETE") adjust(payload.old?.type, -1);
+          else if (payload.eventType === "UPDATE") {
+            const o = payload.old?.type;
+            const n = payload.new?.type;
+            if (o && o !== n) { adjust(o, -1); adjust(n, +1); }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      try { supabase.removeChannel(ch); } catch {}
+    };
+  }, [sessionId]);
+
+  // Optimistic bump helpers
+  const bumpCounts = (prev: "heart" | "wow" | "like" | null, next: "heart" | "wow" | "like" | null) => {
+    if (prev === next) return;
+    if (prev === "heart") setHeartCount((c) => Math.max(0, c - 1));
+    if (prev === "wow")   setWowCount((c) => Math.max(0, c - 1));
+    if (prev === "like")  setLikeCount((c) => Math.max(0, c - 1));
+    if (next === "heart") setHeartCount((c) => c + 1);
+    if (next === "wow")   setWowCount((c) => c + 1);
+    if (next === "like")  setLikeCount((c) => c + 1);
+  };
+
+  const upsertReaction = async (nextType: "heart" | "wow" | "like" | null) => {
+    const uid = userIdRef.current;
+    if (!sessionId || !uid) {
+      console.warn("[reactions] missing sessionId or uid");
+      return;
+    }
+    const prev = activeReaction;
+
+    try {
+      // optimistic
+      bumpCounts(prev as any, nextType as any);
+      setActiveReaction(nextType);
+
+      if (nextType === null) {
+        const { error } = await supabase
+          .from(REACT_TABLE)
+          .delete()
+          .eq("session_id", sessionId)
+          .eq("user_id", uid);
+        if (error) throw error;
+        return;
+      }
+
+      const { error } = await supabase
+        .from(REACT_TABLE)
+        .upsert([{ session_id: sessionId, user_id: uid, type: nextType }], {
+          onConflict: "session_id,user_id",
+        });
+      if (error) throw error;
+    } catch (e: any) {
+      console.warn("[reactions] upsert/delete error:", e?.message || e);
+      // rollback optimistic change
+      bumpCounts(nextType as any, prev as any);
+      setActiveReaction(prev ?? null);
+    }
+  };
+
+  const handleReaction = (reaction: string) => {
+    const r = reaction as "heart" | "wow" | "like";
+    if (activeReaction === r) upsertReaction(null);
+    else upsertReaction(r);
+  };
+
   const handleLevelSelect = (level: "Basic" | "Advanced") => {
     setShowLevelModal(false);
-    if (level === "Advanced") {
-      router.push("/advance-execise-reading");
-    } else {
-      router.push("/basic-exercise-reading");
-    }
+    if (level === "Advanced") router.push("/advance-execise-reading");
+    else router.push("/basic-exercise-reading");
   };
 
   return (
@@ -154,64 +446,44 @@ export default function LiveSession() {
           showsVerticalScrollIndicator={false}
         >
           <View className="px-6 pt-4">
-{/* Header */}
-        <View className="flex-row top-5 justify-between items-center px-4 py-3">
-          <TouchableOpacity
-            className="flex-row items-center"
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <Image
-              source={require("../../../assets/Speaksy.png")}
-              className="w-12 h-12 rounded-full right-2"
-              resizeMode="contain"
-            />
-            <Text className="text-white font-bold text-2xl ml-2 -left-5">
-              Voclaria
-            </Text>
-          </TouchableOpacity>
-  
-          <View className="flex-row items-center -right-1 space-x-3">
-            <TouchableOpacity
-              className="p-2 bg-white/10 rounded-full"
-              onPress={() => handleIconPress("chatbot")}
-              activeOpacity={0.7}
-            >
-              <View className="w-6 h-6 items-center justify-center">
+            {/* Header */}
+            <View className="flex-row top-5 justify-between items-center px-4 py-3">
+              <TouchableOpacity className="flex-row items-center" onPress={() => router.back()} activeOpacity={0.7}>
                 <Image
-                  source={require("../../../assets/chatbot.png")}
-                  className="w-5 h-5"
+                  source={require("../../../assets/Speaksy.png")}
+                  className="w-12 h-12 rounded-full right-2"
                   resizeMode="contain"
-                  tintColor="white"
                 />
+                <Text className="text-white font-bold text-2xl ml-2 -left-5">Voclaria</Text>
+              </TouchableOpacity>
+
+              <View className="flex-row items-center -right-1 space-x-3">
+                <TouchableOpacity className="p-2 bg-white/10 rounded-full" onPress={() => handleIconPress("chatbot")} activeOpacity={0.7}>
+                  <View className="w-6 h-6 items-center justify-center">
+                    <Image
+                      source={require("../../../assets/chatbot.png")}
+                      className="w-5 h-5"
+                      resizeMode="contain"
+                      tintColor="white"
+                    />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity className="p-2 bg-white/10 rounded-full" onPress={() => handleIconPress("notifications")} activeOpacity={0.7}>
+                  <View className="w-6 h-6 items-center justify-center">
+                    <Ionicons name="notifications-outline" size={20} color="white" />
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity className="p-1" onPress={() => setIsProfileMenuVisible(true)} activeOpacity={0.7}>
+                  <View className="p-0.5 bg-white/10 rounded-full">
+                    <Image
+                      source={{ uri: avatarUri || "https://randomuser.me/api/portraits/women/44.jpg" }}
+                      className="w-8 h-8 rounded-full"
+                    />
+                  </View>
+                </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="p-2 bg-white/10 rounded-full"
-              onPress={() => handleIconPress("notifications")}
-              activeOpacity={0.7}
-            >
-              <View className="w-6 h-6 items-center justify-center">
-                <Ionicons name="notifications-outline" size={20} color="white" />
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="p-1"
-              onPress={() => setIsProfileMenuVisible(true)}
-              activeOpacity={0.7}
-            >
-              <View className="p-0.5 bg-white/10 rounded-full">
-                <Image
-                  source={{
-                    uri: "https://randomuser.me/api/portraits/women/44.jpg"
-                  }}
-                  className="w-8 h-8 rounded-full"
-                />
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-        
+            </View>
+
             {/* Main Content */}
             <View className="mt-2 mb-4">
               {/* Host Card */}
@@ -221,16 +493,12 @@ export default function LiveSession() {
                 </View>
                 <View className="flex-1 flex-row justify-between items-center">
                   <View>
-                    <Text className="text-white font-bold text-xl">
-                      Michael Chen
-                    </Text>
+                    <Text className="text-white font-bold text-xl">{coachName}</Text>
                     <Text className="text-violet-300 text-base">Student</Text>
                   </View>
                   <View className="flex-row items-center -right-2">
                     <Ionicons name="star" size={18} color="white" />
-                    <Text className="text-white text-xl font-medium ml-1">
-                      4.9
-                    </Text>
+                    <Text className="text-white text-xl font-medium ml-1">4.9</Text>
                   </View>
                 </View>
               </View>
@@ -238,11 +506,7 @@ export default function LiveSession() {
               {/* Video Container */}
               <View className="mb-4 -mx-4">
                 <View className="border-2 border-white/30 rounded-2xl overflow-hidden">
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    className="w-full aspect-[4/3] bg-black"
-                    onPress={toggleControls}
-                  >
+                  <TouchableOpacity activeOpacity={1} className="w-full aspect-[4/3] bg-black" onPress={toggleControls}>
                     <Image
                       source={{
                         uri: "https://images.unsplash.com/photo-1507679799987-c73779587ccf?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1471&q=80",
@@ -260,9 +524,7 @@ export default function LiveSession() {
                     {/* Viewers Count */}
                     <View className="absolute top-3 right-3 bg-black/50 px-3 py-1 rounded-full flex-row items-center">
                       <Ionicons name="people" size={14} color="white" />
-                      <Text className="text-white text-xs font-medium ml-1.5">
-                        {sessionData.viewers}
-                      </Text>
+                      <Text className="text-white text-xs font-medium ml-1.5">{viewersText}</Text>
                     </View>
 
                     {/* Video Controls */}
@@ -274,22 +536,12 @@ export default function LiveSession() {
                         <View className="flex-row justify-between items-center px-1">
                           <View className="flex-row items-center space-x-4">
                             <TouchableOpacity onPress={togglePlayPause}>
-                              <Ionicons
-                                name={isPlaying ? "pause" : "play"}
-                                size={24}
-                                color="white"
-                              />
+                              <Ionicons name={isPlaying ? "pause" : "play"} size={24} color="white" />
                             </TouchableOpacity>
-                            <Text className="text-white text-sm">
-                              12:45 / 45:00
-                            </Text>
+                            <Text className="text-white text-sm">12:45 / 45:00</Text>
                           </View>
                           <View className="flex-row items-center space-x-4">
-                            <Ionicons
-                              name="volume-high"
-                              size={20}
-                              color="white"
-                            />
+                            <Ionicons name="volume-high" size={20} color="white" />
                             <Ionicons name="expand" size={20} color="white" />
                           </View>
                         </View>
@@ -298,106 +550,55 @@ export default function LiveSession() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Reactions Below Video */}
+                {/* Reactions */}
                 <View className="flex-row justify-center items-center mt-4 space-x-6">
-                  <TouchableOpacity
-                    className="flex-row items-center rounded-full px-6 py-2.5 bg-white/5"
-                    onPress={() => handleReaction("heart")}
-                  >
-                    <Ionicons
-                      name="heart"
-                      size={26}
-                      color={activeReaction === "heart" ? "#EC4899" : "white"}
-                    />
-                    <Text
-                      className={`font-medium text-base ml-2 ${activeReaction === "heart" ? "text-pink-400" : "text-white"}`}
-                    >
-                      {activeReaction === "heart" ? "25" : "24"}
-                    </Text>
+                  <TouchableOpacity className="flex-row items-center rounded-full px-6 py-2.5 bg-white/5" onPress={() => handleReaction("heart")}>
+                    <Ionicons name="heart" size={26} color={activeReaction === "heart" ? "#EC4899" : "white"} />
+                    <Text className={`font-medium text-base ml-2 ${activeReaction === "heart" ? "text-pink-400" : "text-white"}`}>{heartCount}</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    className="flex-row items-center rounded-full px-6 py-2.5 bg-white/5"
-                    onPress={() => handleReaction("wow")}
-                  >
-                    <Ionicons
-                      name="happy-outline"
-                      size={26}
-                      color={activeReaction === "wow" ? "#F59E0B" : "white"}
-                    />
-                    <Text
-                      className={`font-medium text-base ml-2 ${activeReaction === "wow" ? "text-yellow-400" : "text-white"}`}
-                    >
-                      {activeReaction === "wow" ? "18" : "17"}
-                    </Text>
+                  <TouchableOpacity className="flex-row items-center rounded-full px-6 py-2.5 bg-white/5" onPress={() => handleReaction("wow")}>
+                    <Ionicons name="happy-outline" size={26} color={activeReaction === "wow" ? "#F59E0B" : "white"} />
+                    <Text className={`font-medium text-base ml-2 ${activeReaction === "wow" ? "text-yellow-400" : "text-white"}`}>{wowCount}</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    className="flex-row items-center rounded-full px-6 py-2.5 bg-white/5"
-                    onPress={() => handleReaction("like")}
-                  >
-                    <Ionicons
-                      name="thumbs-up"
-                      size={26}
-                      color={activeReaction === "like" ? "#3B82F6" : "white"}
-                    />
-                    <Text
-                      className={`font-medium text-base ml-2 ${activeReaction === "like" ? "text-blue-400" : "text-white"}`}
-                    >
-                      {activeReaction === "like" ? "33" : "32"}
-                    </Text>
+                  <TouchableOpacity className="flex-row items-center rounded-full px-6 py-2.5 bg-white/5" onPress={() => handleReaction("like")}>
+                    <Ionicons name="thumbs-up" size={26} color={activeReaction === "like" ? "#3B82F6" : "white"} />
+                    <Text className={`font-medium text-base ml-2 ${activeReaction === "like" ? "text-blue-400" : "text-white"}`}>{likeCount}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* Session Details */}
+              {/* Details */}
               <View className="max-w-md w-full self-center">
-                {/* Session Title */}
-                <Text className="text-white text-2xl font-bold mb-6 leading-tight">
-                  {sessionData.title}
-                </Text>
+                <Text className="text-white text-2xl font-bold mb-6 leading-tight">{sessionTitle}</Text>
 
-                {/* Session Tags */}
                 <View className="flex-row flex-wrap gap-2 mb-8">
                   <View className="bg-white/30 px-3 py-1.5 rounded-full">
-                    <Text className="text-white text-xs font-medium">
-                      Public Speaking
-                    </Text>
+                    <Text className="text-white text-xs font-medium">Public Speaking</Text>
                   </View>
                   <View className="bg-white/30 px-3 py-1.5 rounded-full">
-                    <Text className="text-white text-xs font-medium">
-                      Confidence Building
-                    </Text>
+                    <Text className="text-white text-xs font-medium">Confidence Building</Text>
                   </View>
                   <View className="bg-white/30 px-3 py-1.5 rounded-full">
-                    <Text className="text-white text-xs font-medium">
-                      45 minutes
-                    </Text>
+                    <Text className="text-white text-xs font-medium">45 minutes</Text>
                   </View>
                 </View>
 
-                {/* Session Description */}
                 <View className="mb-4">
-                  <Text className="text-white text-2xl font-semibold left-2 mb-2">
-                    ADVISORY
-                  </Text>
+                  <Text className="text-white text-2xl font-semibold left-2 mb-2">ADVISORY</Text>
                   <Text className="text-gray-300 text-base leading-relaxed bg-white/10 p-4 rounded-xl border border-white/20 backdrop-blur-xl">
-                    This is a live public speaking practice session where
-                    students can observe and learn presentation techniques.
-                    Support speakers with positive reactions to create an
-                    encouraging environment.
+                    This is a live public speaking practice session where students can observe and learn presentation
+                    techniques. Support speakers with positive reactions to create an encouraging environment.
                   </Text>
                 </View>
 
-                {/* CTA Button */}
                 <View className="max-w-md w-full self-center">
                   <TouchableOpacity
                     className="bg-violet-600/80 border border-white/20 rounded-xl py-3 px-6 flex-row justify-center items-center mb-4"
                     onPress={() => handleNavigation("/live-sessions")}
                   >
-                    <Text className="text-white font-bold text-base mr-2">
-                      Explore More Sessions
-                    </Text>
+                    <Text className="text-white font-bold text-base mr-2">Explore More Sessions</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -405,10 +606,8 @@ export default function LiveSession() {
           </View>
         </ScrollView>
 
-  {/* Bottom Navigation */}
-  <NavigationBar defaultActiveTab="Community" />
+        <NavigationBar defaultActiveTab="Community" />
 
-        {/* Profile Menu */}
         <ProfileMenuNew
           visible={isProfileOpen}
           onDismiss={() => setIsProfileOpen(false)}

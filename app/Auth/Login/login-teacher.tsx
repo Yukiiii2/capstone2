@@ -315,7 +315,7 @@ export default function TeacherLoginScreen() {
               <TouchableOpacity
                 onPress={handleLogin}
                 disabled={!isFormValid || isLoading}
-                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${isFormValid ? "bg-violet-600" : "bg-gray-600"}`}
+                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${isFormValid ? "bg-purple-500" : "bg-gray-600"}`}
                 activeOpacity={0.8}
               >
                 {isLoading ? (

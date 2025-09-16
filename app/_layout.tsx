@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   AppState,
   AppStateStatus,
-  Image
+  Image,
+  Platform,
+  StatusBar
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
-import { setStatusBarStyle, setStatusBarBackgroundColor } from 'expo-status-bar';
+import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
-import { Platform } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import { Ionicons } from "@expo/vector-icons";
@@ -134,15 +134,14 @@ const LoadingOverlay = () => (
 export default function Layout() {
   const [isReady, setIsReady] = useState(false);
 
-  // Set up status bar style
+  // Initialize app and set up UI
   useEffect(() => {
+    // Set up UI for Android
     if (Platform.OS === 'android') {
-      setStatusBarStyle('light');
+      StatusBar.setBarStyle('light-content');
+      NavigationBar.setBackgroundColorAsync('#1A1F2E');
+      NavigationBar.setButtonStyleAsync('light');
     }
-  }, []);
-
-  // Initialize app
-  useEffect(() => {
     let mounted = true;
     
     async function prepare() {
@@ -174,7 +173,7 @@ export default function Layout() {
     headerShown: false,
     animation: 'none' as const,
     contentStyle: { backgroundColor: '#1A1F2E' },
-    statusBarStyle: 'light',
+    statusBarStyle: 'light' as const,
   }), []);
 
   if (!isReady) {
@@ -184,9 +183,9 @@ export default function Layout() {
   return (
     <ErrorBoundary>
       <View style={{ flex: 1, backgroundColor: '#1A1F2E' }}>
-        <StatusBar style="light" />
+        <ExpoStatusBar style="light" />
         <NetworkStatus />
-        <SafeAreaView style={{ flex: 1 }} edges={['right', 'left', 'bottom'] as any}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#1A1F2E' }} edges={['right', 'left', 'bottom'] as any}>
           <Stack screenOptions={screenOptions}>
             <Stack.Screen name="index" />
             <Stack.Screen name="StudentScreen/HomePage/home-page" />
@@ -197,6 +196,8 @@ export default function Layout() {
             <Stack.Screen name="CreateAccount/create-account-student" />
             <Stack.Screen name="CreateAccount/create-account-teacher" />
             <Stack.Screen name="StudentScreen/SpeakingExercise/advanced-contents" />
+            <Stack.Screen name="StudentScreen/SpeakingExercise/lessons-basic" />
+            <Stack.Screen name="StudentScreen/SpeakingExercise/lessons-advanced" />
             <Stack.Screen name="TeacherScreen/TeacherDashboard/teacher-dashboard" />
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-session" />
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-sessions" />

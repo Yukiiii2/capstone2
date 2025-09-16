@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter } from "expo-router";
+import { router } from "expo-router";
 import ProfileMenuNew from "@/components/ProfileModal/ProfileMenuNew";
 
 // ⬇️ use your project’s client
@@ -211,7 +212,6 @@ const Header = ({
 
 export default function BasicContents() {
   const router = useRouter();
-  const pathname = usePathname();
 
   // ---- profile (dynamic) ----
   const [fullName, setFullName] = useState<string>("");
@@ -516,7 +516,9 @@ export default function BasicContents() {
                         ) : (
                           <Pressable
                             onPress={() =>
-                              router.push("StudentScreen/SpeakingExercise/live-vid-selection")
+                              router.push({
+                                pathname: "StudentScreen/SpeakingExercise/lessons-basic"
+                              })
                             }
                             style={({ pressed }) => ({
                               opacity: pressed ? 0.8 : 1,
@@ -585,28 +587,38 @@ export default function BasicContents() {
         {/* category modal */}
         <Modal visible={categoryModalVisible} transparent animationType="slide">
           <TouchableOpacity
-            className="flex-1 bg-black/50 justify-end"
+            className="flex-1 justify-end"
             activeOpacity={1}
             onPress={() => setCategoryModalVisible(false)}
           >
-            <View className="bg-[#1E1E2E] rounded-t-2xl p-5" onStartShouldSetResponder={() => true}>
-              {["All", "Start", "Continue", "Review"].map((cat) => (
-                <TouchableOpacity
-                  key={cat}
-                  className="py-3"
-                  onPress={() => {
-                    setFilterType(cat);
-                    setCategoryModalVisible(false);
-                  }}
-                >
-                  <Text className="text-white text-lg">{cat}</Text>
-                </TouchableOpacity>
-              ))}
+            <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-2xl p-5" onStartShouldSetResponder={() => true}>
+              {["All", "Start", "Continue", "Review"].map((cat) => {
+                // Skip navigation for 'All' as it's just a filter
+                const handlePress = () => {
+                  setFilterType(cat);
+                  setCategoryModalVisible(false);
+                  if (cat !== 'All') {
+                    router.push({
+                      pathname: 'lessons-basic',
+                      params: { category: cat }
+                    });
+                  }
+                };
+                
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    className="py-3"
+                    onPress={handlePress}
+                  >
+                    <Text className="text-white text-lg">{cat}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </TouchableOpacity>
         </Modal>
 
-        {/* sort modal */}
         <Modal visible={sortModalVisible} transparent animationType="slide">
           <TouchableOpacity
             className="flex-1 bg-black/50 justify-end"
