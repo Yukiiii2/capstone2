@@ -1,5 +1,13 @@
 import spacy
-from .whisper_transcriber import WhisperTranscriber
+import whisper
+
+class WhisperTranscriber:
+    def __init__(self, model_name="base"):
+        self.model = whisper.load_model(model_name)
+
+    def transcribe(self, audio_path):
+        result = self.model.transcribe(audio_path)
+        return result["text"]
 
 class SpacyAudioAnalyzer:
     def __init__(self, whisper_model="base", spacy_model="en_core_web_sm"):
