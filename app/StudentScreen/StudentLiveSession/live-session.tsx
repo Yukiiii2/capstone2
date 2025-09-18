@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,11 @@ import { supabase } from "@/lib/supabaseClient";
 const LIVE_TABLE = "live_sessions";
 const REACT_TABLE = "live_session_reactions";
 
+/* ---------- helpers ---------- */
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   const stored = (storedPath ?? userId).toString();
   const normalized = stored.replace(/^avatars\//, "");
@@ -29,17 +34,36 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
     objectPath = normalized;
   } else {
-    const { data: listed, error } = await supabase.storage
+    const { data: listed } = await supabase.storage
       .from("avatars")
       .list(normalized, { sortBy: { column: "created_at", order: "desc" }, limit: 1 });
-    if (error) return null;
     if (listed && listed.length > 0) objectPath = `${normalized}/${listed[0].name}`;
   }
   if (!objectPath) return null;
 
   const signedRes = await supabase.storage.from("avatars").createSignedUrl(objectPath, 3600);
-  if (signedRes.error) return null;
   return signedRes.data?.signedUrl ?? null;
+}
+
+/** Resolve route id (uuid or slug) to a UUID and return it. */
+async function resolveSessionUUID(idOrSlug: string): Promise<string | null> {
+  if (UUID_RE.test(idOrSlug)) return idOrSlug;
+
+  // try find existing row by slug
+  const { data: found } = await supabase
+    .from(LIVE_TABLE)
+    .select("id")
+    .eq("slug", idOrSlug)
+    .maybeSingle();
+  if (found?.id) return String(found.id);
+
+  // (optional) create a row for this slug to keep dev UX smooth
+  const { data: created } = await supabase
+    .from(LIVE_TABLE)
+    .insert({ slug: idOrSlug, title: "Live Session", status: "live", viewers: 0 })
+    .select("id")
+    .single();
+  return created?.id ? String(created.id) : null;
 }
 
 const { width, height } = Dimensions.get("window");
@@ -47,9 +71,9 @@ const { width, height } = Dimensions.get("window");
 export default function LiveSession() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const pathname = usePathname?.() || "";
+  const pathname = typeof usePathname === "function" ? usePathname() : "";
 
-  // session id (single source of truth)
+  // session id (ALWAYS UUID)
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
@@ -73,6 +97,9 @@ export default function LiveSession() {
   const [sViewers, setSViewers] = useState<number>(0);
   const viewersRef = useRef<number>(0);
 
+  // debounce timer for presence→DB write-through
+  const presenceWriteThroughTimer = useRef<any>(null);
+
   // realtime reaction counts
   const [heartCount, setHeartCount] = useState<number>(0);
   const [wowCount, setWowCount] = useState<number>(0);
@@ -87,37 +114,56 @@ export default function LiveSession() {
     return (Array.isArray(v) ? v[0] : (v as string)) || def;
   };
 
-  // Resolve/ensure a session id (param → existing → create demo)
+  /* ---------- 0) Resolve id/slug -> UUID exactly once ---------- */
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const paramId = getParam("id", "");
-      if (paramId) {
-        setSessionId(paramId);
+      const raw = getParam("id", ""); // may be UUID or slug like "static-1"
+
+      if (raw) {
+        const uuid = await resolveSessionUUID(raw);
+        if (mounted && uuid) {
+          setSessionId(uuid); // ALWAYS store UUID
+          console.log("sessionId (UUID) ->", uuid);
+        }
         return;
       }
-      // Try to reuse the most recent session
-      const { data: found, error: findErr } = await supabase
+
+      // No route param: reuse latest or create a demo
+      const { data: found } = await supabase
         .from(LIVE_TABLE)
         .select("id")
         .order("created_at", { ascending: false })
         .limit(1);
+
       if (!mounted) return;
+
       if (found?.[0]?.id) {
-        setSessionId(found[0].id as string);
+        setSessionId(String(found[0].id));
+        console.log("sessionId (latest) ->", String(found[0].id));
         return;
       }
-      // Create a minimal demo/live row (only if nothing exists)
-      const { data: created, error: insErr } = await supabase
+
+      const { data: created } = await supabase
         .from(LIVE_TABLE)
-        .insert({ title: "Voice Warm-Up & Articulation Techniques", viewers: 0, status: "live" })
+        .insert({
+          title: "Voice Warm-Up & Articulation Techniques",
+          viewers: 0,
+          status: "live",
+          slug: "static-1", // friendly entry for demos
+        })
         .select("id")
         .single();
-      if (!mounted) return;
-      if (created?.id) setSessionId(created.id as string);
+
+      if (mounted && created?.id) {
+        setSessionId(String(created.id));
+        console.log("sessionId (created) ->", String(created.id));
+      }
     })();
-    return () => { mounted = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.id]);
 
   const sessionTitle = sTitle ?? getParam("title", "Public Speaking Practice");
@@ -207,9 +253,9 @@ export default function LiveSession() {
     return () => { mounted = false; };
   }, []);
 
-  // Load chosen session row + watch row changes
+  /* ---------- 1) Load chosen session row + watch row changes ---------- */
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !UUID_RE.test(sessionId)) return; // wait for UUID
     let mounted = true;
 
     const fetchOne = async () => {
@@ -222,7 +268,7 @@ export default function LiveSession() {
 
       setSTitle((row.title || "Live Session").toString());
       viewersRef.current = Number(row.viewers ?? 0);
-      setSViewers(viewersRef.current);
+      // IMPORTANT: do NOT setSViewers from DB; UI comes from Presence only
 
       if (row.host_id) {
         const { data: host } = await supabase
@@ -234,25 +280,9 @@ export default function LiveSession() {
       }
     };
 
-    const changeViewers = async (delta: number) => {
-      try {
-        const next = Math.max(0, (viewersRef.current ?? 0) + delta);
-        const { data: updated } = await supabase
-          .from(LIVE_TABLE)
-          .update({ viewers: next })
-          .eq("id", sessionId)
-          .select("viewers")
-          .single();
-        if (updated && mounted) {
-          viewersRef.current = Number(updated.viewers ?? next);
-          setSViewers(viewersRef.current);
-        }
-      } catch {}
-    };
-
     (async () => {
       await fetchOne();
-      await changeViewers(1); // fallback increment
+      // Removed fallback ++/--: Presence is the source of truth for UI
     })();
 
     const ch = supabase
@@ -263,10 +293,7 @@ export default function LiveSession() {
         (payload) => {
           const row: any = payload.new || payload.old;
           if (!row) return;
-          if (typeof row.viewers === "number") {
-            viewersRef.current = row.viewers;
-            setSViewers(row.viewers);
-          }
+          // IMPORTANT: do NOT set viewers from DB changes to avoid double counts
           if (row.title) setSTitle(row.title);
         }
       )
@@ -275,13 +302,13 @@ export default function LiveSession() {
     return () => {
       mounted = false;
       try { supabase.removeChannel(ch); } catch {}
-      changeViewers(-1); // fallback decrement
+      // Removed fallback decrement
     };
   }, [sessionId]);
 
-  // Presence for accurate viewers
+  /* ---------- 2) Presence for accurate viewers ---------- */
   useEffect(() => {
-    if (!sessionId || !userId) return;
+    if (!sessionId || !UUID_RE.test(sessionId) || !userId) return;
 
     const presence = supabase.channel(`presence:live:${sessionId}`, {
       config: { presence: { key: userId } },
@@ -290,7 +317,21 @@ export default function LiveSession() {
     presence
       .on("presence", { event: "sync" }, () => {
         const state = presence.presenceState();
-        setSViewers(Object.keys(state).length || 0);
+        const count = Object.keys(state).length || 0;
+
+        // drive UI from presence
+        setSViewers(count);
+
+        // write-through to DB (debounced) so storage matches Presence
+        if (sessionId) {
+          if (presenceWriteThroughTimer.current) clearTimeout(presenceWriteThroughTimer.current);
+          presenceWriteThroughTimer.current = setTimeout(() => {
+            supabase
+              .from(LIVE_TABLE)
+              .update({ viewers: count })
+              .eq("id", sessionId);
+          }, 500);
+        }
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
@@ -304,9 +345,42 @@ export default function LiveSession() {
     };
   }, [sessionId, userId]);
 
-  // Realtime reactions
+  /* ---------- 2.5) Persist attendance (join/leave) ---------- */
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !UUID_RE.test(sessionId) || !userId) return;
+
+    // JOIN (or re-join)
+    supabase
+      .from("live_attendances")
+      .upsert(
+        {
+          session_id: sessionId,
+          user_id: userId,
+          joined_at: new Date().toISOString(),
+          left_at: null,
+        },
+        { onConflict: "session_id,user_id" }
+      )
+      .then(({ error }) => {
+        if (error) console.warn("attendance upsert:", error.message);
+      });
+
+    // LEAVE (cleanup)
+    return () => {
+      supabase
+        .from("live_attendances")
+        .update({ left_at: new Date().toISOString() })
+        .eq("session_id", sessionId)
+        .eq("user_id", userId)
+        .then(({ error }) => {
+          if (error) console.warn("attendance leave:", error.message);
+        });
+    };
+  }, [sessionId, userId]);
+
+  /* ---------- 3) Realtime reactions ---------- */
+  useEffect(() => {
+    if (!sessionId || !UUID_RE.test(sessionId)) return;
     let mounted = true;
 
     const setByType = (type: string, n: number) => {
@@ -389,8 +463,8 @@ export default function LiveSession() {
 
   const upsertReaction = async (nextType: "heart" | "wow" | "like" | null) => {
     const uid = userIdRef.current;
-    if (!sessionId || !uid) {
-      console.warn("[reactions] missing sessionId or uid");
+    if (!sessionId || !UUID_RE.test(sessionId) || !uid) {
+      console.warn("[reactions] missing/invalid sessionId or uid");
       return;
     }
     const prev = activeReaction;

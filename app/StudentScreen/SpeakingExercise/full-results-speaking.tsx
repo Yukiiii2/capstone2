@@ -1,31 +1,52 @@
+// app/StudentScreen/SpeakingExercise/full-results-speaking.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  Image,
   StatusBar,
-  Alert,
+  ActivityIndicator,
+  ViewStyle,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function FullResultReading() {
+/* ─────────── tiny helpers (typing only; no UI changes) ─────────── */
+const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+const fmtPct = (n: number) => `${clampPct(n)}%`;
+const widthStyle = (n: number): ViewStyle => ({ width: `${clampPct(n)}%` as `${number}%` });
+
+type Trend = "up" | "down";
+type StrengthItem = { skill: string; level: number; trend: Trend };
+type ImprovementItem = { skill: string; level: number; trend: Trend };
+
+type MetricBlock = {
+  label: string;
+  value: number; // 0..100
+  icon: keyof typeof Ionicons.glyphMap;
+  trend: Trend;
+  change: number;
+};
+
+export default function FullResultsSpeaking() {
   const router = useRouter();
-  const { level, module_id, module_title, score } = useLocalSearchParams<{
-    level?: string;          // "basic" | "advanced"
-    module_id?: string;      // uuid from modules.id
-    module_title?: string;   // modules.title
-    score?: string;          // e.g. "78"
-  }>();
+
+  const { session_id, level, module_id, module_title, score } =
+    useLocalSearchParams<{
+      session_id?: string;
+      level?: string;
+      module_id?: string;
+      module_title?: string;
+      score?: string;
+    }>();
 
   // ---------- UI values you already render ----------
   const uiScore = useMemo(() => {
     const n = Number(score);
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 78; // default to your 78%
+    return Number.isFinite(n) ? clampPct(n) : 78; // default to your 78%
   }, [score]);
 
   // we’ll resolve the current module (id/title/level/order) for saving and for “next module” calc
@@ -37,7 +58,7 @@ export default function FullResultReading() {
   }>({
     id: module_id ?? null,
     title: module_title ?? null,
-    level: (level === "advanced" ? "advanced" : "basic"),
+    level: level === "advanced" ? "advanced" : "basic",
     order_index: null,
   });
 
@@ -46,12 +67,32 @@ export default function FullResultReading() {
     title: string | null;
   } | null>(null);
 
+  // optional: AI feedback list (same session)
+  const [loadingTips, setLoadingTips] = useState(false);
+  const [tips, setTips] = useState<string[]>([]);
+
+  async function loadTips() {
+    if (!session_id) return;
+    try {
+      setLoadingTips(true);
+      const { data } = await supabase
+        .from("ai_feedback")
+        .select("message")
+        .eq("session_id", session_id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      setTips((data ?? []).map((r: any) => r.message));
+    } finally {
+      setLoadingTips(false);
+    }
+  }
+
   // ---------- helpers ----------
   async function resolveModule() {
     // If id/title not given, pick the first active speaking module for this level
     try {
       if (!currentModule.id || !currentModule.title) {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from("modules")
           .select("id, title, level, order_index")
           .eq("category", "speaking")
@@ -60,12 +101,12 @@ export default function FullResultReading() {
           .order("order_index", { ascending: true })
           .limit(1);
 
-        if (!error && data && data.length) {
+        if (data && data.length) {
           const m = data[0];
           setCurrentModule({
             id: m.id,
             title: m.title,
-            level: (m.level === "advanced" ? "advanced" : "basic"),
+            level: m.level === "advanced" ? "advanced" : "basic",
             order_index: m.order_index ?? null,
           });
         }
@@ -84,16 +125,15 @@ export default function FullResultReading() {
           }));
         }
       }
-    } catch (e) {
+    } catch {
       // non-fatal
-      console.log("[full-result] resolveModule error:", e);
     }
   }
 
   async function resolveNextModule() {
     try {
       const curOrder = currentModule.order_index ?? 0;
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("modules")
         .select("id, title, order_index")
         .eq("category", "speaking")
@@ -103,13 +143,12 @@ export default function FullResultReading() {
         .order("order_index", { ascending: true })
         .limit(1);
 
-      if (!error && data && data.length) {
+      if (data && data.length) {
         setNextModule({ id: data[0].id, title: data[0].title });
       } else {
         setNextModule(null);
       }
-    } catch (e) {
-      console.log("[full-result] resolveNextModule error:", e);
+    } catch {
       setNextModule(null);
     }
   }
@@ -122,14 +161,14 @@ export default function FullResultReading() {
         .insert([
           {
             user_id: userId,
-            module_id: currentModule.id, // may be null; db will error if col/constraint mismatch -> we catch and ignore
-            score: uiScore,
+            module_id: currentModule.id,
+            score: clampPct(uiScore),
             category: "speaking",
             level: currentModule.level,
           } as any,
         ]);
     } catch (e) {
-      console.log("[full-result] attempts insert skipped:", (e as any)?.message);
+      console.log("[full-results] attempts insert skipped:", (e as any)?.message);
     }
   }
 
@@ -152,14 +191,11 @@ export default function FullResultReading() {
       const { error } = await supabase
         .from("student_progress")
         .upsert(payload, {
-          onConflict: currentModule.id
-            ? "user_id,module_id"
-            : "user_id,module", // fall back to module title
+          onConflict: currentModule.id ? "user_id,module_id" : "user_id,module",
         });
 
       if (error) {
         // fallback: try simple insert then update
-        console.log("[full-result] upsert fallback:", error.message);
         const { data: existing } = await supabase
           .from("student_progress")
           .select("id")
@@ -170,19 +206,16 @@ export default function FullResultReading() {
           )
           .maybeSingle();
         if (existing?.id) {
-          await supabase
-            .from("student_progress")
-            .update(payload)
-            .eq("id", existing.id);
+          await supabase.from("student_progress").update(payload).eq("id", existing.id);
         } else {
           await supabase.from("student_progress").insert(payload);
         }
       }
     } catch (e) {
-      console.log("[full-result] student_progress upsert skipped:", (e as any)?.message);
+      console.log("[full-results] student_progress upsert skipped:", (e as any)?.message);
     }
 
-    // 2) Optional aggregate: store “overall speaking progress” (0–1) by counting active modules vs completed
+    // 2) Optional aggregate: store “overall speaking progress” (0–1)
     try {
       const { data: allMods } = await supabase
         .from("modules")
@@ -204,8 +237,6 @@ export default function FullResultReading() {
       const completed = doneMods?.length ?? 0;
       const overall = total > 0 ? completed / total : 0;
 
-      // many apps keep a separate row keyed by (user_id, category, level) for the aggregate
-      // we’ll try an aggregate row with module = null to avoid colliding with per-module rows
       const aggregateRow: any = {
         user_id: userId,
         category: "speaking",
@@ -222,7 +253,6 @@ export default function FullResultReading() {
         .upsert(aggregateRow, { onConflict: "user_id,category,level,module_id" });
 
       if (aggErr) {
-        // If the composite key differs in your table, fall back to match & update.
         const { data: agg } = await supabase
           .from("student_progress")
           .select("id")
@@ -239,14 +269,36 @@ export default function FullResultReading() {
         }
       }
     } catch (e) {
-      console.log("[full-result] aggregate progress skipped:", (e as any)?.message);
+      console.log("[full-results] aggregate progress skipped:", (e as any)?.message);
     }
   }
 
-  // Save results once per visit
+  // derived metrics (0..100)
+  const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
+
+  function deriveMetricsFromScore(s: number): MetricBlock[] {
+    const fluency = clampPct(s - 2);
+    const clarity = clampPct(s);
+    const fillers = clampPct(100 - Math.max(0, 100 - s) * 0.9);
+    const wpm = clampPct(60 + (s - 50) * 0.6);
+    return [
+      { label: "Fluency Score", value: fluency, icon: "bar-chart", trend: "up", change: 2.0 },
+      { label: "Clarity Precision", value: clarity, icon: "volume-high", trend: "up", change: 1.2 },
+      { label: "Filler Word Reduction", value: fillers, icon: "time", trend: "up", change: 0.8 },
+      { label: "Speaking Rate (WPM)", value: wpm, icon: "pulse", trend: "up", change: 0.6 },
+    ];
+  }
+
+  async function loadMetrics() {
+    setMetrics(deriveMetricsFromScore(uiScore));
+  }
+
+  // Save results once per visit + load data
   useEffect(() => {
     (async () => {
       await resolveModule();
+      await loadTips();
+      await loadMetrics();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -258,11 +310,11 @@ export default function FullResultReading() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentModule.order_index, currentModule.id, currentModule.title]);
 
+  const savedOnceRef = useRef(false);
   useEffect(() => {
-    let didRun = false;
     (async () => {
-      if (didRun) return;
-      didRun = true;
+      if (savedOnceRef.current) return;
+      savedOnceRef.current = true;
 
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
@@ -271,6 +323,7 @@ export default function FullResultReading() {
       await logAttempt(user.id);
       await upsertStudentProgress(user.id);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiScore, currentModule.level]);
 
   const goRetake = async () => {
@@ -321,6 +374,27 @@ export default function FullResultReading() {
     </View>
   );
 
+  /* strengths & improvements — typed to fix trend comparisons */
+  const strengths: StrengthItem[] = useMemo(() => {
+    const arr = metrics ?? deriveMetricsFromScore(uiScore);
+    return [
+      { skill: "Gestures",   level: clampPct(Math.max(70, arr[0].value)), trend: "up" },
+      { skill: "Pacing",     level: clampPct(Math.max(65, arr[3].value)), trend: "up" },
+      { skill: "Grammar",    level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))), trend: "up" },
+      { skill: "Engagement", level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))), trend: "up" },
+    ];
+  }, [metrics, uiScore]);
+
+  const improvements: ImprovementItem[] = useMemo(() => {
+    const arr = metrics ?? deriveMetricsFromScore(uiScore);
+    const sorted = [...arr].sort((a, b) => a.value - b.value).slice(0, 2);
+    return [
+      { skill: sorted[0]?.label?.replace(" Score", "") || "Clarity",    level: clampPct(sorted[0]?.value ?? 60), trend: "down" },
+      { skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone", level: clampPct(sorted[1]?.value ?? 62), trend: "down" },
+      { skill: "Pronunciation",                                         level: clampPct(Math.round(uiScore * 0.7)), trend: "down" },
+    ];
+  }, [metrics, uiScore]);
+
   return (
     <View className="flex-1 bg-gray-900">
       {/* Full screen background with status bar cover */}
@@ -361,7 +435,7 @@ export default function FullResultReading() {
                 <View className="w-20 h-20 rounded-full border-4 border-[#8A5CFF] items-center justify-center">
                   <View className="w-16 h-16 rounded-full bg-white/10 items-center justify-center shadow-lg">
                     <Text className="text-2xl font-bold items-center justify-center text-white">
-                      {uiScore}%
+                      {fmtPct(uiScore)}
                     </Text>
                   </View>
                 </View>
@@ -400,12 +474,7 @@ export default function FullResultReading() {
               </Text>
             </View>
             <View className="bottom-1 space-y-4 top-4">
-              {[
-                { skill: "Gestures", level: 85, trend: "up" },
-                { skill: "Pacing", level: 78, trend: "up" },
-                { skill: "Grammar", level: 82, trend: "up" },
-                { skill: "Engagement", level: 80, trend: "up" },
-              ].map((item, i) => (
+              {strengths.map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
                     <View className="flex-row items-center">
@@ -414,17 +483,16 @@ export default function FullResultReading() {
                         name={item.trend === "up" ? "trending-up" : "trending-down"}
                         size={12}
                         color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-                        className="ml-1"
                       />
                     </View>
-                    <Text className="text-xs text-[#FFFFFF]"> 
-                      {item.level}%
+                    <Text className="text-xs text-[#FFFFFF]">
+                      {fmtPct(item.level)}
                     </Text>
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <View
                       className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
-                      style={{ width: `${item.level}%` }}
+                      style={widthStyle(item.level)}
                     />
                   </View>
                 </View>
@@ -443,12 +511,7 @@ export default function FullResultReading() {
               </Text>
             </View>
             <View className="bottom-1 space-y-4">
-              {[
-                { skill: "Clarity", level: 65, trend: "down" },
-                { skill: "Vocal Tone", level: 58, trend: "down" },
-                { skill: "Articulation", level: 62, trend: "down" },
-                { skill: "Pronounciation", level: 70, trend: "down" },
-              ].map((item, i) => (
+              {improvements.map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
                     <View className="flex-row items-center">
@@ -457,17 +520,17 @@ export default function FullResultReading() {
                         name={item.trend === "up" ? "trending-up" : "trending-down"}
                         size={12}
                         color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-                        className="ml-1"
                       />
                     </View>
+                    {/* show "gap" as 100 - level for variety */}
                     <Text className="text-xs text-[#FFFFFF]">
-                      {100 - item.level}%
+                      {fmtPct(100 - item.level)}
                     </Text>
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <View
                       className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
-                      style={{ width: `${item.level}%` }}
+                      style={widthStyle(item.level)}
                     />
                   </View>
                 </View>
@@ -488,12 +551,7 @@ export default function FullResultReading() {
           </View>
 
           <View className="space-y-6">
-            {[
-              { label: "Fluency Score", value: 75, icon: "bar-chart", trend: "up", change: 3.2 },
-              { label: "Clarity Precision", value: 82, icon: "volume-high", trend: "up", change: 1.8 },
-              { label: "Filler Word Reduction", value: 76, icon: "time", trend: "down", change: 2.4 },
-              { label: "Speaking Rate (WPM)", value: 73, icon: "pulse", trend: "up", change: 1.1 },
-            ].map((item, i) => {
+            {(metrics ?? []).map((item, i) => {
               const isPositive = item.trend === "up";
               const trendColor = isPositive ? "#10B981" : "#EF4444";
 
@@ -516,14 +574,14 @@ export default function FullResultReading() {
                         style={{ marginRight: 0.1 }}
                       />
                       <Text className="text-white font-semibold text-sm ml-3 w-10 text-right">
-                        {item.value}%
+                        {fmtPct(item.value)}
                       </Text>
                     </View>
                   </View>
                   <View className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
-                    <View className="h-full rounded-full overflow-hidden" style={{ width: `${item.value}%` }}>
+                    <View className="h-full rounded-full overflow-hidden" style={widthStyle(item.value)}>
                       <LinearGradient
-                        colors={isPositive ? ["#8A5CFF", "#A78BFA"] : ["#8A5CFF", "#A78BFA"]}
+                        colors={["#8A5CFF", "#A78BFA"]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                         className="w-full h-full rounded-full"
@@ -533,8 +591,34 @@ export default function FullResultReading() {
                 </View>
               );
             })}
+            {!metrics && (
+              <View className="items-center justify-center py-6">
+                <ActivityIndicator />
+              </View>
+            )}
           </View>
         </View>
+
+        {/* AI Feedback (session) */}
+        {!!session_id && (
+          <View className="mx-4 p-4 bg-white/5 rounded-2xl border border-white/20 mb-6">
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" />
+              <Text className="text-white font-semibold ml-2">AI Feedback (This Session)</Text>
+            </View>
+            {loadingTips && tips.length === 0 ? (
+              <Text className="text-gray-300 text-sm">Loading tips…</Text>
+            ) : tips.length > 0 ? (
+              tips.map((t, i) => (
+                <Text key={i} className="text-gray-300 text-sm mb-1">
+                  • {t}
+                </Text>
+              ))
+            ) : (
+              <Text className="text-gray-400 text-sm">No feedback captured yet.</Text>
+            )}
+          </View>
+        )}
 
         {/* Call to Action */}
         <View className="mx-4 p-6 bg-white/5 rounded-3xl border border-white/20 mb-10 overflow-hidden">

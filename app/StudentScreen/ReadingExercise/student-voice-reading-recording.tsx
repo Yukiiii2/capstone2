@@ -16,12 +16,16 @@ import { BlurView } from "expo-blur";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import CompletionModal from "@/components/StudentModal/CompletionModal";
 
+/* === Added: stable audio recording support (logic only; no UI changes) === */
+import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
+
 const { width, height } = Dimensions.get("window");
 
 export default function StudentVoiceReadingRecording() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  
+
   // State management
   const [recording, setRecording] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -31,20 +35,26 @@ export default function StudentVoiceReadingRecording() {
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-  
+
+  // === Added: recording refs/state (logic only) ===
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const [recordingUri, setRecordingUri] = useState<string | null>(null);
+  const isStartingRef = useRef(false);
+  const isStoppingRef = useRef(false);
+
   // Profile icon from Ionicons instead of image
   const ProfileIcon = () => (
     <View className="w-8 h-8 rounded-full bg-indigo-600 items-center justify-center">
       <Ionicons name="person" size={20} color="white" />
     </View>
   );
-  
+
   // Handle icon press
   const handleIconPress = (icon: string) => {
     // Add your icon press handlers here
     console.log(`${icon} icon pressed`);
   };
-  
+
   // Refs for animations and intervals
   const feedbackInterval = useRef<NodeJS.Timeout | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -80,11 +90,16 @@ export default function StudentVoiceReadingRecording() {
       stopRotate();
       stopWaveform();
     }
-    
+
     // Cleanup on unmount
     return () => {
       if (feedbackInterval.current) {
         clearInterval(feedbackInterval.current);
+      }
+      // best-effort audio cleanup
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+        recordingRef.current = null;
       }
     };
   }, [recording]);
@@ -170,31 +185,118 @@ export default function StudentVoiceReadingRecording() {
     waveformAnim.setValue(0);
   };
 
-  // Start recording function
-  const startRecording = () => {
-    setRecording(true);
+  /* === Added: permission + audio mode helpers === */
+  async function ensureMicPermission() {
+    const { status } = await Audio.requestPermissionsAsync();
+    if (status !== "granted") {
+      throw new Error("Microphone permission not granted");
+    }
+  }
+
+  async function configureAudioForRecording() {
+  // Handle both constant styles across Expo SDKs
+  const IOS_DO_NOT_MIX =
+    // old constant name
+    (Audio as any).INTERRUPTION_MODE_IOS_DO_NOT_MIX ??
+    // enum style
+    (Audio as any).InterruptionModeIOS?.DoNotMix ??
+    // safe fallback
+    1;
+
+  const ANDROID_DO_NOT_MIX =
+    (Audio as any).INTERRUPTION_MODE_ANDROID_DO_NOT_MIX ??
+    (Audio as any).InterruptionModeAndroid?.DoNotMix ??
+    1;
+
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+    staysActiveInBackground: false,
+    interruptionModeIOS: IOS_DO_NOT_MIX,
+    shouldDuckAndroid: true,
+    interruptionModeAndroid: ANDROID_DO_NOT_MIX,
+    playThroughEarpieceAndroid: false,
+  });
+}
+
+  // Start recording function (updated)
+  const startRecording = async () => {
+    if (isStartingRef.current || recordingRef.current) return;
+    isStartingRef.current = true;
+
+    try {
+      await ensureMicPermission();
+      await configureAudioForRecording();
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      recordingRef.current = recording;
+      setRecordingUri(null);
+      setRecording(true);
+    } catch (e) {
+      console.warn("startRecording error:", e);
+    } finally {
+      isStartingRef.current = false;
+    }
   };
 
-  // Stop recording and initiate processing
+  // Stop recording and initiate processing (updated)
   const stopRecording = async () => {
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+
     try {
+      // stop & unload if active
+      if (recordingRef.current) {
+        try {
+          await recordingRef.current.stopAndUnloadAsync();
+          const uri = recordingRef.current.getURI();
+          setRecordingUri(uri || null);
+        } catch (e) {
+          console.warn("stopAndUnloadAsync error:", e);
+        } finally {
+          recordingRef.current = null;
+        }
+      }
+
       setRecording(false);
+
+      // sanity check the file exists
+      if (recordingUri) {
+        try {
+          const info = await FileSystem.getInfoAsync(recordingUri);
+          if (!info.exists) {
+            console.warn("Recorded file missing:", recordingUri);
+            setRecordingUri(null);
+          }
+        } catch (e) {
+          console.warn("File info error:", e);
+        }
+      }
+
       setShowCompletionPopup(true);
       setIsProcessing(true);
       setShowResultsPrompt(false);
 
-      // Simulate AI processing
+      // TODO: Upload `recordingUri` to your FastAPI here and set real feedback/score.
+
+      // simulate processing
       setTimeout(() => {
         setIsProcessing(false);
         setShowResultsPrompt(true);
         setAiFeedback(
           "Your pronunciation is good, but try to speak a bit slower for better clarity."
         );
-      }, 3000);
+        setAnalysisComplete(true); // unlocks “View Full Results Now”
+      }, 1500);
     } catch (err) {
       console.error("Failed to stop recording", err);
       setShowCompletionPopup(false);
       setIsProcessing(false);
+    } finally {
+      isStoppingRef.current = false;
     }
   };
 
@@ -204,12 +306,18 @@ export default function StudentVoiceReadingRecording() {
     setShowFeedback(true);
   };
 
-  // Handle see results button press in modal
+  // Handle see results button press in modal (updated: pass params)
   const handleSeeResults = () => {
     setShowCompletionPopup(false);
-    // Always forward the current module param, fallback to 'basic'
-    const moduleType = typeof params.module === 'string' ? params.module : 'basic';
-    router.replace(`/StudentScreen/ReadingExercise/full-result-reading?module=${moduleType}`);
+    const moduleType = typeof params.module === "string" ? params.module : "basic";
+    const levelParam =
+      moduleType === "advance" || moduleType === "advanced" ? "advanced" : "basic";
+    const scoreParam = 78; // replace with FastAPI score when wired
+    router.replace(
+      `/StudentScreen/ReadingExercise/full-result-reading?level=${encodeURIComponent(
+        levelParam
+      )}&module_title=${encodeURIComponent("Reading Passage")}&score=${scoreParam}`
+    );
   };
 
   // Handle modal close
@@ -413,9 +521,15 @@ export default function StudentVoiceReadingRecording() {
           )}
           <TouchableOpacity
             onPress={() => {
-              // Always forward the current module param, fallback to 'basic'
-              const moduleType = typeof params.module === 'string' ? params.module : 'basic';
-              router.replace(`/StudentScreen/ReadingExercise/full-result-reading?module=${moduleType}`);
+              const moduleType = typeof params.module === "string" ? params.module : "basic";
+              const levelParam =
+                moduleType === "advance" || moduleType === "advanced" ? "advanced" : "basic";
+              const scoreParam = 78; // replace with real FastAPI score when wired
+              router.replace(
+                `/StudentScreen/ReadingExercise/full-result-reading?level=${encodeURIComponent(
+                  levelParam
+                )}&module_title=${encodeURIComponent("Reading Passage")}&score=${scoreParam}`
+              );
             }}
             disabled={!analysisComplete}
             className={`${analysisComplete ? "flex-[0.8] min-w-[200px] ml-0" : "flex-1 ml-2"} ${
