@@ -335,7 +335,7 @@ export default function FullResultsSpeaking() {
         await upsertStudentProgress(user.id);
       }
     } catch {}
-    router.replace("/live-vid-selection");
+    router.replace("StudentScreen/SpeakingExercise/live-vid-selection");
   };
 
   const goHome = async () => {
@@ -347,7 +347,7 @@ export default function FullResultsSpeaking() {
         await upsertStudentProgress(user.id);
       }
     } catch {}
-    router.replace("/home-page");
+    router.replace("StudentScreen/HomePage/home-page");
   };
 
   /**

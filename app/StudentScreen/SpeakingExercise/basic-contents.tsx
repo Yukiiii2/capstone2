@@ -11,10 +11,11 @@ import {
   Image,
   Modal,
   StatusBar,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router"; // ⬅️ useFocusEffect already here
 import { router } from "expo-router";
 import ProfileMenuNew from "@/components/ProfileModal/ProfileMenuNew";
 
@@ -31,7 +32,15 @@ type Lesson = {
   subtitle: string;
   desc: string;
   type: "Review" | "Start" | "Continue" | "New";
-  progress: number;
+  progress: number; // 0..1 for UI bar
+};
+
+// 🆕 Recent type
+type Recent = {
+  moduleId: string;
+  title: string;
+  desc: string;
+  started_at: string; // ISO
 };
 
 // ---- six basic lessons (all 0% at start) ----
@@ -83,21 +92,6 @@ const lessons: Lesson[] = [
     desc: "Present yourself clearly with purpose, background, and goals.",
     type: "Start",
     progress: 0,
-  },
-];
-
-const recentSessions = [
-  {
-    title: "Audience Engagement Basics",
-    desc: "Learn how to maintain attention and interest during a speech.",
-  },
-  {
-    title: "Building Clear Outlines",
-    desc: "Build a clear outline for a talk with clear concept.",
-  },
-  {
-    title: "Overcoming Fear",
-    desc: "Manage fear with practical mindset and micro-feedback.",
   },
 ];
 
@@ -289,11 +283,159 @@ export default function BasicContents() {
   const [filterType, setFilterType] = useState("All");
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
-  const [filteredLessons, setFilteredLessons] = useState<Lesson[]>(lessons);
+
+  // 🆕 derived lessons from Supabase + per-user progress
+  const [uiLessons, setUiLessons] = useState<(Lesson & { supabaseId: string; unlocked: boolean })[]>([]);
+  const [filteredLessons, setFilteredLessons] = useState<Lesson[]>(lessons); // keep default initial UI
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
 
-  // only Lesson 1 unlocked for fresh accounts
-  const isLessonLocked = (lessonId: number) => lessonId !== 1;
+  // 🆕 maps for locking + navigation
+  const [unlockedById, setUnlockedById] = useState<Record<number, boolean>>({ 1: true });
+  const [moduleIdByDisplayId, setModuleIdByDisplayId] = useState<Record<number, string>>({});
+  const [overallPct, setOverallPct] = useState<number>(0);
+
+  // 🆕 Recent (starts empty; fills from progress if any, and on taps)
+  const [recent, setRecent] = useState<Recent[]>([]);
+
+  // only Lesson 1 unlocked for fresh accounts (will be replaced once we load from Supabase)
+  const isLessonLocked = (lessonId: number) => !Boolean(unlockedById[lessonId]);
+
+  // 🆕 add or bump a recent item to top (in-memory)
+  const pushRecent = (moduleId: string, title: string) => {
+    setRecent((prev) => {
+      const existing = prev.filter((r) => r.moduleId !== moduleId);
+      return [
+        { moduleId, title, desc: "You started this basic module.", started_at: new Date().toISOString() },
+        ...existing,
+      ].slice(0, 5);
+    });
+  };
+
+  // 🆕 load modules + per-user progress and derive unlocks/progress + seed recents
+  const refreshLessons = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const user = auth?.user;
+    if (!user) return;
+
+    // 1) fetch modules for speaking/basic
+    const { data: modsRaw } = await supabase
+      .from("modules")
+      .select("id, title, description, order_index, active, created_at")
+      .eq("category", "speaking")
+      .eq("level", "basic")
+      .eq("active", true)
+      .order("order_index", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    const mods = (modsRaw ?? []).slice(); // ensure array
+
+    // map for title lookup for recents
+    const titleById = new Map<string, string>();
+    mods.forEach((m: any) => titleById.set(m.id, m.title ?? ""));
+
+    // 2) fetch this user's progress rows
+    const { data: progRows } = await supabase
+      .from("student_progress")
+      .select("module_id, progress, updated_at")
+      .eq("student_id", user.id);
+
+    const doneSet = new Set(
+      (progRows ?? [])
+        .filter((r) => (r.progress ?? 0) >= 100)
+        .map((r) => r.module_id as string)
+    );
+
+    // 3) derive unlock-by-order (cap to 6)
+    const sorted = mods
+      .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+      .slice(0, 6);
+
+    const nextUiLessons: (Lesson & { supabaseId: string; unlocked: boolean })[] = sorted.map(
+      (m: any, idx: number) => {
+        const displayId = idx + 1; // keep your 1..6 display index
+        const earlier = sorted.slice(0, idx).map((x: any) => x.id as string);
+        const earlierDone = earlier.every((id) => doneSet.has(id));
+        const unlocked = idx === 0 || earlierDone;
+
+        const rawProgress = (progRows ?? []).find((r) => r.module_id === m.id)?.progress ?? 0;
+        const progressUI = Math.max(0, Math.min(1, (rawProgress as number) / 100));
+
+        // keep your static labels as primary UI; fallback to DB fields if needed
+        const meta = lessons.find((x) => x.id === displayId);
+        const title = (m.title as string) ?? meta?.title ?? `Lesson ${displayId}`;
+        const subtitle = meta?.subtitle ?? `Lesson ${displayId}`;
+        const desc = (m.description as string) ?? meta?.desc ?? "";
+
+        const type: Lesson["type"] =
+          rawProgress >= 100 ? "Review" : rawProgress > 0 ? "Continue" : "Start";
+
+        return {
+          id: displayId,
+          supabaseId: m.id as string,
+          title,
+          subtitle,
+          desc,
+          type,
+          progress: progressUI,
+          unlocked,
+        };
+      }
+    );
+
+    // maps for quick use in render
+    const unlockedMap: Record<number, boolean> = {};
+    const idMap: Record<number, string> = {};
+    nextUiLessons.forEach((l) => {
+      unlockedMap[l.id] = l.unlocked;
+      idMap[l.id] = l.supabaseId;
+    });
+
+    setUiLessons(nextUiLessons);
+    setUnlockedById(unlockedMap);
+    setModuleIdByDisplayId(idMap);
+
+    // header overall progress (% completed)
+    const total = sorted.length;
+    const completedCount = (progRows ?? []).filter((r) => (r.progress ?? 0) >= 100).length;
+    setOverallPct(total > 0 ? Math.round((completedCount / total) * 100) : 0);
+
+    // seed filteredLessons with derived list
+    setFilteredLessons(nextUiLessons as unknown as Lesson[]);
+
+    // 🆕 seed recent from progress rows (only if there’s actual progress)
+    if ((progRows ?? []).some((r) => (r.progress ?? 0) > 0)) {
+      const recents: Recent[] = (progRows ?? [])
+        .filter((r) => (r.progress ?? 0) > 0)
+        .sort(
+          (a, b) =>
+            new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+        )
+        .slice(0, 5)
+        .map((r) => ({
+          moduleId: r.module_id as string,
+          title: titleById.get(r.module_id as string) || "Recent Module",
+          desc: "Resumed your basic module.",
+          started_at: r.updated_at || new Date().toISOString(),
+        }));
+      setRecent(recents);
+    } else {
+      setRecent([]); // empty until they tap something
+    }
+  };
+
+  // initial load
+  useEffect(() => {
+    refreshLessons();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // refresh when screen regains focus (returning from lessons/results)
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshLessons();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
 
   const handleIconPress = (iconName: string) => {
     if (iconName === "chatbot") {
@@ -303,8 +445,9 @@ export default function BasicContents() {
     }
   };
 
+  // keep your existing filter/search behavior, but apply to the derived list
   useEffect(() => {
-    let result = [...lessons];
+    let result = [...(uiLessons.length ? (uiLessons as unknown as Lesson[]) : lessons)];
 
     if (filterType === "Continue") {
       result = result.filter((l) => l.progress > 0 && l.progress < 1);
@@ -323,7 +466,7 @@ export default function BasicContents() {
     }
 
     setFilteredLessons(result);
-  }, [filterType, searchQuery]);
+  }, [filterType, searchQuery, uiLessons]);
 
   return (
     <View className="flex-1 bg-[#0F172A] pt-1">
@@ -372,12 +515,14 @@ export default function BasicContents() {
                   </Text>
                 </View>
                 <View className="items-end mt-16">
-  <Text className="text-white/80 text-xs mb-1">Module Progress</Text>
-  <Text className="text-purple-400 font-bold text-lg">0%</Text>
-</View>
+                  {/* 🆕 dynamic overall progress */}
+                  <Text className="text-white/80 text-xs mb-1">Module Progress</Text>
+                  <Text className="text-purple-400 font-bold text-lg">{overallPct}%</Text>
+                </View>
               </View>
               <View className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                <View className="h-2 bg-[#a78bfa] rounded-full w-[0%]" />
+                {/* 🆕 dynamic progress bar width */}
+                <View className="h-2 bg-[#a78bfa] rounded-full" style={{ width: `${overallPct}%` }} />
               </View>
             </View>
 
@@ -515,11 +660,26 @@ export default function BasicContents() {
                           </View>
                         ) : (
                           <Pressable
-                            onPress={() =>
+                            onPress={() => {
+                              const moduleId = moduleIdByDisplayId[lesson.id];
+                              if (!moduleId) {
+                                Alert.alert("Module not found", "Please try again in a moment.");
+                                return;
+                              }
+                              // 🆕 Optimistically add to Recent
+                              pushRecent(moduleId, lesson.title);
+
                               router.push({
-                                pathname: "StudentScreen/SpeakingExercise/lessons-basic"
-                              })
-                            }
+                                pathname: "StudentScreen/SpeakingExercise/lessons-basic",
+                                // 🆕 pass module_id + title so downstream can save progress
+                                params: {
+                                  module_id: moduleIdByDisplayId[lesson.id],
+                                  module_title: lesson.title,
+                                  level: "basic",
+                                  display: String(lesson.id),
+                                },
+                              });
+                            }}
                             style={({ pressed }) => ({
                               opacity: pressed ? 0.8 : 1,
                               transform: [{ scale: pressed ? 0.98 : 1 }],
@@ -552,35 +712,40 @@ export default function BasicContents() {
               })}
             </View>
 
-            <View className="mb-6 bottom-3">
-              <View className="flex-row justify-between items-center mb-4 bottom-5">
-                <Text className="text-white text-lg font-bold">Recent Training Sessions</Text>
-                <TouchableOpacity>
-                  <Text className="text-violet-400 text-sm">View All</Text>
-                </TouchableOpacity>
-              </View>
+            {/* 🆕 Recent sessions — hidden when empty */}
+            {recent.length > 0 && (
+              <View className="mb-6 bottom-3">
+                <View className="flex-row justify-between items-center mb-4 bottom-5">
+                  <Text className="text-white text-lg font-bold">Recent Training Sessions</Text>
+                  <TouchableOpacity onPress={() => setRecent([])}>
+                    <Text className="text-violet-400 text-sm">Clear</Text>
+                  </TouchableOpacity>
+                </View>
 
-              <View className="space-y-3">
-                {recentSessions.map((session, i) => (
-                  <View
-                    key={i}
-                    className="bg-white/10 border border-white/20 rounded-xl p-4 bottom-5"
-                  >
-                    <View className="flex-row items-center">
-                      <View className="w-10 h-10 bg-white/10 rounded-full items-center justify-center mr-3">
-                        <Ionicons name="videocam-outline" size={18} color="white" />
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-white text-base font-semibold mb-1">
-                          {session.title}
-                        </Text>
-                        <Text className="text-gray-300 text-xs">{session.desc}</Text>
+                <View className="space-y-3">
+                  {recent.map((session, i) => (
+                    <View
+                      key={session.moduleId + i}
+                      className="bg-white/10 border border-white/20 rounded-xl p-4 bottom-5"
+                    >
+                      <View className="flex-row items-center">
+                        <View className="w-10 h-10 bg-white/10 rounded-full items-center justify-center mr-3">
+                          <Ionicons name="videocam-outline" size={18} color="white" />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-white text-base font-semibold mb-1">
+                            {session.title}
+                          </Text>
+                          <Text className="text-gray-300 text-xs">
+                            {session.desc}
+                          </Text>
+                        </View>
                       </View>
                     </View>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
-            </View>
+            )}
           </View>
         </ScrollView>
 
@@ -597,20 +762,16 @@ export default function BasicContents() {
                 const handlePress = () => {
                   setFilterType(cat);
                   setCategoryModalVisible(false);
-                  if (cat !== 'All') {
+                  if (cat !== "All") {
                     router.push({
-                      pathname: 'lessons-basic',
-                      params: { category: cat }
+                      pathname: "lessons-basic",
+                      params: { category: cat },
                     });
                   }
                 };
-                
+
                 return (
-                  <TouchableOpacity
-                    key={cat}
-                    className="py-3"
-                    onPress={handlePress}
-                  >
+                  <TouchableOpacity key={cat} className="py-3" onPress={handlePress}>
                     <Text className="text-white text-lg">{cat}</Text>
                   </TouchableOpacity>
                 );

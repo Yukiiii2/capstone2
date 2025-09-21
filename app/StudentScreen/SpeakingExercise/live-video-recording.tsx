@@ -1,6 +1,6 @@
 // app/StudentsScreen/SpeakingExercise/live-video-recording.tsx
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -70,16 +70,40 @@ const BackgroundDecor = () => (
   </View>
 );
 
-export default function PrivateVideoRecording() {
+export default function LiveVideoRecording() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useLocalSearchParams();
 
-  // Accept either ?session (uuid/slug) or ?session_id
+  // ========= Capture lesson/module context from router =========
+  const normalizeParam = (v: string | string[] | undefined) =>
+    Array.isArray(v) ? v[0] : v;
+
+  const module_id = normalizeParam(params.module_id);
+  const module_title = normalizeParam(params.module_title);
+  const level = normalizeParam(params.level);
+  const display = normalizeParam(params.display); // visual 1..N you passed
+
+  // Accept either ?session or ?session_id
   const routeSessionId =
-    (Array.isArray(params.session) ? params.session[0] : (params.session as string)) ||
-    (Array.isArray(params.session_id) ? params.session_id[0] : (params.session_id as string)) ||
-    null;
+    normalizeParam(params.session) || normalizeParam(params.session_id) || null;
+
+  // Pack in one place so we never forget anything when navigating
+  const moduleCtx = useMemo(
+    () => ({
+      ...(module_id ? { module_id } : {}),
+      ...(module_title ? { module_title } : {}),
+      ...(level ? { level } : {}),
+      ...(display ? { display } : {}),
+    }),
+    [module_id, module_title, level, display]
+  );
+
+  // Helper: push including module context (no UI change)
+  const pushWithCtx = (pathname: string, extra?: Record<string, any>) => {
+    router.push({ pathname, params: { ...moduleCtx, ...(extra || {}) } });
+  };
+  // ================================================================
 
   // UI state
   const [isRecording, setIsRecording] = useState(false);
@@ -106,10 +130,10 @@ export default function PrivateVideoRecording() {
   // Camera + recording
   const cameraRef = useRef<CameraView | null>(null);
   const [isCamReady, setIsCamReady] = useState(false);
-  const [hasPerms, setHasPerms] = useState<boolean | null>(null); // null = unknown
+  const [hasPerms, setHasPerms] = useState<boolean | null>(null);
   const recordPromiseRef = useRef<Promise<any> | null>(null);
 
-  // Robust mounting/retry (cross-platform)
+  // Robust mounting/retry
   const [camKey, setCamKey] = useState(0);
   const [facing, setFacing] = useState<"front" | "back">("front");
   const retryGuardRef = useRef<NodeJS.Timeout | null>(null);
@@ -226,7 +250,9 @@ export default function PrivateVideoRecording() {
       return () => clearInterval(feedbackInterval);
     } else {
       if (pulseLoopRef.current) {
-        try { pulseLoopRef.current.stop(); } catch {}
+        try {
+          pulseLoopRef.current.stop();
+        } catch {}
         pulseLoopRef.current = null;
       }
       setIsFullScreen(false);
@@ -314,14 +340,13 @@ export default function PrivateVideoRecording() {
   // ===== Attendance + viewers =====
   const bumpParticipants = async (delta: number) => {
     if (!routeSessionId) return;
-    // If you created the trigger below, this call is optional. Still, we update eagerly for UI snappiness.
     try {
       await supabase.rpc("live_sessions_bump_viewers", {
         p_session_id: routeSessionId,
         p_delta: delta,
       });
     } catch {
-      // optional – ignore if RPC not installed
+      // optional
     }
   };
 
@@ -370,15 +395,18 @@ export default function PrivateVideoRecording() {
         "postgres_changes",
         { event: "*", schema: "public", table: "live_sessions", filter: `id=eq.${routeSessionId}` },
         (payload: any) => {
-          const p = payload?.new?.participants ?? payload?.old?.participants ?? null;
-          if (p !== null) setLiveViewers(p as number);
+          // IMPORTANT: read the correct column name; prefer `viewers`
+          const v = payload?.new?.viewers ?? payload?.old?.viewers ?? null;
+          if (v !== null) setLiveViewers(v as number);
         }
       )
       .subscribe();
   };
   const unsubscribeViewers = () => {
     if (liveSubRef.current) {
-      try { supabase.removeChannel(liveSubRef.current); } catch {}
+      try {
+        supabase.removeChannel(liveSubRef.current);
+      } catch {}
       liveSubRef.current = null;
     }
   };
@@ -418,7 +446,9 @@ export default function PrivateVideoRecording() {
 
   const disconnectAI = () => {
     if (aiSubRef.current) {
-      try { supabase.removeChannel(aiSubRef.current); } catch {}
+      try {
+        supabase.removeChannel(aiSubRef.current);
+      } catch {}
       aiSubRef.current = null;
     }
     setAiConnected(false);
@@ -428,6 +458,7 @@ export default function PrivateVideoRecording() {
   const startRecordingInternal = async () => {
     try {
       if (!(await ensurePermissions())) return;
+      if (!isCamReady) return; // extra guard: only record when camera is ready
 
       setRecordedUri(null);
       setUploadUrl(null);
@@ -468,7 +499,7 @@ export default function PrivateVideoRecording() {
     } catch {}
   };
 
-  // === Robust auto-start sequence (mount → ready → record) with retries ===
+  // Robust auto-start on mount when recording view opens
   useEffect(() => {
     if (!isRecording || !isFullScreen) return;
 
@@ -486,7 +517,10 @@ export default function PrivateVideoRecording() {
         }, 2200);
       }, 2200);
       return () => {
-        if (retryGuardRef.current) { clearTimeout(retryGuardRef.current); retryGuardRef.current = null; }
+        if (retryGuardRef.current) {
+          clearTimeout(retryGuardRef.current);
+          retryGuardRef.current = null;
+        }
       };
     }
 
@@ -494,13 +528,19 @@ export default function PrivateVideoRecording() {
       try {
         const ok = await ensurePermissions();
         if (!ok) return;
-        if (retryGuardRef.current) { clearTimeout(retryGuardRef.current); retryGuardRef.current = null; }
+        if (retryGuardRef.current) {
+          clearTimeout(retryGuardRef.current);
+          retryGuardRef.current = null;
+        }
         await startRecordingInternal();
       } catch {}
     })();
 
     return () => {
-      if (retryGuardRef.current) { clearTimeout(retryGuardRef.current); retryGuardRef.current = null; }
+      if (retryGuardRef.current) {
+        clearTimeout(retryGuardRef.current);
+        retryGuardRef.current = null;
+      }
     };
   }, [isRecording, isFullScreen, isCamReady]);
 
@@ -550,13 +590,19 @@ export default function PrivateVideoRecording() {
   // Leave attendance & cleanup
   useEffect(() => {
     return () => {
-      markLeft().finally(() => { disconnectAI(); unsubscribeViewers(); });
+      markLeft().finally(() => {
+        disconnectAI();
+        unsubscribeViewers();
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (!isFullScreen) {
-      markLeft().finally(() => { disconnectAI(); unsubscribeViewers(); });
+      markLeft().finally(() => {
+        disconnectAI();
+        unsubscribeViewers();
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFullScreen]);
@@ -668,21 +714,19 @@ export default function PrivateVideoRecording() {
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
       {hasPerms ? (
+        // HARDENED: only render CameraView when permissions exist; removed useCamera2Api
         <CameraView
           key={`cam-${camKey}-${facing}`}
-          ref={(r) => { cameraRef.current = r; }}
+          ref={(r) => {
+            cameraRef.current = r;
+          }}
           style={StyleSheet.absoluteFill}
           facing={facing}
-          {...(Platform.OS === "android" ? { /* @ts-ignore */ useCamera2Api: true } : {})}
           onCameraReady={() => setIsCamReady(true)}
           onMountError={(err) => {
-            const msg =
-              (err as any)?.message ??
-              (err as any)?.nativeEvent?.message ??
-              String(err);
+            const msg = (err as any)?.message ?? (err as any)?.nativeEvent?.message ?? String(err);
             console.warn("CameraView onMountError:", msg);
-            // quick recovery
-            setCamKey((k) => k + 1);
+            setCamKey((k) => k + 1); // quick recovery remount
           }}
         />
       ) : (
@@ -694,9 +738,20 @@ export default function PrivateVideoRecording() {
       )}
 
       {/* Debug chip */}
-      <View style={{ position: "absolute", top: 18, alignSelf: "center", backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+      <View
+        style={{
+          position: "absolute",
+          top: 18,
+          alignSelf: "center",
+          backgroundColor: "rgba(0,0,0,0.5)",
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+        }}
+      >
         <Text style={{ color: "white", fontSize: 12 }}>
-          perms:{String(hasPerms)} | ready:{String(isCamReady)}{liveViewers !== null ? ` | viewers:${liveViewers}` : ""}
+          perms:{String(hasPerms)} | ready:{String(isCamReady)}
+          {liveViewers !== null ? ` | viewers:${liveViewers}` : ""}
         </Text>
       </View>
 
@@ -748,21 +803,24 @@ export default function PrivateVideoRecording() {
       pathname.includes("exercise-speaking") ||
       pathname.includes("basic-contents") ||
       pathname.includes("advanced-contents") ||
-      pathname.includes("private-video-recording")
+      pathname.includes("private-video-recording") ||
+      pathname.includes("live-video-recording") // include this screen
     )
       return "Speaking";
     if (pathname.includes("basic-exercise-reading") || pathname.includes("advance-execise-reading"))
       return "Reading";
-    if (pathname.includes("community-selection") || pathname.includes("community"))
-      return "Community";
+    if (pathname.includes("community-selection") || pathname.includes("community")) return "Community";
     return "Speaking";
   };
   const activeTab = getActiveTab();
 
   const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
-    if (option === "Live Session") router.push("/live-sessions-select");
-    else router.push("/community-selection");
+    if (option === "Live Session") {
+      pushWithCtx("/live-sessions-select");
+    } else {
+      pushWithCtx("/community-selection");
+    }
   };
 
   const handleIconPress = (iconName: string) => {
@@ -773,7 +831,7 @@ export default function PrivateVideoRecording() {
 
   const handleViewAIAnalysis = () => {
     setShowEndSessionModal(false);
-    router.push("/full-results-speaking");
+    pushWithCtx("/full-results-speaking", uploadUrl ? { media_url: uploadUrl } : {});
   };
 
   // Save to gallery
@@ -781,24 +839,35 @@ export default function PrivateVideoRecording() {
     try {
       setIsDownloading(true);
 
-      if (Platform.OS === "android") {
-        const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
-        if (status !== "granted") {
-          if (!canAskAgain) {
-            Alert.alert(
-              "Permission Required",
-              "Storage permission is required to save videos. Enable it in Settings.",
-              [
-                { text: "OK", onPress: () => { setIsDownloading(false); setShowEndSessionModal(false); } },
-                { text: "Open Settings", onPress: () => { setIsDownloading(false); setShowEndSessionModal(false); Linking.openSettings(); } },
-              ]
-            );
-          } else {
-            setIsDownloading(false);
-            setShowEndSessionModal(false);
-          }
-          return;
+      // Cross-platform Photos permission (iOS + Android)
+      const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") {
+        if (Platform.OS === "android" && !canAskAgain) {
+          Alert.alert(
+            "Permission Required",
+            "Storage permission is required to save videos. Enable it in Settings.",
+            [
+              {
+                text: "OK",
+                onPress: () => {
+                  setIsDownloading(false);
+                  setShowEndSessionModal(false);
+                },
+              },
+              {
+                text: "Open Settings",
+                onPress: () => {
+                  setIsDownloading(false);
+                  setShowEndSessionModal(false);
+                  Linking.openSettings();
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert("Permission Required", "Photos permission is required to save videos.");
         }
+        return;
       }
 
       if (recordedUri) {

@@ -14,18 +14,25 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useFocusEffect } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 import { supabase } from "@/lib/supabaseClient";
 
 type Lesson = {
-  id: number;          // keep numeric for lock logic (1 unlocked)
+  id: number;          // display slot 1..N (lock logic uses this)
   title: string;
   subtitle: string;    // "Lesson N"
   desc: string;
   type: "Review" | "Start" | "Continue" | "New";
   progress: number;    // 0..1
+};
+
+type Recent = {
+  moduleId: string;
+  title: string;
+  desc: string;
+  started_at: string; // ISO
 };
 
 // ---- static fallback (unchanged UI) ----
@@ -80,16 +87,17 @@ const STATIC_ADVANCED: Lesson[] = [
   },
 ];
 
-const recentSessions = [
-  { title: "Panel Interview Excellence", desc: "Navigate an executive panel with structured answers." },
-  { title: "Advanced Debate Techniques", desc: "Practice counters and turn-arounds in timed debates." },
-  { title: "Audience Engagement Basics", desc: "Hook, hold, and close with presence and clarity." },
-];
+const STATIC_TITLES_ORDER = STATIC_ADVANCED.map((l) => l.title);
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
-      <LinearGradient colors={["#0F172A", "#1E293B", "#0F172A"]} className="flex-1" start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+      <LinearGradient
+        colors={["#0F172A", "#1E293B", "#0F172A"]}
+        className="flex-1"
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
     </View>
     <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
     <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
@@ -153,7 +161,10 @@ function Header({
           style={{ overflow: "hidden" }}
         >
           {avatarUri ? (
-            <Image source={{ uri: avatarUri }} className="w-9 h-9 rounded-full border-2 border-white/80" />
+            <Image
+              source={{ uri: avatarUri }}
+              className="w-9 h-9 rounded-full border-2 border-white/80"
+            />
           ) : (
             <View className="w-9 h-9 rounded-full border-2 border-white/80 bg-white/10 items-center justify-center">
               <Text className="text-white font-bold text-xs">{initials}</Text>
@@ -187,6 +198,13 @@ export default function AdvancedContents() {
 
   // --- lessons state (source: DB with static fallback) ---
   const [lessons, setLessons] = useState<Lesson[]>(STATIC_ADVANCED);
+
+  // maps used for per-user unlock & navigation
+  const [unlockedById, setUnlockedById] = useState<Record<number, boolean>>({ 1: true });
+  const [moduleIdByDisplayId, setModuleIdByDisplayId] = useState<Record<number, string>>({});
+
+  // 🆕 Recent sessions: start empty, populate from progress (if any) and taps
+  const [recent, setRecent] = useState<Recent[]>([]);
 
   // ===== profile wiring (unchanged presentation) =====
   useEffect(() => {
@@ -250,66 +268,173 @@ export default function AdvancedContents() {
     };
   }, []);
 
-  // ===== load lessons from Supabase (category=speaking, level=Advanced) =====
+  // ===== filtering/search (unchanged behavior) =====
+  const applyFilters = (
+    source: Lesson[],
+    filter: "All" | "Start" | "Continue" | "Review",
+    q: string
+  ) => {
+    let result = [...source];
+
+    if (filter === "Continue") result = result.filter((l) => l.progress > 0 && l.progress < 1);
+    else if (filter === "Review") result = result.filter((l) => l.progress === 1);
+    else if (filter === "Start") result = result.filter((l) => l.progress === 0);
+
+    if (q.trim()) {
+      const s = q.toLowerCase();
+      result = result.filter(
+        (l) => l.title.toLowerCase().includes(s) || l.desc.toLowerCase().includes(s)
+      );
+    }
+    return result;
+  };
+
+  // ===== load lessons (advanced) + per-user progress + build recents from progress =====
   const loadLessons = useCallback(async () => {
     try {
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id;
 
-      // fetch modules
-      const { data: mods, error: modErr } = await supabase
+      // 1) fetch advanced speaking modules
+      const { data: mods } = await supabase
         .from("modules")
         .select("id, title, description, category, level, order_index, active, created_at")
         .eq("category", "speaking")
-        .eq("level", "Advanced")
+        .eq("level", "advanced")
+        .eq("active", true)
         .order("order_index", { ascending: true })
         .order("created_at", { ascending: true });
 
-      if (modErr || !mods || mods.length === 0) {
-        // fallback to static
+      if (!mods || mods.length === 0) {
         setLessons(STATIC_ADVANCED);
+        setUnlockedById({ 1: true });
+        setModuleIdByDisplayId({});
         setFilteredLessons(applyFilters(STATIC_ADVANCED, filterType, searchQuery));
+        setRecent([]); // empty if no DB
         return;
       }
 
-      // user progress (optional)
-      let progressMap = new Map<string, number>();
-      if (uid) {
+      // map for title lookup by module id
+      const titleById = new Map<string, string>();
+      mods.forEach((m: any) => titleById.set(m.id, m.title ?? ""));
+
+      // 2) user progress
+      const progressMap = new Map<string, number>();
+      let progressRows: { module_id: string; progress: number; updated_at?: string }[] = [];
+      const doneSet = new Set<string>();
+
+      const { data: auth2 } = await supabase.auth.getUser();
+      const uid2 = auth2?.user?.id;
+
+      if (uid2) {
         const { data: prog } = await supabase
           .from("student_progress")
-          .select("module_id, progress")
-          .eq("student_id", uid);
-        (prog || []).forEach((p: any) => progressMap.set(p.module_id, p.progress ?? 0));
+          .select("module_id, progress, updated_at")
+          .eq("student_id", uid2);
+
+        (prog || []).forEach((p: any) => {
+          const v = p.progress ?? 0;
+          progressMap.set(p.module_id, v);
+          if (v >= 100) doneSet.add(p.module_id);
+        });
+        progressRows = (prog as any) || [];
       }
 
-      const active = mods.filter((m: any) => (m.active ?? true));
-      const ui: Lesson[] = active.map((m: any, idx: number) => {
-        const order = typeof m.order_index === "number" ? m.order_index + 1 : idx + 1;
-        const pct = Math.max(0, Math.min(100, progressMap.get(m.id) ?? 0));
-        return {
-          id: order, // keep numeric for lock logic
-          title: m.title || `Untitled Module ${order}`,
-          subtitle: `Lesson ${order}`,
-          desc: m.description || STATIC_ADVANCED[idx]?.desc || "",
-          type: pct >= 100 ? "Review" : pct > 0 ? "Continue" : "Start",
-          progress: (pct || 0) / 100,
-        };
+      // 3) order mods to follow static titles first
+      const titleIndex = new Map<string, number>();
+      STATIC_TITLES_ORDER.forEach((t, i) => titleIndex.set(t.toLowerCase(), i));
+
+      const sortedMods = [...mods].sort((a: any, b: any) => {
+        const ai = titleIndex.has((a.title || "").toLowerCase())
+          ? (titleIndex.get((a.title || "").toLowerCase()) as number)
+          : Number.MAX_SAFE_INTEGER;
+        const bi = titleIndex.has((b.title || "").toLowerCase())
+          ? (titleIndex.get((b.title || "").toLowerCase()) as number)
+          : Number.MAX_SAFE_INTEGER;
+
+        if (ai !== bi) return ai - bi;
+
+        const ao = a.order_index ?? 0;
+        const bo = b.order_index ?? 0;
+        if (ao !== bo) return ao - bo;
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
 
-      // Ensure at least 1..N numeric ids and identical UI behavior
-      setLessons(ui.length ? ui : STATIC_ADVANCED);
-      setFilteredLessons(applyFilters(ui.length ? ui : STATIC_ADVANCED, filterType, searchQuery));
+      // 4) unlocks + lessons
+      const nextLessons: Lesson[] = [];
+      const unlockedMap: Record<number, boolean> = {};
+      const idMap: Record<number, string> = {};
+
+      sortedMods.forEach((m: any, idx: number) => {
+        const displayId = idx + 1;
+        const earlierIds = sortedMods.slice(0, idx).map((x: any) => x.id as string);
+        const unlocked = idx === 0 || earlierIds.every((id) => doneSet.has(id));
+
+        const pct = Math.max(0, Math.min(100, progressMap.get(m.id) ?? 0));
+        const progress01 = pct / 100;
+
+        const staticSlot = STATIC_ADVANCED[idx];
+        const title = (m.title as string) ?? staticSlot?.title ?? `Lesson ${displayId}`;
+        const desc = (m.description as string) ?? staticSlot?.desc ?? "";
+        const subtitle = staticSlot?.subtitle ?? `Lesson ${displayId}`;
+        const type: Lesson["type"] = pct >= 100 ? "Review" : pct > 0 ? "Continue" : "Start";
+
+        nextLessons.push({
+          id: displayId,
+          title,
+          subtitle,
+          desc,
+          type,
+          progress: progress01,
+        });
+
+        unlockedMap[displayId] = unlocked;
+        idMap[displayId] = m.id as string;
+      });
+
+      setLessons(nextLessons.length ? nextLessons : STATIC_ADVANCED);
+      setUnlockedById(nextLessons.length ? unlockedMap : { 1: true });
+      setModuleIdByDisplayId(nextLessons.length ? idMap : {});
+      setFilteredLessons(applyFilters(nextLessons.length ? nextLessons : STATIC_ADVANCED, filterType, searchQuery));
+
+      // 5) 🆕 build "Recent Training Sessions" from progress rows (only if they actually have progress)
+      if (progressRows.length > 0) {
+        const recents: Recent[] = progressRows
+          .filter((r) => (r.progress ?? 0) > 0)
+          .sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime())
+          .slice(0, 5)
+          .map((r) => ({
+            moduleId: r.module_id,
+            title: titleById.get(r.module_id) || "Recent Module",
+            desc: "Resumed your advanced module.",
+            started_at: r.updated_at || new Date().toISOString(),
+          }));
+        setRecent(recents);
+      } else {
+        setRecent([]); // empty until they click something
+      }
     } catch {
       setLessons(STATIC_ADVANCED);
+      setUnlockedById({ 1: true });
+      setModuleIdByDisplayId({});
       setFilteredLessons(applyFilters(STATIC_ADVANCED, filterType, searchQuery));
+      setRecent([]);
     }
   }, [filterType, searchQuery]);
 
+  // initial load
   useEffect(() => {
     loadLessons();
   }, [loadLessons]);
 
-  // react to server-side progress changes live (optional, safe no-op if RT off)
+  // refresh when screen regains focus (after finishing a module)
+  useFocusEffect(
+    useCallback(() => {
+      loadLessons();
+    }, [loadLessons])
+  );
+
+  // react to server-side progress changes live
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
     (async () => {
@@ -332,21 +457,7 @@ export default function AdvancedContents() {
     };
   }, [loadLessons]);
 
-  // ===== filtering/search (unchanged behavior) =====
-  const applyFilters = (source: Lesson[], filter: "All" | "Start" | "Continue" | "Review", q: string) => {
-    let result = [...source];
-
-    if (filter === "Continue") result = result.filter((l) => l.progress > 0 && l.progress < 1);
-    else if (filter === "Review") result = result.filter((l) => l.progress === 1);
-    else if (filter === "Start") result = result.filter((l) => l.progress === 0);
-
-    if (q.trim()) {
-      const s = q.toLowerCase();
-      result = result.filter((l) => l.title.toLowerCase().includes(s) || l.desc.toLowerCase().includes(s));
-    }
-    return result;
-  };
-
+  // keep UI filter/search in sync
   useEffect(() => {
     setFilteredLessons(applyFilters(lessons, filterType, searchQuery));
   }, [lessons, filterType, searchQuery]);
@@ -356,9 +467,25 @@ export default function AdvancedContents() {
     if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
-  const overallPct = useMemo(
-    () => Math.round((lessons.reduce((acc, l) => acc + l.progress, 0) / (lessons.length || 1)) * 100),
-    [lessons]
+  // overall % = fraction of modules completed
+  const overallPct = useMemo(() => {
+    if (!lessons.length) return 0;
+    const completed = lessons.filter((l) => l.progress >= 1).length;
+    return Math.round((completed / lessons.length) * 100);
+  }, [lessons]);
+
+  // 🆕 add or bump a recent item to top (in-memory)
+  const pushRecent = useCallback(
+    (moduleId: string, title: string) => {
+      setRecent((prev) => {
+        const existing = prev.filter((r) => r.moduleId !== moduleId);
+        return [
+          { moduleId, title, desc: "You started this advanced module.", started_at: new Date().toISOString() },
+          ...existing,
+        ].slice(0, 5);
+      });
+    },
+    [setRecent]
   );
 
   return (
@@ -451,10 +578,10 @@ export default function AdvancedContents() {
               </TouchableOpacity>
             </View>
 
-            {/* Lessons grid — keep same lock/press behavior */}
+            {/* Lessons grid — same visuals; lock uses derived per-user map */}
             <View className="flex-row bottom-8 flex-wrap justify-between">
               {filteredLessons.map((lesson) => {
-                const isLocked = lesson.id !== 1;
+                const isLocked = !unlockedById[lesson.id];
 
                 return (
                   <View
@@ -549,7 +676,19 @@ export default function AdvancedContents() {
                               Alert.alert("Locked", "Complete the previous module to unlock this lesson.");
                               return;
                             }
-                            router.push("StudentScreen/SpeakingExercise/lessons-advanced");
+                            const moduleId = moduleIdByDisplayId[lesson.id];
+                            // 🆕 Optimistically reflect the click in Recents
+                            pushRecent(moduleId, lesson.title);
+
+                            router.push({
+                              pathname: "StudentScreen/SpeakingExercise/lessons-advanced",
+                              params: {
+                                module_id: moduleId,
+                                module_title: lesson.title,
+                                level: "advanced",
+                                display: String(lesson.id),
+                              },
+                            });
                           }}
                           disabled={isLocked}
                           style={({ pressed }) => ({
@@ -584,31 +723,40 @@ export default function AdvancedContents() {
               })}
             </View>
 
-            {/* Recent sessions (UNCHANGED UI) */}
-            <View className="mb-6 bottom-3">
-              <View className="flex-row justify-between items-center mb-4 bottom-5">
-                <Text className="text-white text-lg font-bold">Recent Training Sessions</Text>
-                <TouchableOpacity>
-                  <Text className="text-violet-400 text-sm">View All</Text>
-                </TouchableOpacity>
-              </View>
+            {/* Recent sessions — now driven by state; hidden when empty */}
+            {recent.length > 0 && (
+              <View className="mb-6 bottom-3">
+                <View className="flex-row justify-between items-center mb-4 bottom-5">
+                  <Text className="text-white text-lg font-bold">Recent Training Sessions</Text>
+                  <TouchableOpacity onPress={() => setRecent([])}>
+                    <Text className="text-violet-400 text-sm">Clear</Text>
+                  </TouchableOpacity>
+                </View>
 
-              <View className="space-y-3">
-                {recentSessions.map((session, i) => (
-                  <View key={i} className="bg-white/10 border border-white/20 rounded-xl p-4 bottom-5">
-                    <View className="flex-row items-center">
-                      <View className="w-10 h-10 bg-white/10 rounded-full items-center justify-center mr-3">
-                        <Ionicons name="videocam-outline" size={18} color="white" />
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-white text-base font-semibold mb-1">{session.title}</Text>
-                        <Text className="text-gray-300 text-xs">{session.desc}</Text>
+                <View className="space-y-3">
+                  {recent.map((session, i) => (
+                    <View
+                      key={session.moduleId + i}
+                      className="bg-white/10 border border-white/20 rounded-xl p-4 bottom-5"
+                    >
+                      <View className="flex-row items-center">
+                        <View className="w-10 h-10 bg-white/10 rounded-full items-center justify-center mr-3">
+                          <Ionicons name="videocam-outline" size={18} color="white" />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-white text-base font-semibold mb-1">
+                            {session.title}
+                          </Text>
+                          <Text className="text-gray-300 text-xs">
+                            {session.desc}
+                          </Text>
+                        </View>
                       </View>
                     </View>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
-            </View>
+            )}
           </View>
         </ScrollView>
 

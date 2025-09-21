@@ -34,7 +34,7 @@ type LessonDetail = {
   references: { title: string; url: string }[];
 };
 
-// Advanced content based on your second code
+// Advanced content (unchanged)
 const LESSONS: LessonDetail[] = [
   {
     id: 1,
@@ -191,10 +191,9 @@ const LESSONS: LessonDetail[] = [
   },
 ];
 
-// Animated Progress Bar Component
+// Progress bar (unchanged)
 const ProgressBar = ({ progress }: { progress: number }) => {
   const widthAnim = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     Animated.timing(widthAnim, {
       toValue: progress,
@@ -203,39 +202,35 @@ const ProgressBar = ({ progress }: { progress: number }) => {
       useNativeDriver: false,
     }).start();
   }, [progress]);
-
   return (
     <View className="h-2 bg-white/10 rounded-full overflow-hidden mt-4">
-      <Animated.View 
-        className="h-full bg-violet-600 rounded-full" 
-        style={{ width: widthAnim.interpolate({
-          inputRange: [0, 100],
-          outputRange: ['0%', '100%']
-        }) }}
+      <Animated.View
+        className="h-full bg-violet-600 rounded-full"
+        style={{
+          width: widthAnim.interpolate({
+            inputRange: [0, 100],
+            outputRange: ["0%", "100%"],
+          }),
+        }}
       />
     </View>
   );
 };
 
-// Floating Action Button Component
-const FloatingActionButton = ({ 
-  icon, 
-  onPress, 
-  label 
-}: { 
-  icon: string; 
-  onPress: () => void; 
+// FloatingActionButton (unchanged)
+const FloatingActionButton = ({
+  icon,
+  onPress,
+  label,
+}: {
+  icon: string;
+  onPress: () => void;
   label?: string;
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  
   const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.9,
-      useNativeDriver: true,
-    }).start();
+    Animated.spring(scaleAnim, { toValue: 0.9, useNativeDriver: true }).start();
   };
-  
   const handlePressOut = () => {
     Animated.spring(scaleAnim, {
       toValue: 1,
@@ -244,7 +239,6 @@ const FloatingActionButton = ({
       useNativeDriver: true,
     }).start();
   };
-
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
@@ -261,26 +255,21 @@ const FloatingActionButton = ({
   );
 };
 
-// Section Indicator Component
+// SectionIndicator (unchanged)
 const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
-  // Don't show progress in recording section (section 2)
   if (currentSection === 2) return null;
-  
   return (
     <View className="flex-row justify-center gap-6 mt-1 mb">
       {[0, 1, 2].map((sectionIndex) => {
         const isActive = sectionIndex === currentSection;
         const isCompleted = sectionIndex < currentSection;
-        
         return (
           <View key={sectionIndex} className="items-center">
-            <View 
-              className={`w-2 h-2 rounded-full ${isActive ? 'bg-violet-500' : isCompleted ? 'bg-violet-400' : 'bg-white/20'}`}
+            <View
+              className={`w-2 h-2 rounded-full ${isActive ? "bg-violet-500" : isCompleted ? "bg-violet-400" : "bg-white/20"}`}
             />
-            <Text 
-              className={`text-xs mt-1 ${isActive ? 'text-violet-400' : 'text-white/40'}`}
-            >
-              {sectionIndex === 0 ? 'Lesson' : sectionIndex === 1 ? 'Quiz' : 'Record'}
+            <Text className={`text-xs mt-1 ${isActive ? "text-violet-400" : "text-white/40"}`}>
+              {sectionIndex === 0 ? "Lesson" : sectionIndex === 1 ? "Quiz" : "Record"}
             </Text>
           </View>
         );
@@ -289,35 +278,18 @@ const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
   );
 };
 
-// Lesson Section Component
-const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: () => void, onBack: () => void }) => {
+// LessonSection (unchanged)
+const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail; onNext: () => void; onBack: () => void }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
-
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 700,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      })
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
   }, []);
-
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mb-4 mx-4">
           <View className="flex-row justify-between items-center mb-4">
@@ -337,7 +309,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
             {data.bullets.map((b, i) => (
               <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
                 <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Text className="text-white font-bold">{i+1}</Text>
+                  <Text className="text-white font-bold">{i + 1}</Text>
                 </View>
                 <Text className="text-white/90 text-base flex-1">{b}</Text>
               </View>
@@ -381,34 +353,23 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
             </View>
             <View>
               {data.references.map((ref, i) => (
-                <TouchableOpacity 
-                  key={i} 
-                  onPress={() => Linking.openURL(ref.url)}
-                  className="flex-row items-center py-2"
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity key={i} onPress={() => Linking.openURL(ref.url)} className="flex-row items-center py-2" activeOpacity={0.7}>
                   <Ionicons name="document-text-outline" size={18} color="#ffffff" className="mr-3" />
-                  <Text className="text-violet-300 text-base underline">
-                    {ref.title}
-                  </Text>
+                  <Text className="text-violet-300 text-base underline">{ref.title}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
           <View className="flex-row justify-between mt mb-4 px-4">
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={onBack}
               className="py-3 px-8 rounded-xl bg-white/20 border border-white/20 flex-1 mr-3 items-center"
               activeOpacity={0.7}
             >
               <Text className="text-white font-medium text-base">Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={onNext}
-              className="py-3 px-8 rounded-xl bg-violet-600 flex-1 ml-3 items-center"
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity onPress={onNext} className="py-3 px-8 rounded-xl bg-violet-600 flex-1 ml-3 items-center" activeOpacity={0.8}>
               <Text className="text-white font-semibold text-base">Proceed</Text>
             </TouchableOpacity>
           </View>
@@ -418,12 +379,8 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
   );
 };
 
-// Quiz Section Component
-const QuizSection = ({ data, onBack, onNext }: { 
-  data: LessonDetail; 
-  onBack: () => void; 
-  onNext: () => void;
-}) => {
+// QuizSection (unchanged)
+const QuizSection = ({ data, onBack, onNext }: { data: LessonDetail; onBack: () => void; onNext: () => void }) => {
   const [answers, setAnswers] = useState<Record<number, number | null>>(
     Object.fromEntries(data.quiz.map((q) => [q.id, null]))
   );
@@ -433,72 +390,60 @@ const QuizSection = ({ data, onBack, onNext }: {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 700,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      })
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
   }, []);
 
-  const handleSubmit = () => {
-    setSubmitted(true);
-  };
+  const handleSubmit = () => setSubmitted(true);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mb-4 mx-4">
           <View className="items-center mb-3">
             <Text className="text-white text-4xl font-bold">Quiz</Text>
           </View>
 
-          <Text className="text-white/80 text-base mb-6 text-center">
-            Test your understanding with these questions:
-          </Text>
-          
+          <Text className="text-white/80 text-base mb-6 text-center">Test your understanding with these questions:</Text>
+
           {data.quiz.map((q, qi) => (
             <View key={q.id} className="mb-6 bg-white/5 p-4 rounded-lg border border-white/10">
-              <Text className="text-white font-medium text-base mb-3">{qi + 1}. {q.question}</Text>
+              <Text className="text-white font-medium text-base mb-3">
+                {qi + 1}. {q.question}
+              </Text>
               {q.options.map((opt, idx) => {
                 const sel = answers[q.id] === idx;
                 const ok = submitted && idx === data.quiz[qi].correct;
                 const bad = submitted && sel && !ok;
-                
+
                 return (
                   <TouchableOpacity
                     key={idx}
                     className={`flex-row items-center px-4 py-3 rounded-lg mb-2 border ${
-                      ok ? "border-green-500/60 bg-green-500/10" :
-                      bad ? "border-red-500/60 bg-red-500/10" :
-                      sel ? "border-violet-500 bg-violet-500/10" :
-                      "border-white/10 bg-white/5"
+                      ok
+                        ? "border-green-500/60 bg-green-500/10"
+                        : bad
+                        ? "border-red-500/60 bg-red-500/10"
+                        : sel
+                        ? "border-violet-500 bg-violet-500/10"
+                        : "border-white/10 bg-white/5"
                     }`}
-                    onPress={() => !submitted && setAnswers(prev => ({ ...prev, [q.id]: idx }))}
+                    onPress={() => !submitted && setAnswers((prev) => ({ ...prev, [q.id]: idx }))}
                     activeOpacity={0.8}
                   >
-                    <View className={`w-6 h-6 mr-3 rounded-full border-2 flex items-center justify-center ${
-                      sel ? "bg-violet-600 border-violet-600" : "border-white/40"
-                    }`}>
+                    <View
+                      className={`w-6 h-6 mr-3 rounded-full border-2 flex items-center justify-center ${
+                        sel ? "bg-violet-600 border-violet-600" : "border-white/40"
+                      }`}
+                    >
                       {sel && <Ionicons name="checkmark" size={14} color="#fff" />}
                     </View>
-                    <Text className={`text-base flex-1 ${
-                      ok ? "text-green-200" : 
-                      bad ? "text-red-200" : 
-                      "text-white/90"
-                    }`}>
+                    <Text
+                      className={`text-base flex-1 ${
+                        ok ? "text-green-200" : bad ? "text-red-200" : "text-white/90"
+                      }`}
+                    >
                       {opt}
                     </Text>
                     {ok && <Ionicons name="checkmark-circle" size={20} color="#22c55e" />}
@@ -511,20 +456,18 @@ const QuizSection = ({ data, onBack, onNext }: {
 
           {!submitted ? (
             <View className="flex-row justify-between mt">
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={onBack}
                 className="py-4 px-6 rounded-xl bg-white/20 border border-white/20 flex-1 mr-3 items-center justify-center active:opacity-70"
                 activeOpacity={0.7}
               >
                 <Text className="text-white font-medium text-base">Previous</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={handleSubmit} 
+              <TouchableOpacity
+                onPress={handleSubmit}
                 className="py-4 px-6 rounded-xl bg-violet-600 flex-1 ml-3 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
-                disabled={Object.values(answers).some(a => a === null)}
-                style={{ 
-                  opacity: Object.values(answers).some(a => a === null) ? 0.6 : 1,
-                }}
+                disabled={Object.values(answers).some((a) => a === null)}
+                style={{ opacity: Object.values(answers).some((a) => a === null) ? 0.6 : 1 }}
               >
                 <Text className="text-white font-semibold text-base">Submit Quiz</Text>
               </TouchableOpacity>
@@ -532,14 +475,18 @@ const QuizSection = ({ data, onBack, onNext }: {
           ) : (
             <View className="mt mb-2">
               <Text className="text-white/80 text-center mb-4">
-                Your score: {Math.round((data.quiz.filter((q, i) => answers[q.id] === q.correct).length / data.quiz.length) * 100)}%
-                {'\n'}
-                {data.quiz.filter((q, i) => answers[q.id] === q.correct).length / data.quiz.length >= 0.7 
-                  ? "Great job! You're ready to proceed." 
+                Your score:{" "}
+                {Math.round(
+                  (data.quiz.filter((q, i) => answers[q.id] === q.correct).length / data.quiz.length) * 100
+                )}
+                %
+                {"\n"}
+                {data.quiz.filter((q, i) => answers[q.id] === q.correct).length / data.quiz.length >= 0.7
+                  ? "Great job! You're ready to proceed."
                   : "Review the lesson and try again."}
               </Text>
               <View className="flex-row justify-between">
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     setSubmitted(false);
                     setAnswers(Object.fromEntries(data.quiz.map((q) => [q.id, null])));
@@ -549,7 +496,7 @@ const QuizSection = ({ data, onBack, onNext }: {
                 >
                   <Text className="text-white font-medium text-base">Retake Quiz</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={onNext}
                   className="py-3 px-6 rounded-xl bg-violet-600 items-center justify-center active:bg-violet-700 flex-1 ml-2"
                   activeOpacity={0.7}
@@ -560,41 +507,33 @@ const QuizSection = ({ data, onBack, onNext }: {
             </View>
           )}
         </View>
-
       </ScrollView>
     </Animated.View>
   );
 };
 
-// Recording Section Component
-const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => void }) => {
+// --- Recording Section UPDATED to forward params ---
+const RecordingSection = ({
+  data,
+  onBack,
+  forwardParams,
+}: {
+  data: LessonDetail;
+  onBack: () => void;
+  forwardParams: { module_id?: string; module_title?: string; level?: string; display?: string };
+}) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 700,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      })
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mt-10 mb-4 mx-4">
           <View className="items-center mb-6">
@@ -620,15 +559,22 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
           </View>
 
           <View className="flex-row justify-between mt-2 space-x-3">
-            <TouchableOpacity 
-              onPress={onBack} 
+            <TouchableOpacity
+              onPress={onBack}
               className="py-3 px-4 rounded-xl bg-white/10 border border-white/20 flex-1 items-center justify-center active:opacity-70"
               activeOpacity={0.7}
             >
               <Text className="text-white font-medium text-sm">Back to Quiz</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+            <TouchableOpacity
+              onPress={() =>
+                router.push({
+                  pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+                  params: {
+                    ...forwardParams, // passes module_id, module_title, level, display
+                  },
+                })
+              }
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
@@ -643,9 +589,27 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 
 export default function LessonScreen() {
   const [currentSection, setCurrentSection] = useState(0);
-  const params = useLocalSearchParams();
-  const lessonId = parseInt(params.id as string) || 1;
-  const lesson = LESSONS.find(l => l.id === lessonId) || LESSONS[0];
+
+  // ⬇️ Pull params that were passed from advanced-contents
+  const { module_id, module_title, level, display, id } = useLocalSearchParams<{
+    module_id?: string;
+    module_title?: string;
+    level?: string;
+    display?: string;
+    id?: string; // if you ever pass a lesson id too
+  }>();
+
+  // Default level to "advanced" if not provided (safety)
+  const forwardParams = {
+    module_id,
+    module_title,
+    level: level || "advanced",
+    display,
+  };
+
+  const lessonId = parseInt((id as string) || (display as string) || "1") || 1;
+  const lesson = LESSONS.find((l) => l.id === lessonId) || LESSONS[0];
+
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Scroll to top when section changes
@@ -656,31 +620,22 @@ export default function LessonScreen() {
   }, [currentSection]);
 
   const sections = [
-    <LessonSection 
-      key="lesson" 
-      data={lesson} 
+    <LessonSection
+      key="lesson"
+      data={lesson}
       onNext={() => setCurrentSection(1)}
-      onBack={() => router.push('/StudentScreen/SpeakingExercise/advanced-contents')}
+      onBack={() => router.push("/StudentScreen/SpeakingExercise/advanced-contents")}
     />,
-    <QuizSection 
-      key="quiz" 
-      data={lesson} 
-      onBack={() => setCurrentSection(0)} 
-      onNext={() => setCurrentSection(2)} 
-    />,
-    <RecordingSection 
-      key="recording" 
-      data={lesson} 
-      onBack={() => setCurrentSection(1)} 
-    />
+    <QuizSection key="quiz" data={lesson} onBack={() => setCurrentSection(0)} onNext={() => setCurrentSection(2)} />,
+    <RecordingSection key="recording" data={lesson} onBack={() => setCurrentSection(1)} forwardParams={forwardParams} />,
   ];
 
   return (
     <View className="flex-1 bg-slate-900">
       <StatusBar barStyle="light-content" />
       <BackgroundDecor />
-      
-      <ScrollView 
+
+      <ScrollView
         ref={scrollViewRef}
         className="flex-1 z-10"
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}
@@ -692,9 +647,7 @@ export default function LessonScreen() {
           <SectionIndicator currentSection={currentSection} />
         </View>
 
-        <View className="flex-1">
-          {sections[currentSection]}
-        </View>
+        <View className="flex-1">{sections[currentSection]}</View>
       </ScrollView>
     </View>
   );

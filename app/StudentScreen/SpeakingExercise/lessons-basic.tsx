@@ -471,7 +471,16 @@ const QuizSection = ({ data, onBack, onNext }: {
 };
 
 // Recording Section Component
-const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => void }) => {
+const RecordingSection = ({ 
+  data, 
+  onBack,
+  // 🆕 forward the module context to live-vid-selection with zero UI changes
+  forwardParams,
+}: { 
+  data: LessonDetail; 
+  onBack: () => void; 
+  forwardParams: { module_id?: string; module_title?: string; level?: string; display?: string };
+}) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
@@ -532,7 +541,13 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white font-medium text-sm">Back to Quiz</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+              onPress={() =>
+                router.push({
+                  pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+                  // 🆕 pass the same module context through
+                  params: forwardParams,
+                })
+              }
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
@@ -547,8 +562,15 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 
 export default function LessonScreen() {
   const [currentSection, setCurrentSection] = useState(0);
-  const params = useLocalSearchParams();
-  const lessonId = parseInt(params.id as string) || 1;
+
+  // 🆕 read the module context that was sent from basic-contents
+  const rawParams = useLocalSearchParams();
+  const module_id = (rawParams.module_id as string) || undefined;
+  const module_title = (rawParams.module_title as string) || undefined;
+  const level = (rawParams.level as string) || undefined;
+  const display = (rawParams.display as string) || undefined;
+
+  const lessonId = parseInt(rawParams.id as string) || 1;
   const lesson = LESSONS.find(l => l.id === lessonId) || LESSONS[0];
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -576,6 +598,8 @@ export default function LessonScreen() {
       key="recording" 
       data={lesson} 
       onBack={() => setCurrentSection(1)} 
+      // 🆕 provide the params we’ll forward to live-vid-selection
+      forwardParams={{ module_id, module_title, level, display }}
     />
   ];
 

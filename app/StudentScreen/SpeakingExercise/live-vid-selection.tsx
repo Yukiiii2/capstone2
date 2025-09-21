@@ -13,7 +13,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useLocalSearchParams } from "expo-router"; // ⬅️ added useLocalSearchParams
 import { LinearGradient } from "expo-linear-gradient";
 import ProfileMenu from "../../../components/ProfileModal/ProfileMenuNew";
 // 👇 NEW: Supabase client
@@ -39,7 +39,15 @@ export default function LiveVidSelection() {
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  // ===== NEW: dynamic user profile (replaces hard-coded userProfile) =====
+  // ⬇️ READ module context forwarded from lessons-basic/lessons-advanced
+  const { module_id, module_title, level, display } = useLocalSearchParams<{
+    module_id?: string;
+    module_title?: string;
+    level?: string;   // "basic" | "advanced"
+    display?: string; // display lesson # if you passed it
+  }>();
+
+  // ===== dynamic user profile (replaces hard-coded userProfile) =====
   const [fullName, setFullName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -220,7 +228,7 @@ export default function LiveVidSelection() {
                     <Ionicons name="notifications-outline" size={20} color="white" />
                   </TouchableOpacity>
 
-                  {/* 👇 Avatar (unchanged size/position), now dynamic */}
+                  {/* Avatar (unchanged size/position), now dynamic */}
                   <TouchableOpacity
                     onPress={() => setIsProfileMenuVisible(true)}
                     activeOpacity={0.7}
@@ -330,7 +338,16 @@ export default function LiveVidSelection() {
                     className="flex-row items-center bg-violet-500/90 border border-white/30 px-6 py-2.5 rounded-lg w-[45%] justify-center"
                     activeOpacity={0.8}
                     onPress={() =>
-                      router.push("StudentScreen/SpeakingExercise/live-video-recording")
+                      router.push({
+                        pathname: "StudentScreen/SpeakingExercise/live-video-recording",
+                        // ⬇️ forward module context so recording knows which module/level
+                        params: {
+                          module_id,
+                          module_title,
+                          level: level || "basic",
+                          display,
+                        },
+                      })
                     }
                   >
                     <Text className="text-white font-bold text-sm">Go Live</Text>
@@ -339,7 +356,16 @@ export default function LiveVidSelection() {
                     className="flex-row items-center bg-white/30 border border-white/20 px-6 py-2.5 rounded-lg w-[47%] justify-center"
                     activeOpacity={0.8}
                     onPress={() =>
-                      router.push("StudentScreen/SpeakingExercise/private-video-recording")
+                      router.push({
+                        pathname: "StudentScreen/SpeakingExercise/private-video-recording",
+                        // ⬇️ forward the same params for solo practice flow
+                        params: {
+                          module_id,
+                          module_title,
+                          level: level || "basic",
+                          display,
+                        },
+                      })
                     }
                   >
                     <Text className="text-white font-bold text-sm">Practice Solo</Text>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -21,16 +21,23 @@ import * as FileSystem from "expo-file-system";
 import { supabase } from "@/lib/supabaseClient";
 
 const CreatePost = () => {
-  const { videoUri } = useLocalSearchParams<{ videoUri: string }>();
+  // We now accept module context too (passed from the previous screens)
+  const { videoUri, module_id, module_title, level } = useLocalSearchParams<{
+    videoUri?: string;
+    module_id?: string;
+    module_title?: string;
+    level?: "basic" | "advanced";
+  }>();
+
   const router = useRouter();
-  
+
   // Refs
   const videoRef = useRef<Video>(null);
   const tagInputRef = useRef<TextInput>(null);
-  
+
   // State variables
   const [postText, setPostText] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(true); // kept for UI chip toggle only
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTag, setNewTag] = useState("");
   const [tags, setTags] = useState(["Business", "Presentation", "Professional"]);
@@ -56,40 +63,97 @@ const CreatePost = () => {
     positionMillis: 0,
   });
 
-  // ------- NEW: module selected for DB (no UI change) -------
-  // We’ll resolve the first active speaking module for Basic/Advanced
+  // ------- Module title (from params; no DB query here) -------
   const [moduleTitle, setModuleTitle] = useState<string | null>(null);
+  useEffect(() => {
+    setModuleTitle(module_title ?? null);
+  }, [module_title]);
+
+  // 👇 NEW: derive visible title from module_title with fallback
+  const visibleTitle = useMemo(
+    () => moduleTitle || "Business Presentation Practice",
+    [moduleTitle]
+  );
+
+  // ------- Profile: avatar or initials (from profiles table) -------
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string>("You");
+
+  const initials = useMemo(() => {
+    const parts = (displayName || "").trim().split(/\s+/);
+    const a = (parts[0]?.[0] || "").toUpperCase();
+    const b = (parts[1]?.[0] || "").toUpperCase();
+    return (a + b) || a || "U";
+  }, [displayName]);
 
   useEffect(() => {
-    // level: true => "Advanced" in your chip, false => "Basic"
-    const level = isPublic ? "advanced" : "basic";
+    let mounted = true;
+
     (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("modules")
-          .select("title")
-          .eq("category", "speaking")
-          .eq("level", level)
-          .eq("active", true)
-          .order("order_index", { ascending: true })
-          .limit(1);
-        if (error) {
-          console.log("[create-post] modules query error:", error.message);
-          setModuleTitle(null);
-          return;
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user || !mounted) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name, avatar_url")
+        .eq("id", user.id)
+        .single();
+
+      if (!mounted) return;
+
+      const nameValue = (profile?.name ?? user.user_metadata?.full_name ?? "You").trim();
+      setDisplayName(nameValue || "You");
+
+      // Resolve signed URL from avatars bucket if avatar_url is stored there
+      const resolveAndSign = async (): Promise<string | null> => {
+        const stored = profile?.avatar_url?.toString();
+        if (!stored) return null;
+
+        // normalize path (allow raw file path or folder/id)
+        const normalized = stored.replace(/^avatars\//, "");
+        let objectPath: string | null = null;
+
+        if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
+          // has extension – treat as direct object path
+          objectPath = normalized;
+        } else {
+          // treat as folder — list newest
+          const { data: files, error: listErr } = await supabase.storage
+            .from("avatars")
+            .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+          if (listErr) return null;
+          if (files && files.length > 0) objectPath = `${normalized}/${files[0].name}`;
         }
-        setModuleTitle(data?.[0]?.title ?? null);
-      } catch (e) {
-        console.log("[create-post] modules query threw:", e);
-        setModuleTitle(null);
+
+        if (!objectPath) return null;
+
+        const { data: signed, error: signErr } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(objectPath, 60 * 60);
+        if (signErr) return null;
+
+        return signed?.signedUrl ?? null;
+      };
+
+      try {
+        const url = await resolveAndSign();
+        if (!mounted) return;
+        setAvatarUri(url);
+      } catch {
+        if (!mounted) return;
+        setAvatarUri(null);
       }
     })();
-  }, [isPublic]);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Initialize video on mount and when videoUri changes
   useEffect(() => {
     if (!videoRef.current || !videoUri) return;
-
     const setupVideo = async () => {
       try {
         setHasPlayed(false);
@@ -97,9 +161,7 @@ const CreatePost = () => {
         console.error("Error initializing video:", error);
       }
     };
-
     setupVideo();
-
     return () => {
       if (videoRef.current) {
         videoRef.current.pauseAsync();
@@ -150,11 +212,7 @@ const CreatePost = () => {
             "Permission Required",
             "Storage permission is required to save videos. You can enable it in app settings if you change your mind.",
             [
-              {
-                text: "OK",
-                style: "default",
-                onPress: () => setIsDownloading(false),
-              },
+              { text: "OK", style: "default", onPress: () => setIsDownloading(false) },
               {
                 text: "Open Settings",
                 onPress: () => {
@@ -173,10 +231,7 @@ const CreatePost = () => {
       const fileName = `recording-${new Date().getTime()}.mp4`;
       const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
-      await FileSystem.copyAsync({
-        from: videoUri as string,
-        to: fileUri,
-      });
+      await FileSystem.copyAsync({ from: videoUri as string, to: fileUri });
 
       const asset = await MediaLibrary.createAssetAsync(fileUri);
       await MediaLibrary.createAlbumAsync("Recordings", asset, false);
@@ -185,7 +240,7 @@ const CreatePost = () => {
     } catch (error) {
       console.error("Error saving video:", error);
       Alert.alert(
-        "Error", 
+        "Error",
         error instanceof Error ? `Failed to save video: ${error.message}` : "An unknown error occurred while saving the video."
       );
     } finally {
@@ -211,9 +266,8 @@ const CreatePost = () => {
         return;
       }
 
-      // Your title block in the card says "Business Presentation Practice".
-      // We’ll keep that as the DB title to match visual.
-      const titleForDb = "Business Presentation Practice";
+      // 👇 use the module title if present, else fallback
+      const titleForDb = visibleTitle;
 
       const { error: insertErr } = await supabase
         .from("posts")
@@ -223,12 +277,16 @@ const CreatePost = () => {
             title: titleForDb,
             content: postText.trim(),
             media_url: (videoUri as string) || null,
-            module: moduleTitle,            // resolved from modules table
+            module: moduleTitle || null,   // Save the module name for community display
             type: "speaking",
-            status: "published",            // it’s going to community
-            visibility: "public",           // visible in community-selection
-            allow_comments: allowComments,  // NEW column
-            allow_reviews: allowRatings,    // NEW column
+            status: "published",
+            visibility: "public",
+            allow_comments: allowComments,
+            allow_reviews: allowRatings,
+            // If you later add columns to posts (e.g., module_id, level), include them here:
+            // module_id: module_id || null,
+            // module_title: module_title || null,
+            // level: level || null,
           },
         ])
         .select("id")
@@ -242,7 +300,7 @@ const CreatePost = () => {
 
       Alert.alert("Posted!", "Your post has been shared successfully.");
       setPostText("");
-      router.back(); // keep your original behavior
+      router.back();
     } catch (e: any) {
       console.log("[create-post] unhandled error:", e?.message || e);
       Alert.alert("Post failed", e?.message || "Something went wrong.");
@@ -273,10 +331,7 @@ const CreatePost = () => {
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       <View className="absolute left-0 right-0 top-0 bottom-0">
-        <LinearGradient
-          colors={["#0F172A", "#1E293B", "#0F172A"]}
-          style={{ flex: 1 }}
-        />
+        <LinearGradient colors={["#0F172A", "#1E293B", "#0F172A"]} style={{ flex: 1 }} />
       </View>
       <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
       <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
@@ -285,6 +340,9 @@ const CreatePost = () => {
       <View className="absolute top-[200px] left-[90px] w-5 h-5 bg-[#a78bfa]/10 rounded-full" />
     </View>
   );
+
+  // Level chip label (from params; keeps your chip UI)
+  const levelLabel = (level === "advanced" ? "Advanced" : level === "basic" ? "Basic" : (isPublic ? "Advanced" : "Basic"));
 
   return (
     <View className="flex-1 bg-gray-900">
@@ -295,7 +353,7 @@ const CreatePost = () => {
           <BackgroundDecor />
         </View>
       </View>
-      
+
       <ScrollView
         className="flex-1 px-4 pt-2 top-6"
         contentContainerStyle={{ paddingBottom: 30 }}
@@ -316,7 +374,7 @@ const CreatePost = () => {
             <View className="relative">
               <Video
                 ref={videoRef}
-                source={{ uri: videoUri }}
+                source={{ uri: videoUri || "" }}
                 style={{ width: "100%", aspectRatio: 16 / 9 }}
                 resizeMode={ResizeMode.CONTAIN}
                 useNativeControls
@@ -361,33 +419,37 @@ const CreatePost = () => {
         {/* Post Content */}
         <View className="bg-white/10 rounded-2xl p-5 mb-4 border border-white/10">
           <View className="flex-row items-start space-x-3 mb-4">
-            <Image
-              source={{
-                uri: "https://randomuser.me/api/portraits/women/44.jpg",
-              }}
-              className="w-12 h-12 rounded-full"
-            />
+            {/* Avatar or initials */}
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} className="w-12 h-12 rounded-full" />
+            ) : (
+              <View className="w-12 h-12 rounded-full bg-white/10 border border-white/30 items-center justify-center">
+                <Text className="text-white font-bold">{initials}</Text>
+              </View>
+            )}
+
             <View className="flex-1">
-              <Text className="text-white font-medium">You</Text>
+              <Text className="text-white font-medium">{displayName || "You"}</Text>
               <TouchableOpacity
-                onPress={() => setIsPublic(!isPublic)}
+                onPress={() => setIsPublic(!isPublic)} // kept for UI; no DB side-effect now
                 className="flex-row items-center mt-1 bg-white/10 rounded-full px-3 py-1 self-start"
               >
                 <Ionicons
-                  name={isPublic ? "school" : "school-outline"}
+                  name={(levelLabel === "Advanced") ? "school" : "school-outline"}
                   size={14}
                   color="#9CA3AF"
                 />
                 <Text className="text-gray-400 text-xs ml-1">
-                  {isPublic ? "Advanced" : "Basic"}
+                  {levelLabel}
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
 
+          {/* 👇 REPLACED: use dynamic visibleTitle */}
           <View className="mb-2 mt-2" style={{ left: 6 }}>
             <Text className="text-white text-xl font-bold">
-              Business Presentation Practice
+              {visibleTitle}
             </Text>
           </View>
 
@@ -396,12 +458,8 @@ const CreatePost = () => {
               <View className="relative">
                 <Video
                   ref={videoRef}
-                  style={{
-                    width: "100%",
-                    aspectRatio: 16 / 9,
-                    backgroundColor: "#000",
-                  }}
-                  source={{ uri: videoUri }}
+                  style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" }}
+                  source={{ uri: videoUri || "" }}
                   useNativeControls
                   resizeMode={ResizeMode.CONTAIN}
                   isLooping
@@ -409,9 +467,7 @@ const CreatePost = () => {
                   onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
                     if (!status.isLoaded) return;
                     setIsPlaying(status.isPlaying);
-                    if (status.durationMillis) {
-                      setDuration(status.durationMillis);
-                    }
+                    if (status.durationMillis) setDuration(status.durationMillis);
                     if (status.positionMillis !== undefined) {
                       setCurrentTime(status.positionMillis);
                       const newProgress = status.durationMillis
@@ -443,12 +499,7 @@ const CreatePost = () => {
                 activeOpacity={0.8}
                 onPress={handlePlayVideo}
               >
-                <Ionicons
-                  name="play-circle"
-                  size={60}
-                  color="white"
-                  style={{ opacity: 0.8 }}
-                />
+                <Ionicons name="play-circle" size={60} color="white" style={{ opacity: 0.8 }} />
                 <Text className="text-white mt-2 text-sm">Tap to preview</Text>
               </TouchableOpacity>
             )}
@@ -456,14 +507,9 @@ const CreatePost = () => {
               <View className="flex-row justify-between items-center mb-2">
                 <Text className="text-white font-medium">Your Recording</Text>
                 <Text className="text-gray-400 text-xs">
-                  {`${Math.floor(currentTime / 60000)}:${Math.floor(
-                    (currentTime % 60000) / 1000
-                  )
+                  {`${Math.floor(currentTime / 60000)}:${Math.floor((currentTime % 60000) / 1000)
                     .toString()
-                    .padStart(
-                      2,
-                      "0"
-                    )} / ${Math.floor(duration / 60000)}:${Math.floor(
+                    .padStart(2, "0")} / ${Math.floor(duration / 60000)}:${Math.floor(
                     (duration % 60000) / 1000
                   )
                     .toString()
@@ -471,10 +517,7 @@ const CreatePost = () => {
                 </Text>
               </View>
               <View className="w-full bg-white/20 rounded-full h-1.5">
-                <View
-                  className="bg-white h-full rounded-full"
-                  style={{ width: `${progress}%` }}
-                />
+                <View className="bg-white h-full rounded-full" style={{ width: `${progress}%` }} />
               </View>
             </View>
           </View>
@@ -492,12 +535,8 @@ const CreatePost = () => {
           <View className="mt-4 border-t border-white/10 pt-3">
             <View className="flex-row items-center justify-between">
               <Text className="text-gray-400 text-sm">Status</Text>
-              <View
-                className={`px-3 py-1 rounded-full ${postText.trim() ? "bg-violet-600" : "bg-white/10"}`}
-              >
-                <Text
-                  className={`text-xs font-medium ${postText.trim() ? "text-white" : "text-gray-400"}`}
-                >
+              <View className={`px-3 py-1 rounded-full ${postText.trim() ? "bg-violet-600" : "bg-white/10"}`}>
+                <Text className={`text-xs font-medium ${postText.trim() ? "text-white" : "text-gray-400"}`}>
                   {postText.trim() ? "Ready" : "Not Ready"}
                 </Text>
               </View>
@@ -514,12 +553,7 @@ const CreatePost = () => {
               onPress={() => removeTag(tag)}
             >
               <Text className="text-white text-xs">#{tag}</Text>
-              <Ionicons
-                name="close"
-                size={14}
-                color="#fff"
-                style={{ marginLeft: 4 }}
-              />
+              <Ionicons name="close" size={14} color="#fff" style={{ marginLeft: 4 }} />
             </TouchableOpacity>
           ))}
           {showTagInput ? (
@@ -561,9 +595,7 @@ const CreatePost = () => {
           <View className="flex-row justify-between items-center mb-3 pb-3 border-b border-white/5">
             <View>
               <Text className="text-white text-sm">Allow Comments</Text>
-              <Text className="text-gray-400 text-xs">
-                Let others comment on your post
-              </Text>
+              <Text className="text-gray-400 text-xs">Let others comment on your post</Text>
             </View>
             <Switch
               value={allowComments}
@@ -575,12 +607,8 @@ const CreatePost = () => {
 
           <View className="flex-row justify-between items-center">
             <View>
-              <Text className="text-white text-sm">
-                Allow Ratings & Reviews
-              </Text>
-              <Text className="text-gray-400 text-xs">
-                Let others rate and review your post
-              </Text>
+              <Text className="text-white text-sm">Allow Ratings & Reviews</Text>
+              <Text className="text-gray-400 text-xs">Let others rate and review your post</Text>
             </View>
             <Switch
               value={allowRatings}
@@ -594,16 +622,10 @@ const CreatePost = () => {
         {/* Post Guidelines */}
         <View className="bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
           <View className="p-3">
-            <Text className="text-white font-medium mb-2">
-              Community Guidelines
-            </Text>
+            <Text className="text-white font-medium mb-2">Community Guidelines</Text>
             <View className="space-y-1">
-              <Text className="text-gray-400 text-sm">
-                • Keep content relevant to language learning.
-              </Text>
-              <Text className="text-gray-400 text-sm">
-                • No inappropriate Caption.
-              </Text>
+              <Text className="text-gray-400 text-sm">• Keep content relevant to language learning.</Text>
+              <Text className="text-gray-400 text-sm">• No inappropriate Caption.</Text>
             </View>
           </View>
         </View>
@@ -619,9 +641,7 @@ const CreatePost = () => {
             {isDownloading ? (
               <ActivityIndicator color="#ffffff" size="small" />
             ) : (
-              <Text className="text-white text-[13px] font-semibold">
-                Save Video
-              </Text>
+              <Text className="text-white text-[13px] font-semibold">Save Video</Text>
             )}
           </TouchableOpacity>
 
@@ -630,9 +650,7 @@ const CreatePost = () => {
             activeOpacity={0.8}
             onPress={handlePost}
           >
-            <Text className="text-white text-[13px] font-semibold">
-              Post Performance
-            </Text>
+            <Text className="text-white text-[13px] font-semibold">Post Performance</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
