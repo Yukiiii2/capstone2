@@ -6,6 +6,7 @@ from lib.supabaseClient import supabase  # Import the Supabase client
 import uuid
 
 app = FastAPI()
+global_feedback = {}
 
 # Add CORS middleware
 app.add_middleware(
@@ -30,6 +31,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
     """
     Endpoint to process JSON input, generate feedback, and store it in the database.
     """
+    global global_feedback  # Declare the global variable
     try:
         speech_text = request.speech_text
         spacy_stats = request.spacy_stats
@@ -67,6 +69,9 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             print("Supabase Insert Error:", response)
             raise HTTPException(status_code=500, detail=f"Failed to store feedback in the database: {response}")
 
+        # Store feedback in the global variable
+        global_feedback = feedback_data
+
         # Return the feedback along with the inserted record ID
         return {
             "id": feedback_data["id"],
@@ -79,7 +84,9 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
         # Log the error and raise an HTTP exception
         print(f"Error in /analyze-feedback: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while processing the feedback")
-
+    
+    
+    
 
 @app.get("/get-feedback/{feedback_id}")
 async def get_feedback(feedback_id: str):
@@ -100,6 +107,8 @@ async def get_feedback(feedback_id: str):
         # Log the error and raise an HTTP exception
         print(f"Error in /get-feedback/{feedback_id}: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while retrieving the feedback")
+    
+    
     
 
     
