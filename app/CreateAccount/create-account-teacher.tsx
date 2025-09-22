@@ -339,6 +339,46 @@ export default function CreateAccountTeacher() {
     }
   };
 
+  // ⬅️ added — ensure a permanent class code exists and mirror it on profiles.class_code
+  const ensureClassCodeForTeacher = async (userId: string): Promise<string | null> => {
+    try {
+      // 1) call RPC to ensure a permanent code exists (returns the class_codes row)
+      const { data: codeRow, error: rpcErr } = await supabase.rpc(
+        "ensure_permanent_class_code",
+        { p_teacher: userId }
+      );
+      if (rpcErr) {
+        console.log("RPC ensure_permanent_class_code error:", rpcErr.message);
+        // even if RPC failed, try to read from profiles if trigger already set it
+      }
+
+      // 2) read the code from profiles (trigger should have copied it)
+      const { data: prof, error: profErr } = await supabase
+        .from("profiles")
+        .select("class_code, name")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (profErr) {
+        console.log("profiles read error:", profErr.message);
+      }
+
+      const code =
+        prof?.class_code ||
+        (codeRow && typeof codeRow.code === "string" ? codeRow.code : null);
+
+      // 3) if we got one from RPC but profiles.class_code is empty (old rows), mirror it
+      if (code && !prof?.class_code) {
+        await supabase.from("profiles").update({ class_code: code }).eq("id", userId);
+      }
+
+      return code || null;
+    } catch (e: any) {
+      console.log("ensureClassCodeForTeacher error:", e?.message || e);
+      return null;
+    }
+  };
+
   // ⬅️ replaced with Supabase sign-up flow (no UI changes)
   const handleSignUp = async () => {
     if (!isFormComplete()) {
@@ -423,6 +463,25 @@ export default function CreateAccountTeacher() {
         showCustomAlert("Verification save failed", vrErr.message);
         setLoading(false);
         return;
+      }
+
+      // 6) ⬅️ NEW: ensure a permanent class code now (for immediate use when email confirmations are OFF)
+      const code = await ensureClassCodeForTeacher(userId);
+
+      // 7) ⬅️ OPTIONAL: attempt to email the code via an Edge Function (ignore errors if not deployed)
+      if (code) {
+        try {
+          await supabase.functions.invoke("send-class-code", {
+            body: { user_id: userId },
+          });
+        } catch {
+          // ignore if function isn't deployed yet
+        }
+        // also show it to the teacher right away (non-UI-blocking)
+        showCustomAlert(
+          "Your Class Code",
+          `Share this code with your students:\n\n${code}`
+        );
       }
 
       setActiveStep(2);

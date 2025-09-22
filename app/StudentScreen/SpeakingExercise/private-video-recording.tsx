@@ -14,6 +14,8 @@ import {
   StatusBar,
   Dimensions,
   StyleSheet,
+  AppState,            // ⬅️ added (match live)
+  BackHandler,         // ⬅️ added (match live)
 } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
@@ -28,6 +30,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 /** SDK 50/51: CameraView is the JSX component; Camera hosts the permission APIs */
 import { Camera, CameraView, type CameraType } from "expo-camera";
+import { useFocusEffect } from "@react-navigation/native"; // ⬅️ added (match live)
 
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
@@ -78,9 +81,16 @@ export default function PrivateVideoRecording() {
 
   const normalizeParam = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const module_id = normalizeParam(params.module_id);
-  const module_title = normalizeParam(params.module_title);
+  const module_title_raw = normalizeParam(params.module_title);
   const level = normalizeParam(params.level);
   const display = normalizeParam(params.display);
+
+  // decode module_title like live
+  const module_title = module_title_raw
+    ? (() => {
+        try { return decodeURIComponent(module_title_raw); } catch { return module_title_raw; }
+      })()
+    : undefined;
 
   const moduleCtx = useMemo(
     () => ({
@@ -115,7 +125,7 @@ export default function PrivateVideoRecording() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const feedbackAnim = useRef(new Animated.Value(0)).current;
 
-  // ===== Camera + recording (ported from live; no viewer/attendance here) =====
+  // ===== Camera + recording (ported from live) =====
   const cameraRef = useRef<CameraView | null>(null);
   const [isCamReady, setIsCamReady] = useState(false);
   const [hasPerms, setHasPerms] = useState<boolean | null>(null);
@@ -124,6 +134,10 @@ export default function PrivateVideoRecording() {
   const [camKey, setCamKey] = useState(0);
   const [facing, setFacing] = useState<"front" | "back">("front");
   const retryGuardRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ⬇️ live-style start/stop guards
+  const isStartingRef = useRef(false);
+  const stopInFlightRef = useRef(false);
 
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
@@ -134,6 +148,9 @@ export default function PrivateVideoRecording() {
   const recordStartRef = useRef<number | null>(null);
 
   const screenWidth = Dimensions.get("window").width;
+
+  // track foreground (match live)
+  const appStateRef = useRef(AppState.currentState);
 
   // ===== Status bar =====
   useEffect(() => {
@@ -200,11 +217,11 @@ export default function PrivateVideoRecording() {
         const randomIndex = Math.floor(Math.random() * feedbackMessages.length);
         setCurrentFeedback(feedbackMessages[randomIndex]);
         Animated.sequence([
-          Animated.timing(feedbackAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-          Animated.delay(3000),
-          Animated.timing(feedbackAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+          Animated.timing(feedbackAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.delay(2200),
+          Animated.timing(feedbackAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
         ]).start();
-      }, 4000);
+      }, 3500);
 
       return () => {
         try { loop.stop(); } catch {}
@@ -214,7 +231,7 @@ export default function PrivateVideoRecording() {
       setIsFullScreen(false);
       pulseAnim.setValue(1);
       setCurrentFeedback("");
-      Animated.timing(feedbackAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(feedbackAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
     }
   }, [isRecording]);
 
@@ -269,6 +286,41 @@ export default function PrivateVideoRecording() {
     ensurePermissions();
   }, []);
 
+  // ===== Focus / foreground handling — resume preview gently (match live) =====
+  useFocusEffect(
+    React.useCallback(() => {
+      setTimeout(() => {
+        try { (cameraRef.current as any)?.resumePreview?.(); } catch {}
+      }, 100);
+      return () => {
+        try { (cameraRef.current as any)?.pausePreview?.(); } catch {}
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev?.match(/background|inactive/) && next === "active") {
+        setTimeout(() => {
+          try { (cameraRef.current as any)?.resumePreview?.(); } catch {}
+        }, 120);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  // 🔒 Block Android Back while preview/recording (match live)
+  useEffect(() => {
+    const block = () => true;
+    let backHandlerSub: { remove: () => void } | undefined;
+    if (isFullScreen || isRecording) {
+      backHandlerSub = BackHandler.addEventListener("hardwareBackPress", block);
+      return () => backHandlerSub?.remove();
+    }
+  }, [isFullScreen, isRecording]);
+
   // ===== Timer helpers =====
   const startTimer = () => {
     recordStartRef.current = Date.now();
@@ -279,7 +331,7 @@ export default function PrivateVideoRecording() {
         const s = Math.floor((Date.now() - recordStartRef.current) / 1000);
         setElapsedSec(s);
       }
-    }, 250);
+    }, 500); // align with live
   };
   const stopTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -287,88 +339,93 @@ export default function PrivateVideoRecording() {
     recordStartRef.current = null;
   };
 
-  // ===== Start/Stop recording (ported) =====
+  // ===== Start/Stop recording (ported, live-style) =====
   const startRecordingInternal = async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
     try {
-      if (!(await ensurePermissions())) return;
-      if (!isCamReady) return; // only start when preview is ready
+      if (!(await ensurePermissions())) {
+        isStartingRef.current = false;
+        return;
+      }
+      if (!cameraRef.current) {
+        isStartingRef.current = false;
+        return;
+      }
 
       setRecordedUri(null);
       setUploadUrl(null);
 
-      if (cameraRef.current) {
-        recordPromiseRef.current = (cameraRef.current as any).recordAsync({
-          maxDuration: 600,
-          videoQuality: "1080p",
-          isMuted: false,
+      try { (cameraRef.current as any)?.resumePreview?.(); } catch {}
+
+      recordPromiseRef.current = (cameraRef.current as any).recordAsync({
+        maxDuration: 1800,          // match live default
+        // @ts-ignore
+        quality: "720p",
+        videoQuality: "720p",
+        mute: false,
+      });
+
+      startTimer();
+
+      recordPromiseRef.current
+        ?.then((video) => {
+          stopTimer();
+          const uri = video?.uri as string | undefined;
+          if (uri) setRecordedUri(uri);
+          setShowContinueButton(true);
+        })
+        .catch(() => {
+          stopTimer();
         });
-        startTimer();
-        recordPromiseRef.current
-          ?.then((video) => {
-            stopTimer();
-            const uri = video?.uri as string | undefined;
-            if (uri) setRecordedUri(uri);
-            setShowContinueButton(true);
-          })
-          .catch(() => {
-            stopTimer();
-          });
-      }
     } catch (e: any) {
       console.warn("record start error:", e?.message || e);
       stopTimer();
+    } finally {
+      isStartingRef.current = false;
     }
   };
 
   const stopRecordingInternal = async () => {
+    if (stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
+
+    let finished = false;
+    const watchdog = setTimeout(() => {
+      if (finished) return;
+      stopTimer();
+      setIsRecording(false);
+      setIsFullScreen(false);
+      setShowContinueButton(true);
+    }, 1200);
+
     try {
-      cameraRef.current?.stopRecording();
+      await cameraRef.current?.stopRecording();
     } catch {}
+    finally {
+      finished = true;
+      clearTimeout(watchdog);
+      stopTimer();
+      setIsRecording(false);
+      setIsFullScreen(false);
+      setShowContinueButton(true);
+      stopInFlightRef.current = false;
+      isStartingRef.current = false;
+    }
   };
 
-  // ===== Auto-start sequence while fullscreen =====
+  // ===== Auto-start sequence while fullscreen (live parity) =====
   useEffect(() => {
-    if (!isRecording || !isFullScreen) return;
-
-    if (!isCamReady) {
-      if (retryGuardRef.current) clearTimeout(retryGuardRef.current);
-      retryGuardRef.current = setTimeout(() => {
-        setCamKey((k) => k + 1);
-        retryGuardRef.current = setTimeout(() => {
-          setFacing((f) => (f === "front" ? "back" : "front"));
-          setCamKey((k) => k + 1);
-          setTimeout(() => {
-            setFacing("front");
-            setCamKey((k) => k + 1);
-          }, 600);
-        }, 2200);
-      }, 2200);
-      return () => {
-        if (retryGuardRef.current) {
-          clearTimeout(retryGuardRef.current);
-          retryGuardRef.current = null;
-        }
-      };
-    }
+    if (!(isRecording && isFullScreen && isCamReady)) return;
 
     (async () => {
       try {
         const ok = await ensurePermissions();
         if (!ok) return;
-        if (retryGuardRef.current) {
-          clearTimeout(retryGuardRef.current);
-          retryGuardRef.current = null;
-        }
         await startRecordingInternal();
       } catch {}
     })();
-
-    return () => {
-      if (retryGuardRef.current) {
-        clearTimeout(retryGuardRef.current);
-        retryGuardRef.current = null;
-      }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording, isFullScreen, isCamReady]);
 
   // ===== Upload to Supabase recordings bucket =====
@@ -381,6 +438,7 @@ export default function PrivateVideoRecording() {
       const filename = `recording-${Date.now()}.mp4`;
       const objectPath = `${uid}/${filename}`;
 
+      // keep simple fetch -> blob; (optional: swap to base64->Blob if needed)
       const resp = await fetch(recordedUri);
       const blob = await resp.blob();
 
@@ -480,22 +538,28 @@ export default function PrivateVideoRecording() {
     </View>
   );
 
-  // ===== Fullscreen recorder (UI preserved; preview now real) =====
+  // ===== Fullscreen recorder (UI preserved; preview now live-style) =====
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
       {hasPerms ? (
         <CameraView
           key={`cam-${camKey}-${facing}`}
-          ref={(r) => {
-            cameraRef.current = r;
-          }}
+          ref={(r) => { cameraRef.current = r; }}
           style={StyleSheet.absoluteFill}
           facing={facing}
-          onCameraReady={() => setIsCamReady(true)}
+          mode="video"                         // ⬅️ parity
+          // @ts-ignore
+          videoStabilizationMode="off"
+          onCameraReady={() => {
+            setIsCamReady(true);
+            setTimeout(() => {
+              try { (cameraRef.current as any)?.resumePreview?.(); } catch {}
+            }, 60);
+          }}
           onMountError={(err) => {
             const msg = (err as any)?.message ?? (err as any)?.nativeEvent?.message ?? String(err);
             console.warn("CameraView onMountError:", msg);
-            setCamKey((k) => k + 1);
+            setCamKey((k) => k + 1); // quick recover
           }}
         />
       ) : (
@@ -524,12 +588,7 @@ export default function PrivateVideoRecording() {
       {/* Stop */}
       <TouchableOpacity
         className="absolute bottom-10 w-[70px] h-[70px] rounded-full bg-white justify-center items-center z-10"
-        onPress={() => {
-          stopRecordingInternal().finally(() => {
-            setIsRecording(false);
-            setShowContinueButton(true);
-          });
-        }}
+        onPress={async () => { await stopRecordingInternal(); }}
         activeOpacity={0.7}
       >
         <View className="w-[30px] h-[30px] bg-red-500 rounded" />
@@ -609,17 +668,19 @@ export default function PrivateVideoRecording() {
     }
   };
 
-  // Start button: open fullscreen, then start once camera is ready
+  /** Start button — live-style: go fullscreen first, mount camera, then auto-start on ready */
   const handleStartPress = async () => {
     const ok = await ensurePermissions();
     if (!ok) return;
+
     setIsCamReady(false);
     setFacing("front");
+
+    setIsFullScreen(true);
+    setCamKey((k) => k + 1);
+
+    // flag recording; actual record begins when onCameraReady fires (via effect)
     setIsRecording(true);
-    setTimeout(() => {
-      setIsFullScreen(true);
-      setCamKey((k) => k + 1);
-    }, 120);
   };
 
   return (

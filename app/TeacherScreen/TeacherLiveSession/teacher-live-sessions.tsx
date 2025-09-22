@@ -269,13 +269,23 @@ const LiveSessions = () => {
     };
 
     const fetchAll = async () => {
-      const { data } = await supabase
-        .from(LIVE_TABLE)
-        .select("id, host_id, title, viewers, status, started_at, level")
-        .in("status", ["live", "LIVE", "active"]);
-      if (!mounted) return;
-      const mapped = await mapRows((data as DBLiveRow[]) ?? []);
-      setLiveSessions(mapped);
+      try {
+        const { data, error } = await supabase
+          .from(LIVE_TABLE)
+          .select("id, host_id, title, viewers, status, started_at, level")
+          .in("status", ["live", "LIVE", "active"])
+          .order("started_at", { ascending: false });
+        if (error) {
+          setLiveSessions([]); // fall back to static only
+          return;
+        }
+        if (!mounted) return;
+        const mapped = await mapRows((data as DBLiveRow[]) ?? []);
+        setLiveSessions(mapped);
+      } catch {
+        if (!mounted) return;
+        setLiveSessions([]);
+      }
     };
 
     (async () => { await fetchAll(); })();
@@ -340,6 +350,11 @@ const LiveSessions = () => {
       const bv = Number((b.viewers || "0").replace(/[^\d.]/g, "")) || 0;
       return bv - av;
     });
+
+    // match student-side behavior: cap to 3 when filtered to classmates/my students
+    if (selectedFilter === 'My Students') {
+      result = result.slice(0, 3);
+    }
 
     return result;
   }, [allSessions, searchQuery, selectedFilter]);

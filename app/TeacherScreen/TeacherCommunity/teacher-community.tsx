@@ -117,6 +117,11 @@ interface Review {
   text: string;
   avatar?: string | null;
   initials?: string;
+
+  // ⬇️ ratings on each comment (pulled from student page)
+  ratingDelivery?: number | null;
+  ratingConfidence?: number | null;
+  ratingOverall?: number | null; // rounded avg of delivery + confidence
 }
 
 // "More from community" sample (kept same structure for parity)
@@ -245,6 +250,9 @@ const TeacherCommunityPage: React.FC = () => {
     useState<string>("Community submission");
   const [postMediaUrl, setPostMediaUrl] = useState<string | null>(null);
 
+  // NEW: owner for notifications
+  const [postOwnerId, setPostOwnerId] = useState<string | null>(null);
+
   // ===== likes =====
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
@@ -262,6 +270,9 @@ const TeacherCommunityPage: React.FC = () => {
   const [typed, setTyped] = useState("");
   const [localOverall, setLocalOverall] = useState(0);
   const [canSubmit, setCanSubmit] = useState(false);
+
+  // overall computed from comments (matches student logic; UI unchanged)
+  const [overall, setOverall] = useState<number | null>(null);
 
   // current user id cache (for like/comment authoring)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -351,6 +362,7 @@ const TeacherCommunityPage: React.FC = () => {
 
     const author = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
     const name = author?.name || "Student";
+    setPostOwnerId(data.user_id); // NEW
     setPostAuthorName(name);
     setPostAuthorInitials(getInitials(name));
     setPostCreatedAgo(`Posted ${timeAgo(data.created_at)}`);
@@ -366,7 +378,7 @@ const TeacherCommunityPage: React.FC = () => {
   }, [effectivePostId]);
 
   /* -----------------------------------------------------------------------------
-   * Likes: count + "did I like?" (same as student page)
+   * Likes: count + "did I like?" + realtime (same as student page)
    * ---------------------------------------------------------------------------*/
   const loadLikes = useCallback(async () => {
     if (!effectivePostId) return;
@@ -397,6 +409,50 @@ const TeacherCommunityPage: React.FC = () => {
     }
   }, [effectivePostId, currentUserId]);
 
+  // realtime: likes channel
+  useEffect(() => {
+    if (!effectivePostId) return;
+    const channel = supabase
+      .channel(`likes-${effectivePostId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "likes",
+          filter: `post_id=eq.${effectivePostId}`,
+        },
+        () => {
+          loadLikes();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [effectivePostId, loadLikes]);
+
+  // notify post owner (don’t notify self)
+  const insertNotification = useCallback(
+    async (type: "like" | "comment") => {
+      try {
+        if (!effectivePostId || !currentUserId || !postOwnerId) return;
+        if (postOwnerId === currentUserId) return;
+        await supabase.from("notifications").insert({
+          recipient_id: postOwnerId,
+          actor_id: currentUserId,
+          post_id: effectivePostId,
+          type,
+          is_read: false,
+        });
+      } catch (e) {
+        console.log("[notifications] insert error:", e);
+      }
+    },
+    [effectivePostId, currentUserId, postOwnerId]
+  );
+
   const toggleLike = useCallback(async () => {
     if (!effectivePostId || !currentUserId) return;
 
@@ -413,6 +469,7 @@ const TeacherCommunityPage: React.FC = () => {
           user_id: currentUserId,
         });
         if (error) throw error;
+        insertNotification("like"); // NEW
       } else {
         const { error } = await supabase
           .from("likes")
@@ -430,10 +487,10 @@ const TeacherCommunityPage: React.FC = () => {
     }
 
     loadLikes();
-  }, [effectivePostId, currentUserId, isLiked, loadLikes]);
+  }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]);
 
   /* -----------------------------------------------------------------------------
-   * Comments/Reviews: list + add  (DIFFERENCE: join includes `profiles.role`)
+   * Comments/Reviews: list + add + realtime + rating fields
    * ---------------------------------------------------------------------------*/
   const loadComments = useCallback(async () => {
     if (!effectivePostId) return;
@@ -447,6 +504,8 @@ const TeacherCommunityPage: React.FC = () => {
         content,
         created_at,
         user_id,
+        rating_delivery,
+        rating_confidence,
         profiles!comments_user_id_fkey (
           name,
           role,
@@ -460,6 +519,7 @@ const TeacherCommunityPage: React.FC = () => {
     if (error || !data) {
       console.warn("[comments] load error:", error);
       setReviews([]);
+      setOverall(null);
       setLoadingReviews(false);
       return;
     }
@@ -478,6 +538,11 @@ const TeacherCommunityPage: React.FC = () => {
           avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
         }
 
+        const rd = row.rating_delivery ?? null;
+        const rc = row.rating_confidence ?? null;
+        const ro =
+          rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+
         return {
           id: row.id,
           role,
@@ -486,13 +551,104 @@ const TeacherCommunityPage: React.FC = () => {
           text: row.content || "",
           avatar,
           initials,
+          ratingDelivery: rd,
+          ratingConfidence: rc,
+          ratingOverall: ro,
         } as Review;
       })
     );
 
+    // compute overall rounded from rated comments
+    const rated = mapped.filter(
+      (r) => r.ratingOverall != null
+    ) as Array<Review & { ratingOverall: number }>;
+    const postAvgRounded = rated.length
+      ? Math.round(
+          rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length
+        )
+      : null;
+
     setReviews(mapped);
+    setOverall(postAvgRounded);
     setLoadingReviews(false);
   }, [effectivePostId]);
+
+  // realtime: comments INSERT
+  useEffect(() => {
+    if (!effectivePostId) return;
+    const channel = supabase
+      .channel(`comments-${effectivePostId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "comments",
+          filter: `post_id=eq.${effectivePostId}`,
+        },
+        async (payload) => {
+          try {
+            const row: any = payload.new;
+            const { data: prof } = await supabase
+              .from("profiles")
+              .select("name, role, avatar_url")
+              .eq("id", row.user_id)
+              .single();
+
+            const name = prof?.name || "User";
+            const role = (prof?.role as Role) || "Student";
+            const parts = name.trim().split(/\s+/).filter(Boolean);
+            const initials =
+              ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+
+            let avatar: string | null = null;
+            if (prof?.avatar_url)
+              avatar = await resolveSignedAvatar(row.user_id, prof.avatar_url);
+
+            const rd = row.rating_delivery ?? null;
+            const rc = row.rating_confidence ?? null;
+            const ro =
+              rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+
+            const review: Review = {
+              id: String(row.id),
+              role,
+              name: `${role} • ${name}`,
+              time: timeAgo(row.created_at),
+              text: row.content || "",
+              avatar,
+              initials,
+              ratingDelivery: rd,
+              ratingConfidence: rc,
+              ratingOverall: ro,
+            };
+
+            setReviews((prev) => {
+              const next = [review, ...prev];
+              const rated = next.filter(
+                (r) => r.ratingOverall != null
+              ) as Array<Review & { ratingOverall: number }>;
+              const postAvgRounded = rated.length
+                ? Math.round(
+                    rated.reduce((s, r) => s + r.ratingOverall!, 0) /
+                      rated.length
+                  )
+                : null;
+              setOverall(postAvgRounded);
+              return next;
+            });
+          } catch (e) {
+            console.log("[comments realtime] hydrate error:", e);
+            loadComments();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [effectivePostId, loadComments]);
 
   const postReview = useCallback(async () => {
     setSubmitting(true);
@@ -506,6 +662,9 @@ const TeacherCommunityPage: React.FC = () => {
         post_id: effectivePostId,
         user_id: currentUserId,
         content: typed.trim(),
+        // ratings like student page
+        rating_delivery: ratingDelivery,
+        rating_confidence: ratingConfidence,
       });
 
       if (error) {
@@ -514,14 +673,25 @@ const TeacherCommunityPage: React.FC = () => {
         return;
       }
 
+      // notify post owner
+      await insertNotification("comment");
+
       setTyped("");
       setRatingDelivery(0);
       setRatingConfidence(0);
-      await loadComments(); // will render Teacher • Name or Student • Name via join.role
+      await loadComments(); // keep consistent with realtime
     } finally {
       setSubmitting(false);
     }
-  }, [effectivePostId, currentUserId, typed, loadComments]);
+  }, [
+    effectivePostId,
+    currentUserId,
+    typed,
+    ratingDelivery,
+    ratingConfidence,
+    insertNotification,
+    loadComments,
+  ]);
 
   /* -----------------------------------------------------------------------------
    * boot: load everything when param changes
@@ -729,7 +899,7 @@ const TeacherCommunityPage: React.FC = () => {
 
                   <View className="right-1 top-1 items-center px-3 py-2 ml-4">
                     <Text className="text-white text-2xl font-bold">
-                      {Math.round(localOverall * 10) / 10}
+                      {Math.round((overall ?? localOverall) * 10) / 10}
                       <Text className="text-gray-400 text-base">/5</Text>
                     </Text>
                     <Text className="text-gray-300 text-xs">Overall</Text>
@@ -811,7 +981,9 @@ const TeacherCommunityPage: React.FC = () => {
                           >
                             <Ionicons
                               name={
-                                i <= Math.round(localOverall) ? "star" : "star-outline"
+                                i <= Math.round((overall ?? localOverall))
+                                  ? "star"
+                                  : "star-outline"
                               }
                               size={22}
                               color={

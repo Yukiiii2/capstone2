@@ -13,20 +13,21 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter, usePathname, useLocalSearchParams } from "expo-router"; // ⬅️ added useLocalSearchParams
+import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import ProfileMenu from "../../../components/ProfileModal/ProfileMenuNew";
-// 👇 NEW: Supabase client
 import { supabase } from "@/lib/supabaseClient";
 
 // ===== Constants & Types =====
-
 type FeatureType = {
   title: string;
   desc: string;
   icon: string;
   iconLib?: typeof Ionicons | typeof MaterialCommunityIcons;
 };
+
+const normalize = (v: string | string[] | undefined) =>
+  Array.isArray(v) ? v[0] : v;
 
 export default function LiveVidSelection() {
   const router = useRouter();
@@ -40,12 +41,35 @@ export default function LiveVidSelection() {
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   // ⬇️ READ module context forwarded from lessons-basic/lessons-advanced
-  const { module_id, module_title, level, display } = useLocalSearchParams<{
-    module_id?: string;
-    module_title?: string;
-    level?: string;   // "basic" | "advanced"
-    display?: string; // display lesson # if you passed it
+  const raw = useLocalSearchParams<{
+    module_id?: string | string[];
+    module_title?: string | string[];
+    level?: string | string[];   // "basic" | "advanced"
+    display?: string | string[]; // display lesson # if you passed it
   }>();
+
+  // Build normalized context (keep everything as strings)
+  const moduleCtx = {
+    ...(normalize(raw.module_id) ? { module_id: normalize(raw.module_id)! } : {}),
+    ...(normalize(raw.module_title) ? { module_title: normalize(raw.module_title)! } : {}),
+    ...(normalize(raw.level) ? { level: normalize(raw.level)! } : {}),
+    ...(normalize(raw.display) ? { display: normalize(raw.display)! } : {}),
+  };
+
+  // Tiny helper so every navigation forwards the same context
+  const pushWithCtx = (pathname: string, extra?: Record<string, any>) => {
+    const safeTitle =
+      moduleCtx.module_title ? encodeURIComponent(moduleCtx.module_title) : undefined;
+
+    router.push({
+      pathname,
+      params: {
+        ...moduleCtx,
+        ...(safeTitle ? { module_title: safeTitle } : {}),
+        ...(extra || {}),
+      },
+    });
+  };
 
   // ===== dynamic user profile (replaces hard-coded userProfile) =====
   const [fullName, setFullName] = useState<string>("");
@@ -271,10 +295,7 @@ export default function LiveVidSelection() {
               {/* Title Section */}
               <View className="items-center mb-6">
                 <View className="relative">
-                  {/* Animated gradient background */}
                   <View className="absolute -inset-2 bg-purple-500/20 rounded-2xl" />
-
-                  {/* Main icon container */}
                   <Image
                     source={require("../../../assets/Live.png")}
                     style={{ width: 60, height: 60 }}
@@ -338,15 +359,9 @@ export default function LiveVidSelection() {
                     className="flex-row items-center bg-violet-500/90 border border-white/30 px-6 py-2.5 rounded-lg w-[45%] justify-center"
                     activeOpacity={0.8}
                     onPress={() =>
-                      router.push({
-                        pathname: "StudentScreen/SpeakingExercise/live-video-recording",
-                        // ⬇️ forward module context so recording knows which module/level
-                        params: {
-                          module_id,
-                          module_title,
-                          level: level || "basic",
-                          display,
-                        },
+                      pushWithCtx("StudentScreen/SpeakingExercise/live-video-recording", {
+                        // ensure level defaults to basic if it wasn’t set
+                        level: moduleCtx.level || "basic",
                       })
                     }
                   >
@@ -356,15 +371,8 @@ export default function LiveVidSelection() {
                     className="flex-row items-center bg-white/30 border border-white/20 px-6 py-2.5 rounded-lg w-[47%] justify-center"
                     activeOpacity={0.8}
                     onPress={() =>
-                      router.push({
-                        pathname: "StudentScreen/SpeakingExercise/private-video-recording",
-                        // ⬇️ forward the same params for solo practice flow
-                        params: {
-                          module_id,
-                          module_title,
-                          level: level || "basic",
-                          display,
-                        },
+                      pushWithCtx("StudentScreen/SpeakingExercise/private-video-recording", {
+                        level: moduleCtx.level || "basic",
                       })
                     }
                   >

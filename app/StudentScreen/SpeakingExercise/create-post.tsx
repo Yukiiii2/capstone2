@@ -21,15 +21,38 @@ import * as FileSystem from "expo-file-system";
 import { supabase } from "@/lib/supabaseClient";
 
 const CreatePost = () => {
-  // We now accept module context too (passed from the previous screens)
-  const { videoUri, module_id, module_title, level } = useLocalSearchParams<{
-    videoUri?: string;
-    module_id?: string;
-    module_title?: string;
-    level?: "basic" | "advanced";
+  const router = useRouter();
+
+  // ---------- Robust params handling ----------
+  const rawParams = useLocalSearchParams<{
+    videoUri?: string | string[];
+    module_id?: string | string[];
+    module_title?: string | string[];
+    moduleTitle?: string | string[];
+    level?: "basic" | "advanced" | (string & {});
   }>();
 
-  const router = useRouter();
+  const pick = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v);
+
+  const videoUri = pick(rawParams.videoUri);
+  const module_id = pick(rawParams.module_id);
+  const levelParam = pick(rawParams.level) as "basic" | "advanced" | undefined;
+
+  // Prefer snake_case; fallback to camelCase; decode if encoded
+  const rawTitleFromParams = pick(rawParams.module_title) ?? pick(rawParams.moduleTitle) ?? null;
+  const initialTitle =
+    rawTitleFromParams != null
+      ? (() => {
+          try {
+            return decodeURIComponent(rawTitleFromParams);
+          } catch {
+            return rawTitleFromParams;
+          }
+        })()
+      : "";
+
+  // ------- Title is now editable by the user -------
+  const [postTitle, setPostTitle] = useState<string>(initialTitle);
 
   // Refs
   const videoRef = useRef<Video>(null);
@@ -37,10 +60,10 @@ const CreatePost = () => {
 
   // State variables
   const [postText, setPostText] = useState("");
-  const [isPublic, setIsPublic] = useState(true); // kept for UI chip toggle only
+  const [isPublic, setIsPublic] = useState(true); // UI chip toggle only
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTag, setNewTag] = useState("");
-  const [tags, setTags] = useState(["Business", "Presentation", "Professional"]);
+  const [tags, setTags] = useState(["Presentation", "Practice", "Professional"]);
   const [allowComments, setAllowComments] = useState(true);
   const [allowRatings, setAllowRatings] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -50,7 +73,7 @@ const CreatePost = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Video status state
+  // Video status state (kept for your logic)
   const [videoStatus, setVideoStatus] = useState<{
     isLoaded: boolean;
     isPlaying: boolean;
@@ -62,18 +85,6 @@ const CreatePost = () => {
     durationMillis: 0,
     positionMillis: 0,
   });
-
-  // ------- Module title (from params; no DB query here) -------
-  const [moduleTitle, setModuleTitle] = useState<string | null>(null);
-  useEffect(() => {
-    setModuleTitle(module_title ?? null);
-  }, [module_title]);
-
-  // 👇 NEW: derive visible title from module_title with fallback
-  const visibleTitle = useMemo(
-    () => moduleTitle || "Business Presentation Practice",
-    [moduleTitle]
-  );
 
   // ------- Profile: avatar or initials (from profiles table) -------
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -110,29 +121,23 @@ const CreatePost = () => {
         const stored = profile?.avatar_url?.toString();
         if (!stored) return null;
 
-        // normalize path (allow raw file path or folder/id)
         const normalized = stored.replace(/^avatars\//, "");
         let objectPath: string | null = null;
 
         if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
-          // has extension – treat as direct object path
           objectPath = normalized;
         } else {
-          // treat as folder — list newest
-          const { data: files, error: listErr } = await supabase.storage
+          const { data: files } = await supabase.storage
             .from("avatars")
             .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
-          if (listErr) return null;
           if (files && files.length > 0) objectPath = `${normalized}/${files[0].name}`;
         }
 
         if (!objectPath) return null;
 
-        const { data: signed, error: signErr } = await supabase.storage
+        const { data: signed } = await supabase.storage
           .from("avatars")
           .createSignedUrl(objectPath, 60 * 60);
-        if (signErr) return null;
-
         return signed?.signedUrl ?? null;
       };
 
@@ -150,6 +155,18 @@ const CreatePost = () => {
       mounted = false;
     };
   }, []);
+
+  // Seed tags from the *editable* title’s first word (keeps your chip UI vibe)
+  useEffect(() => {
+    const first = (postTitle || "").trim().split(/\s+/)[0];
+    if (!first) return;
+    setTags((prev) => {
+      const rest = prev.filter((t, i) => i > 0);
+      const baseRest = rest.length ? rest : ["Practice", "Professional"];
+      if (prev[0] === first) return prev;
+      return [first, ...baseRest];
+    });
+  }, [postTitle]);
 
   // Initialize video on mount and when videoUri changes
   useEffect(() => {
@@ -249,10 +266,11 @@ const CreatePost = () => {
   };
 
   /**
-   * Handles posting content
-   * (DB insert only; UI unchanged)
+   * Handles posting content (DB insert only; UI unchanged)
    */
   const handlePost = async () => {
+    const safeTitle = postTitle.trim() || "Untitled";
+
     if (!postText.trim()) {
       Alert.alert("Add something first", "Write a short caption before posting.");
       return;
@@ -266,27 +284,23 @@ const CreatePost = () => {
         return;
       }
 
-      // 👇 use the module title if present, else fallback
-      const titleForDb = visibleTitle;
-
       const { error: insertErr } = await supabase
         .from("posts")
         .insert([
           {
             user_id: user.id,
-            title: titleForDb,
+            title: safeTitle,             // ← saves the editable title
             content: postText.trim(),
             media_url: (videoUri as string) || null,
-            module: moduleTitle || null,   // Save the module name for community display
+            module: postTitle || null,    // keep for filtering if you want; can remove
             type: "speaking",
             status: "published",
             visibility: "public",
             allow_comments: allowComments,
             allow_reviews: allowRatings,
-            // If you later add columns to posts (e.g., module_id, level), include them here:
+            // Optionally store context later:
             // module_id: module_id || null,
-            // module_title: module_title || null,
-            // level: level || null,
+            // level: levelParam || null,
           },
         ])
         .select("id")
@@ -312,7 +326,7 @@ const CreatePost = () => {
    */
   const handleAddTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
-      setTags([...tags, newTag.trim()]);
+      setTags((prev) => [...prev, newTag.trim()]);
       setNewTag("");
     }
     setShowTagInput(false);
@@ -322,11 +336,11 @@ const CreatePost = () => {
    * Removes a tag from the tags list
    */
   const removeTag = (tagToRemove: string) => {
-    setTags(tags.filter((tag) => tag !== tagToRemove));
+    setTags((prev) => prev.filter((tag) => tag !== tagToRemove));
   };
 
   /**
-   * Background decoration component
+   * Background decoration component (UI unchanged)
    */
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
@@ -342,7 +356,14 @@ const CreatePost = () => {
   );
 
   // Level chip label (from params; keeps your chip UI)
-  const levelLabel = (level === "advanced" ? "Advanced" : level === "basic" ? "Basic" : (isPublic ? "Advanced" : "Basic"));
+  const levelLabel =
+    levelParam === "advanced"
+      ? "Advanced"
+      : levelParam === "basic"
+      ? "Basic"
+      : isPublic
+      ? "Advanced"
+      : "Basic";
 
   return (
     <View className="flex-1 bg-gray-900">
@@ -374,7 +395,7 @@ const CreatePost = () => {
             <View className="relative">
               <Video
                 ref={videoRef}
-                source={{ uri: videoUri || "" }}
+                source={{ uri: videoUri }}
                 style={{ width: "100%", aspectRatio: 16 / 9 }}
                 resizeMode={ResizeMode.CONTAIN}
                 useNativeControls
@@ -431,26 +452,30 @@ const CreatePost = () => {
             <View className="flex-1">
               <Text className="text-white font-medium">{displayName || "You"}</Text>
               <TouchableOpacity
-                onPress={() => setIsPublic(!isPublic)} // kept for UI; no DB side-effect now
+                onPress={() => setIsPublic(!isPublic)} // UI only
                 className="flex-row items-center mt-1 bg-white/10 rounded-full px-3 py-1 self-start"
               >
                 <Ionicons
-                  name={(levelLabel === "Advanced") ? "school" : "school-outline"}
+                  name={levelLabel === "Advanced" ? "school" : "school-outline"}
                   size={14}
                   color="#9CA3AF"
                 />
-                <Text className="text-gray-400 text-xs ml-1">
-                  {levelLabel}
-                </Text>
+                <Text className="text-gray-400 text-xs ml-1">{levelLabel}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* 👇 REPLACED: use dynamic visibleTitle */}
+          {/* Editable Title (replaces static heading) */}
           <View className="mb-2 mt-2" style={{ left: 6 }}>
-            <Text className="text-white text-xl font-bold">
-              {visibleTitle}
-            </Text>
+            <TextInput
+              value={postTitle}
+              onChangeText={setPostTitle}
+              placeholder="Title"
+              placeholderTextColor="#9CA3AF"
+              className="text-white text-xl font-bold p-0"
+              style={{ paddingVertical: 0 }}
+              maxLength={120}
+            />
           </View>
 
           <View className="mb-4 rounded-xl overflow-hidden bg-black/30 border border-white/10">
@@ -535,8 +560,16 @@ const CreatePost = () => {
           <View className="mt-4 border-t border-white/10 pt-3">
             <View className="flex-row items-center justify-between">
               <Text className="text-gray-400 text-sm">Status</Text>
-              <View className={`px-3 py-1 rounded-full ${postText.trim() ? "bg-violet-600" : "bg-white/10"}`}>
-                <Text className={`text-xs font-medium ${postText.trim() ? "text-white" : "text-gray-400"}`}>
+              <View
+                className={`px-3 py-1 rounded-full ${
+                  postText.trim() ? "bg-violet-600" : "bg-white/10"
+                }`}
+              >
+                <Text
+                  className={`text-xs font-medium ${
+                    postText.trim() ? "text-white" : "text-gray-400"
+                  }`}
+                >
                   {postText.trim() ? "Ready" : "Not Ready"}
                 </Text>
               </View>

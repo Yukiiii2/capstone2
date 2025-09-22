@@ -26,6 +26,10 @@ const REACT_TABLE = "live_session_reactions";
 const TRANSPARENT_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
 
+/* === helpers copied from student screen (logic only) === */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   const stored = (storedPath ?? userId).toString();
   const normalized = stored.replace(/^avatars\//, "");
@@ -45,6 +49,25 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   const signedRes = await supabase.storage.from("avatars").createSignedUrl(objectPath, 3600);
   if (signedRes.error) return null;
   return signedRes.data?.signedUrl ?? null;
+}
+
+/** Resolve route id (uuid or slug) to a UUID and return it (matches student). */
+async function resolveSessionUUID(idOrSlug: string): Promise<string | null> {
+  if (UUID_RE.test(idOrSlug)) return idOrSlug;
+
+  const { data: found } = await supabase
+    .from(LIVE_TABLE)
+    .select("id")
+    .eq("slug", idOrSlug)
+    .maybeSingle();
+  if (found?.id) return String(found.id);
+
+  const { data: created } = await supabase
+    .from(LIVE_TABLE)
+    .insert({ slug: idOrSlug, title: "Live Session", status: "live", viewers: 0 })
+    .select("id")
+    .single();
+  return created?.id ? String(created.id) : null;
 }
 /* ───────────────────────────────────────────────────────────────────────── */
 
@@ -67,17 +90,23 @@ export default function LiveSession() {
   const [fullName, setFullName] = useState<string>("Teacher");
   const [email, setEmail] = useState<string>("");
   const userIdRef = useRef<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // session id (ALWAYS UUID once resolved)
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // live session fields (from DB)
   const [sTitle, setSTitle] = useState<string | null>(null);
   const [sName, setSName] = useState<string | null>(null);
-  const [sViewers, setSViewers] = useState<number | null>(null);
-  const viewersRef = useRef<number>(0);
+  const [sViewers, setSViewers] = useState<number>(0);
 
   // realtime reaction counts
   const [heartCount, setHeartCount] = useState<number>(0);
   const [wowCount, setWowCount] = useState<number>(0);
   const [likeCount, setLikeCount] = useState<number>(0);
+
+  // presence -> DB viewers write-through debounce
+  const presenceWriteThroughTimer = useRef<any>(null);
 
   // Get parameters with type safety
   const getParam = (key: string, defaultValue: string = ""): string => {
@@ -89,12 +118,12 @@ export default function LiveSession() {
   // Session data with fallbacks (keeps your usage)
   const sessionData = useMemo(() => {
     return {
-      id: getParam("id", "1"),
+      id: sessionId ?? getParam("id", "1"),
       title: sTitle ?? getParam("title", "Public Speaking Practice"),
       name: sName ?? getParam("name", "Professional Coach"),
-      viewers: (sViewers ?? Number(getParam("viewers", "0"))).toString(),
+      viewers: String(Number.isFinite(sViewers) ? sViewers : Number(getParam("viewers", "0"))),
     };
-  }, [params, sTitle, sName, sViewers]);
+  }, [params, sTitle, sName, sViewers, sessionId]);
 
   const handleNavigation = (page: string) => {
     // Navigation handler if needed
@@ -142,7 +171,7 @@ export default function LiveSession() {
     </View>
   );
 
-  /* ─────────── header avatar like Home ─────────── */
+  /* ─────────── load current user + avatar (same as student) ─────────── */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -151,6 +180,7 @@ export default function LiveSession() {
       if (!mounted || !uid) return;
 
       userIdRef.current = uid;
+      setUserId(uid);
       setEmail(auth?.user?.email ?? "");
 
       const { data: prof } = await supabase
@@ -175,11 +205,46 @@ export default function LiveSession() {
     return () => { mounted = false; };
   }, []);
 
-  /* ─────────── load session + subscribe + viewers ─────────── */
+  /* ───── 0) Resolve id/slug -> UUID exactly once (parity with student) ───── */
   useEffect(() => {
     let mounted = true;
-    const sessionId = getParam("id", "");
-    if (!sessionId) return;
+    (async () => {
+      const raw = getParam("id", "");
+      if (raw) {
+        const uuid = await resolveSessionUUID(raw);
+        if (mounted && uuid) setSessionId(uuid);
+        return;
+      }
+      // fallback: latest or create one
+      const { data: found } = await supabase
+        .from(LIVE_TABLE)
+        .select("id")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (!mounted) return;
+
+      if (found?.[0]?.id) { setSessionId(String(found[0].id)); return; }
+
+      const { data: created } = await supabase
+        .from(LIVE_TABLE)
+        .insert({
+          title: "Voice Warm-Up & Articulation Techniques",
+          viewers: 0,
+          status: "live",
+          slug: "static-1",
+        })
+        .select("id")
+        .single();
+
+      if (mounted && created?.id) setSessionId(String(created.id));
+    })();
+    return () => { mounted = false; };
+  }, [params?.id]);
+
+  /* ─────────── 1) Load session row + watch title/host (no UI change) ─────────── */
+  useEffect(() => {
+    if (!sessionId || !UUID_RE.test(sessionId)) return;
+    let mounted = true;
 
     const fetchOne = async () => {
       const { data: row } = await supabase
@@ -190,8 +255,7 @@ export default function LiveSession() {
       if (!mounted || !row) return;
 
       setSTitle((row.title || "Live Session").toString());
-      setSViewers(Number(row.viewers ?? 0));
-      viewersRef.current = Number(row.viewers ?? 0);
+      // viewers are driven by Presence below; don't set from row to avoid double counts
 
       if (row.host_id) {
         const { data: host } = await supabase
@@ -203,26 +267,7 @@ export default function LiveSession() {
       }
     };
 
-    const changeViewers = async (delta: number) => {
-      try {
-        const next = Math.max(0, (viewersRef.current ?? 0) + delta);
-        const { data: updated } = await supabase
-          .from(LIVE_TABLE)
-          .update({ viewers: next })
-          .eq("id", sessionId)
-          .select("viewers")
-          .single();
-        if (updated && mounted) {
-          viewersRef.current = Number(updated.viewers ?? next);
-          setSViewers(Number(updated.viewers ?? next));
-        }
-      } catch {}
-    };
-
-    (async () => {
-      await fetchOne();
-      await changeViewers(1); // increment while this screen is open
-    })();
+    (async () => { await fetchOne(); })();
 
     const ch = supabase
       .channel(`live:${sessionId}`)
@@ -232,27 +277,78 @@ export default function LiveSession() {
         (payload) => {
           const row: any = payload.new || payload.old;
           if (!row) return;
-          if (typeof row.viewers === "number") {
-            viewersRef.current = row.viewers;
-            setSViewers(row.viewers);
-          }
           if (row.title) setSTitle(row.title);
         }
       )
       .subscribe();
 
     return () => {
-      mounted = false;
       try { supabase.removeChannel(ch); } catch {}
-      changeViewers(-1); // decrement on leave
+      mounted = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.id]);
+  }, [sessionId]);
 
-  /* ─────────── realtime reactions (❤ 😮 👍) ─────────── */
+  /* ─────────── 2) Presence for accurate viewers (+debounced DB write) ─────────── */
   useEffect(() => {
-    const sessionId = getParam("id", "");
-    if (!sessionId) return;
+    if (!sessionId || !UUID_RE.test(sessionId) || !userId) return;
+
+    const presence = supabase.channel(`presence:live:${sessionId}`, {
+      config: { presence: { key: userId } },
+    });
+
+    presence
+      .on("presence", { event: "sync" }, () => {
+        const state = presence.presenceState();
+        const count = Object.keys(state).length || 0;
+        setSViewers(count);
+
+        if (sessionId) {
+          if (presenceWriteThroughTimer.current) clearTimeout(presenceWriteThroughTimer.current);
+          presenceWriteThroughTimer.current = setTimeout(() => {
+            supabase.from(LIVE_TABLE).update({ viewers: count }).eq("id", sessionId);
+          }, 500);
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try { await presence.track({ online_at: new Date().toISOString() }); } catch {}
+        }
+      });
+
+    return () => {
+      try { presence.untrack(); } catch {}
+      try { supabase.removeChannel(presence); } catch {}
+    };
+  }, [sessionId, userId]);
+
+  /* ─────────── 2.5) Attendance (join/leave) ─────────── */
+  useEffect(() => {
+    if (!sessionId || !UUID_RE.test(sessionId) || !userId) return;
+
+    supabase
+      .from("live_attendances")
+      .upsert(
+        {
+          session_id: sessionId,
+          user_id: userId,
+          joined_at: new Date().toISOString(),
+          left_at: null,
+        },
+        { onConflict: "session_id,user_id" }
+      );
+
+    return () => {
+      supabase
+        .from("live_attendances")
+        .update({ left_at: new Date().toISOString() })
+        .eq("session_id", sessionId)
+        .eq("user_id", userId);
+    };
+  }, [sessionId, userId]);
+
+  /* ─────────── 3) Realtime reactions (❤ 😮 👍) with optimistic toggle ─────────── */
+  useEffect(() => {
+    if (!sessionId || !UUID_RE.test(sessionId)) return;
     let mounted = true;
 
     const setByType = (type: string, n: number) => {
@@ -319,36 +415,46 @@ export default function LiveSession() {
       mounted = false;
       try { supabase.removeChannel(ch); } catch {}
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.id]);
+  }, [sessionId]);
+
+  // optimistic bump + upsert (same semantics as student screen)
+  const bumpCounts = (prev: "heart" | "wow" | "like" | null, next: "heart" | "wow" | "like" | null) => {
+    if (prev === next) return;
+    if (prev === "heart") setHeartCount((c) => Math.max(0, c - 1));
+    if (prev === "wow")   setWowCount((c) => Math.max(0, c - 1));
+    if (prev === "like")  setLikeCount((c) => Math.max(0, c - 1));
+    if (next === "heart") setHeartCount((c) => c + 1);
+    if (next === "wow")   setWowCount((c) => c + 1);
+    if (next === "like")  setLikeCount((c) => c + 1);
+  };
 
   const upsertReaction = async (nextType: "heart" | "wow" | "like" | null) => {
-    const sessionId = getParam("id", "");
     const uid = userIdRef.current;
-    if (!sessionId || !uid) return;
+    if (!sessionId || !UUID_RE.test(sessionId) || !uid) return;
+    const prev = activeReaction;
 
-    const { data: existing } = await supabase
-      .from(REACT_TABLE)
-      .select("id, type")
-      .eq("session_id", sessionId)
-      .eq("user_id", uid)
-      .maybeSingle();
-
-    if (nextType === null) {
-      if (existing) await supabase.from(REACT_TABLE).delete().eq("id", existing.id);
-      setActiveReaction(null);
-      return;
-    }
-
-    if (!existing) {
-      await supabase.from(REACT_TABLE).insert({ session_id: sessionId, user_id: uid, type: nextType });
+    try {
+      bumpCounts(prev as any, nextType as any);
       setActiveReaction(nextType);
-    } else if (existing.type !== nextType) {
-      await supabase.from(REACT_TABLE).update({ type: nextType }).eq("id", existing.id);
-      setActiveReaction(nextType);
-    } else {
-      await supabase.from(REACT_TABLE).delete().eq("id", existing.id);
-      setActiveReaction(null);
+
+      if (nextType === null) {
+        await supabase
+          .from(REACT_TABLE)
+          .delete()
+          .eq("session_id", sessionId)
+          .eq("user_id", uid);
+        return;
+      }
+
+      await supabase
+        .from(REACT_TABLE)
+        .upsert([{ session_id: sessionId, user_id: uid, type: nextType }], {
+          onConflict: "session_id,user_id",
+        });
+    } catch (e) {
+      // rollback optimistic change
+      bumpCounts(nextType as any, prev as any);
+      setActiveReaction(prev ?? null);
     }
   };
 
