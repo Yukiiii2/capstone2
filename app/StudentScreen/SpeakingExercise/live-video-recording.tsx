@@ -14,6 +14,8 @@ import {
   StatusBar,
   Dimensions,
   StyleSheet,
+  AppState,
+  BackHandler,             // 👈 added
 } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
@@ -28,6 +30,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 /** SDK 50/51: CameraView is the JSX component; Camera hosts the permission APIs */
 import { Camera, CameraView, type CameraType } from "expo-camera";
+import { useFocusEffect } from "@react-navigation/native";
 
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
@@ -75,20 +78,33 @@ export default function LiveVideoRecording() {
   const pathname = usePathname();
   const params = useLocalSearchParams();
 
-  // ========= Capture lesson/module context from router =========
+  // ========= Capture + normalize + decode lesson/module context =========
   const normalizeParam = (v: string | string[] | undefined) =>
     Array.isArray(v) ? v[0] : v;
 
-  const module_id = normalizeParam(params.module_id);
-  const module_title = normalizeParam(params.module_title);
-  const level = normalizeParam(params.level);
-  const display = normalizeParam(params.display); // visual 1..N you passed
+  const module_id_raw = normalizeParam(params.module_id);
+  const module_title_raw = normalizeParam(params.module_title);
+  const level_raw = normalizeParam(params.level);
+  const display_raw = normalizeParam(params.display);
+
+  const module_id = module_id_raw || undefined;
+  const module_title = module_title_raw
+    ? (() => {
+        try {
+          return decodeURIComponent(module_title_raw);
+        } catch {
+          return module_title_raw;
+        }
+      })()
+    : undefined;
+  const level = level_raw || undefined;
+  const display = display_raw || undefined;
 
   // Accept either ?session or ?session_id
-  const routeSessionId =
+  const initialRouteSessionId =
     normalizeParam(params.session) || normalizeParam(params.session_id) || null;
 
-  // Pack in one place so we never forget anything when navigating
+  // packed module context
   const moduleCtx = useMemo(
     () => ({
       ...(module_id ? { module_id } : {}),
@@ -99,11 +115,9 @@ export default function LiveVideoRecording() {
     [module_id, module_title, level, display]
   );
 
-  // Helper: push including module context (no UI change)
   const pushWithCtx = (pathname: string, extra?: Record<string, any>) => {
     router.push({ pathname, params: { ...moduleCtx, ...(extra || {}) } });
   };
-  // ================================================================
 
   // UI state
   const [isRecording, setIsRecording] = useState(false);
@@ -120,23 +134,26 @@ export default function LiveVideoRecording() {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
+  // current session id
+  const [sessionId, setSessionId] = useState<string | null>(initialRouteSessionId);
+
   // Animations
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const feedbackAnim = useRef(new Animated.Value(0)).current;
-  const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Camera + recording
   const cameraRef = useRef<CameraView | null>(null);
   const [isCamReady, setIsCamReady] = useState(false);
   const [hasPerms, setHasPerms] = useState<boolean | null>(null);
   const recordPromiseRef = useRef<Promise<any> | null>(null);
+  const isStartingRef = useRef(false); // 👈 start-once guard
+  const stopInFlightRef = useRef(false); // 👈 NEW: avoid double-stop & ensure fallback
 
-  // Robust mounting/retry
+  // Mounting
   const [camKey, setCamKey] = useState(0);
   const [facing, setFacing] = useState<"front" | "back">("front");
-  const retryGuardRef = useRef<NodeJS.Timeout | null>(null);
 
   // Resulting file + upload
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
@@ -154,11 +171,14 @@ export default function LiveVideoRecording() {
   const [aiConnected, setAiConnected] = useState(false);
   const aiSubRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // Live session viewers (subscribe to live_sessions changes)
+  // Live session viewers
   const [liveViewers, setLiveViewers] = useState<number | null>(null);
   const liveSubRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const screenWidth = Dimensions.get("window").width;
+
+  // foreground tracking
+  const appStateRef = useRef(AppState.currentState);
 
   // Status bar
   useEffect(() => {
@@ -191,7 +211,6 @@ export default function LiveVideoRecording() {
       if (!mounted) return;
       setFullName(nameValue);
 
-      // resolve signed avatar
       const stored = profile?.avatar_url?.toString() || user.id;
       const normalized = stored.replace(/^avatars\//, "");
       let objectPath: string | null = null;
@@ -226,40 +245,40 @@ export default function LiveVideoRecording() {
 
   // Recording UX animations + feedback
   useEffect(() => {
+    let pulseLoop: Animated.CompositeAnimation | null = null;
+    let feedbackInterval: any = null;
+
     if (isRecording) {
-      setIsFullScreen(true);
-      pulseLoopRef.current = Animated.loop(
+      pulseLoop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
           Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
         ])
       );
-      pulseLoopRef.current.start();
+      pulseLoop.start();
 
-      const feedbackInterval = setInterval(() => {
+      feedbackInterval = setInterval(() => {
         if (aiConnected) return;
         const randomIndex = Math.floor(Math.random() * feedbackMessages.length);
         setCurrentFeedback(feedbackMessages[randomIndex]);
         Animated.sequence([
-          Animated.timing(feedbackAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-          Animated.delay(3000),
-          Animated.timing(feedbackAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+          Animated.timing(feedbackAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.delay(2200),
+          Animated.timing(feedbackAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
         ]).start();
-      }, 4000);
-
-      return () => clearInterval(feedbackInterval);
+      }, 3500);
     } else {
-      if (pulseLoopRef.current) {
-        try {
-          pulseLoopRef.current.stop();
-        } catch {}
-        pulseLoopRef.current = null;
-      }
-      setIsFullScreen(false);
       pulseAnim.setValue(1);
       setCurrentFeedback("");
-      Animated.timing(feedbackAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(feedbackAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
     }
+
+    return () => {
+      try {
+        pulseLoop?.stop?.();
+      } catch {}
+      if (feedbackInterval) clearInterval(feedbackInterval);
+    };
   }, [isRecording, aiConnected]);
 
   // Profile menu animation
@@ -276,7 +295,7 @@ export default function LiveVideoRecording() {
     Animated.parallel(anis).start();
   }, [isProfileMenuVisible]);
 
-  // Permissions (+ probe camera types to pick a working lens on Android)
+  // Permissions
   const ensurePermissions = async () => {
     try {
       const cam = await Camera.requestCameraPermissionsAsync();
@@ -295,16 +314,13 @@ export default function LiveVideoRecording() {
         return false;
       }
 
-      // Fallback to a camera type that actually exists (workaround for some Androids)
       try {
         const types: CameraType[] | undefined =
           (Camera as any)?.getAvailableCameraTypesAsync
             ? await (Camera as any).getAvailableCameraTypesAsync()
             : undefined;
         if (types && !types.includes("front")) setFacing("back");
-      } catch {
-        // ignore if API not present
-      }
+      } catch {}
 
       return true;
     } catch (e) {
@@ -314,10 +330,52 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // Ask permissions once when screen mounts (so preview can show)
   useEffect(() => {
     ensurePermissions();
   }, []);
+
+  // Focus / foreground handling — resume preview gently
+  useFocusEffect(
+    React.useCallback(() => {
+      setTimeout(() => {
+        try {
+          (cameraRef.current as any)?.resumePreview?.();
+        } catch {}
+      }, 100);
+      return () => {
+        try {
+          (cameraRef.current as any)?.pausePreview?.();
+        } catch {}
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev?.match(/background|inactive/) && next === "active") {
+        setTimeout(() => {
+          try {
+            (cameraRef.current as any)?.resumePreview?.();
+          } catch {}
+        }, 120);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  // 🔒 Block Android “Back” while preview/recording to stop accidental navigation
+  useEffect(() => {
+    const block = () => true;
+    let backHandlerSub: { remove: () => void } | undefined;
+    if (isFullScreen || isRecording) {
+      backHandlerSub = BackHandler.addEventListener("hardwareBackPress", block);
+      return () => {
+        backHandlerSub?.remove();
+      };
+    }
+  }, [isFullScreen, isRecording]);
 
   // Timer
   const startTimer = () => {
@@ -329,7 +387,7 @@ export default function LiveVideoRecording() {
         const s = Math.floor((Date.now() - recordStartRef.current) / 1000);
         setElapsedSec(s);
       }
-    }, 250);
+    }, 500);
   };
   const stopTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -337,28 +395,90 @@ export default function LiveVideoRecording() {
     recordStartRef.current = null;
   };
 
-  // ===== Attendance + viewers =====
-  const bumpParticipants = async (delta: number) => {
-    if (!routeSessionId) return;
+  // ===== live_sessions helpers =====
+  const createLiveSessionAndReturnId = async (): Promise<string | null> => {
     try {
-      await supabase.rpc("live_sessions_bump_viewers", {
-        p_session_id: routeSessionId,
-        p_delta: delta,
-      });
-    } catch {
-      // optional
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id || userId;
+      if (!uid) return null;
+
+      const payload = {
+        host_id: uid,
+        title: module_title ?? "Live Session",
+        status: "live" as const,
+        viewers: 0,
+      };
+
+      const { data, error } = await supabase
+        .from("live_sessions")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      return data?.id ?? null;
+    } catch (e) {
+      console.warn("createLiveSession error:", (e as any)?.message || e);
+      return null;
     }
   };
 
+  const countParticipants = async (id: string): Promise<number | null> => {
+    try {
+      const { count } = await supabase
+        .from("live_attendances")
+        .select("user_id", { count: "exact", head: true })
+        .eq("session_id", id);
+    return typeof count === "number" ? count : null;
+    } catch (e) {
+      console.warn("countParticipants error:", (e as any)?.message || e);
+      return null;
+    }
+  };
+
+  const endLiveSession = async (opts: {
+    id: string;
+    mediaUrl?: string | null;
+    durationSec?: number | null;
+    participantsCount?: number | null;
+  }) => {
+    try {
+      await supabase
+        .from("live_sessions")
+        .update({
+          status: "ended",
+          ...(opts.mediaUrl ? { session_link: opts.mediaUrl } : {}),
+          ...(Number.isFinite(opts.durationSec ?? NaN) ? { duration: opts.durationSec } : {}),
+          ...(Number.isFinite(opts.participantsCount ?? NaN)
+            ? { participants: opts.participantsCount }
+            : {}),
+        })
+        .eq("id", opts.id);
+    } catch (e) {
+      console.warn("endLiveSession error:", (e as any)?.message || e);
+    }
+  };
+
+  // Attendance + viewers
+  const bumpParticipants = async (delta: number) => {
+    if (!sessionId) return;
+    try {
+      await supabase.rpc("live_sessions_bump_viewers", {
+        p_session_id: sessionId,
+        p_delta: delta,
+      });
+    } catch {}
+  };
+
   const markJoined = async () => {
-    if (!userId || !routeSessionId) return;
+    if (!userId || !sessionId) return;
     try {
       await supabase
         .from("live_attendances")
         .upsert(
           [
             {
-              session_id: routeSessionId,
+              session_id: sessionId,
               user_id: userId,
               joined_at: new Date().toISOString(),
               left_at: null,
@@ -373,12 +493,12 @@ export default function LiveVideoRecording() {
   };
 
   const markLeft = async () => {
-    if (!userId || !routeSessionId) return;
+    if (!userId || !sessionId) return;
     try {
       await supabase
         .from("live_attendances")
         .update({ left_at: new Date().toISOString() })
-        .eq("session_id", routeSessionId)
+        .eq("session_id", sessionId)
         .eq("user_id", userId);
       await bumpParticipants(-1);
     } catch (e) {
@@ -386,16 +506,14 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // Realtime viewers subscription
   const subscribeViewers = () => {
-    if (!routeSessionId || liveSubRef.current) return;
+    if (!sessionId || liveSubRef.current) return;
     liveSubRef.current = supabase
-      .channel(`live_sessions:${routeSessionId}`)
+      .channel(`live_sessions:${sessionId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "live_sessions", filter: `id=eq.${routeSessionId}` },
+        { event: "*", schema: "public", table: "live_sessions", filter: `id=eq.${sessionId}` },
         (payload: any) => {
-          // IMPORTANT: read the correct column name; prefer `viewers`
           const v = payload?.new?.viewers ?? payload?.old?.viewers ?? null;
           if (v !== null) setLiveViewers(v as number);
         }
@@ -411,7 +529,7 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // ===== AI feedback bridge =====
+  // AI feedback bridge
   const connectAI = async () => {
     if (aiSubRef.current) return;
     setAiConnected(true);
@@ -424,8 +542,8 @@ export default function LiveVideoRecording() {
           event: "INSERT",
           schema: "public",
           table: "ai_feedback",
-          ...(routeSessionId
-            ? { filter: `session_id=eq.${routeSessionId}` }
+          ...(sessionId
+            ? { filter: `session_id=eq.${sessionId}` }
             : userId
             ? { filter: `user_id=eq.${userId}` }
             : {}),
@@ -436,8 +554,8 @@ export default function LiveVideoRecording() {
           setCurrentFeedback(msg);
           Animated.sequence([
             Animated.timing(feedbackAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-            Animated.delay(3000),
-            Animated.timing(feedbackAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+            Animated.delay(2200),
+            Animated.timing(feedbackAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
           ]).start();
         }
       )
@@ -454,97 +572,104 @@ export default function LiveVideoRecording() {
     setAiConnected(false);
   };
 
-  // Start / Stop recording
+  // Start / Stop recording — start ONCE after camera ready
   const startRecordingInternal = async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
+
     try {
-      if (!(await ensurePermissions())) return;
-      if (!isCamReady) return; // extra guard: only record when camera is ready
+      if (!(await ensurePermissions())) {
+        isStartingRef.current = false;
+        return;
+      }
+      if (!cameraRef.current) {
+        isStartingRef.current = false;
+        return;
+      }
 
       setRecordedUri(null);
       setUploadUrl(null);
 
-      await markJoined();
-      subscribeViewers();
-      await connectAI();
+      try {
+        (cameraRef.current as any)?.resumePreview?.();
+      } catch {}
 
-      if (cameraRef.current) {
-        recordPromiseRef.current = (cameraRef.current as any).recordAsync({
-          maxDuration: 600,
-          videoQuality: "1080p",
-          isMuted: false,
+      recordPromiseRef.current = (cameraRef.current as any).recordAsync({
+        maxDuration: 1800,
+        // @ts-ignore
+        quality: "720p",
+        videoQuality: "720p",
+        mute: false,
+      });
+
+      startTimer();
+
+      setTimeout(async () => {
+        try {
+          if (!sessionId) {
+            const newId = await createLiveSessionAndReturnId();
+            if (newId) setSessionId(newId);
+          }
+          await markJoined();
+          subscribeViewers();
+          await connectAI();
+        } catch {}
+      }, 250);
+
+      recordPromiseRef.current
+        ?.then((video) => {
+          stopTimer();
+          const uri = video?.uri as string | undefined;
+          if (uri) setRecordedUri(uri);
+          setShowContinueButton(true);
+        })
+        .catch(() => {
+          stopTimer();
         });
-
-        startTimer();
-
-        recordPromiseRef.current
-          ?.then((video) => {
-            stopTimer();
-            const uri = video?.uri as string | undefined;
-            if (uri) setRecordedUri(uri);
-            setShowContinueButton(true);
-          })
-          .catch(() => {
-            stopTimer();
-          });
-      }
     } catch (e: any) {
       console.warn("record start error:", e?.message || e);
       stopTimer();
+      isStartingRef.current = false;
     }
   };
 
   const stopRecordingInternal = async () => {
+    if (stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
+
+    let finished = false;
+    const watchdog = setTimeout(() => {
+      if (finished) return;
+      stopTimer();
+      setIsRecording(false);
+      setIsFullScreen(false);
+      setShowContinueButton(true);
+    }, 1200);
+
     try {
-      cameraRef.current?.stopRecording();
+      await cameraRef.current?.stopRecording();
     } catch {}
+    finally {
+      finished = true;
+      clearTimeout(watchdog);
+      stopTimer();
+      setIsRecording(false);
+      setIsFullScreen(false);
+      setShowContinueButton(true);
+      stopInFlightRef.current = false;
+      isStartingRef.current = false;
+    }
   };
 
-  // Robust auto-start on mount when recording view opens
+  // Start only when: fullscreen + camera ready + user toggled record
   useEffect(() => {
-    if (!isRecording || !isFullScreen) return;
-
-    if (!isCamReady) {
-      if (retryGuardRef.current) clearTimeout(retryGuardRef.current);
-      retryGuardRef.current = setTimeout(() => {
-        setCamKey((k) => k + 1); // remount once
-        retryGuardRef.current = setTimeout(() => {
-          setFacing((f) => (f === "front" ? "back" : "front"));
-          setCamKey((k) => k + 1); // remount again
-          setTimeout(() => {
-            setFacing("front");
-            setCamKey((k) => k + 1);
-          }, 600);
-        }, 2200);
-      }, 2200);
-      return () => {
-        if (retryGuardRef.current) {
-          clearTimeout(retryGuardRef.current);
-          retryGuardRef.current = null;
-        }
-      };
+    if (isRecording && isFullScreen && isCamReady) {
+      startRecordingInternal();
     }
-
-    (async () => {
-      try {
-        const ok = await ensurePermissions();
-        if (!ok) return;
-        if (retryGuardRef.current) {
-          clearTimeout(retryGuardRef.current);
-          retryGuardRef.current = null;
-        }
-        await startRecordingInternal();
-      } catch {}
-    })();
-
-    return () => {
-      if (retryGuardRef.current) {
-        clearTimeout(retryGuardRef.current);
-        retryGuardRef.current = null;
-      }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording, isFullScreen, isCamReady]);
 
-  // Upload to Supabase — bucket 'recordings', path '<uid>/<filename>.mp4'
+  // Upload recording to Supabase
   const uploadRecording = async () => {
     if (!recordedUri) return;
     try {
@@ -568,7 +693,7 @@ export default function LiveVideoRecording() {
 
       const { data: signed, error: linkErr } = await supabase.storage
         .from("recordings")
-        .createSignedUrl(objectPath, 60 * 60 * 24 * 7); // 7 days
+        .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
       if (linkErr) throw linkErr;
 
       setUploadUrl(signed?.signedUrl ?? null);
@@ -580,12 +705,26 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // Auto-upload once the modal opens after stopping
   useEffect(() => {
     if (showEndSessionModal && recordedUri && !uploadUrl && !isUploading) {
       uploadRecording().catch(() => {});
     }
   }, [showEndSessionModal, recordedUri, uploadUrl, isUploading]);
+
+  // when upload URL becomes available, mark session ended
+  useEffect(() => {
+    (async () => {
+      if (!sessionId || !uploadUrl) return;
+      const participantsCount = await countParticipants(sessionId);
+      await endLiveSession({
+        id: sessionId,
+        mediaUrl: uploadUrl,
+        durationSec: elapsedSec || null,
+        participantsCount,
+      });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, uploadUrl]);
 
   // Leave attendance & cleanup
   useEffect(() => {
@@ -613,7 +752,16 @@ export default function LiveVideoRecording() {
     return `${m}:${ss}`;
   };
 
-  // ===== sub-components =====
+  const openCreatePost = () => {
+    const videoUri = uploadUrl || recordedUri;
+    if (!videoUri) {
+      Alert.alert("No recording", "Please record a video first.");
+      return;
+    }
+    pushWithCtx("StudentScreen/SpeakingExercise/create-post", { videoUri });
+  };
+
+  // ===== sub-components (UI unchanged) =====
 
   const Header = () => (
     <View className="mt-2">
@@ -714,7 +862,6 @@ export default function LiveVideoRecording() {
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
       {hasPerms ? (
-        // HARDENED: only render CameraView when permissions exist; removed useCamera2Api
         <CameraView
           key={`cam-${camKey}-${facing}`}
           ref={(r) => {
@@ -722,11 +869,20 @@ export default function LiveVideoRecording() {
           }}
           style={StyleSheet.absoluteFill}
           facing={facing}
-          onCameraReady={() => setIsCamReady(true)}
+          mode="video"
+          // @ts-ignore
+          videoStabilizationMode="off"
+          onCameraReady={() => {
+            setIsCamReady(true);
+            setTimeout(() => {
+              try {
+                (cameraRef.current as any)?.resumePreview?.();
+              } catch {}
+            }, 60);
+          }}
           onMountError={(err) => {
             const msg = (err as any)?.message ?? (err as any)?.nativeEvent?.message ?? String(err);
             console.warn("CameraView onMountError:", msg);
-            setCamKey((k) => k + 1); // quick recovery remount
           }}
         />
       ) : (
@@ -772,11 +928,8 @@ export default function LiveVideoRecording() {
 
       <TouchableOpacity
         className="absolute bottom-10 w-[70px] h-[70px] rounded-full bg-white justify-center items-center z-10"
-        onPress={() => {
-          stopRecordingInternal().finally(() => {
-            setIsRecording(false);
-            setShowContinueButton(true);
-          });
+        onPress={async () => {
+          await stopRecordingInternal();  // 👈 updated handler
         }}
         activeOpacity={0.7}
       >
@@ -796,7 +949,7 @@ export default function LiveVideoRecording() {
     </View>
   );
 
-  // Tabs / active
+  // Tabs / active (unchanged)
   const getActiveTab = (): string => {
     if (pathname.includes("StudentScreen/HomePage/home-page")) return "Home";
     if (
@@ -804,7 +957,7 @@ export default function LiveVideoRecording() {
       pathname.includes("basic-contents") ||
       pathname.includes("advanced-contents") ||
       pathname.includes("private-video-recording") ||
-      pathname.includes("live-video-recording") // include this screen
+      pathname.includes("live-video-recording")
     )
       return "Speaking";
     if (pathname.includes("basic-exercise-reading") || pathname.includes("advance-execise-reading"))
@@ -819,7 +972,7 @@ export default function LiveVideoRecording() {
     if (option === "Live Session") {
       pushWithCtx("/live-sessions-select");
     } else {
-      pushWithCtx("/community-selection");
+      openCreatePost();
     }
   };
 
@@ -834,12 +987,11 @@ export default function LiveVideoRecording() {
     pushWithCtx("/full-results-speaking", uploadUrl ? { media_url: uploadUrl } : {});
   };
 
-  // Save to gallery
+  // Save to gallery (unchanged)
   const downloadVideo = async () => {
     try {
       setIsDownloading(true);
 
-      // Cross-platform Photos permission (iOS + Android)
       const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
         if (Platform.OS === "android" && !canAskAgain) {
@@ -898,19 +1050,22 @@ export default function LiveVideoRecording() {
     }
   };
 
-  /** Start button: request perms, then open full-screen + recording (tiny delay helps Android bind surfaces) */
+  /** Start button — ultra-light synchronous work, everything else deferred */
   const handleStartPress = async () => {
     const ok = await ensurePermissions();
     if (!ok) return;
 
+    // show preview immediately
     setIsCamReady(false);
+    isStartingRef.current = false;
     setFacing("front");
-    setIsRecording(true);
 
-    setTimeout(() => {
-      setIsFullScreen(true);
-      setCamKey((k) => k + 1);
-    }, 120);
+    // go fullscreen; mount camera ONCE
+    setIsFullScreen(true);
+    setCamKey((k) => k + 1);
+
+    // flag recording; actual record begins when onCameraReady fires
+    setIsRecording(true);
   };
 
   return (

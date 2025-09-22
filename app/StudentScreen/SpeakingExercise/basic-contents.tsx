@@ -15,11 +15,10 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, useFocusEffect } from "expo-router"; // ⬅️ useFocusEffect already here
-import { router } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router"; // keep useRouter/useFocusEffect
 import ProfileMenuNew from "@/components/ProfileModal/ProfileMenuNew";
 
-// ⬇️ use your project’s client
+// ⬇️ your Supabase client
 import { supabase } from "@/lib/supabaseClient";
 
 const TRANSPARENT_PNG =
@@ -669,14 +668,14 @@ export default function BasicContents() {
                               // 🆕 Optimistically add to Recent
                               pushRecent(moduleId, lesson.title);
 
+                              // 🆕 pass full module context forward (ABSOLUTE PATH)
                               router.push({
-                                pathname: "StudentScreen/SpeakingExercise/lessons-basic",
-                                // 🆕 pass module_id + title so downstream can save progress
+                                pathname: "/StudentScreen/SpeakingExercise/lessons-basic",
                                 params: {
-                                  module_id: moduleIdByDisplayId[lesson.id],
-                                  module_title: lesson.title,
-                                  level: "basic",
-                                  display: String(lesson.id),
+                                  module_id: moduleId,
+                                  module_title: encodeURIComponent(lesson.title),
+                                  level: "basic",                // ⬅️ lowercase
+                                  display: String(lesson.id),    // visual index
                                 },
                               });
                             }}
@@ -764,7 +763,7 @@ export default function BasicContents() {
                   setCategoryModalVisible(false);
                   if (cat !== "All") {
                     router.push({
-                      pathname: "lessons-basic",
+                      pathname: "/StudentScreen/SpeakingExercise/lessons-basic",
                       params: { category: cat },
                     });
                   }

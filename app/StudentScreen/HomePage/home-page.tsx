@@ -19,7 +19,7 @@ import {
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, usePathname, useFocusEffect } from "expo-router"; // ⬅️ added useFocusEffect
+import { useRouter, usePathname, useFocusEffect } from "expo-router"; // keep useFocusEffect
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
 import ProfileMenu, { UserProfile } from "../../../components/ProfileModal/ProfileMenuNew";
@@ -133,19 +133,17 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
     objectPath = normalized;
   } else {
-    const { data: files, error: listErr } = await supabase.storage
+    const { data: files } = await supabase.storage
       .from("avatars")
       .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
-    if (listErr) return null;
     if (files && files.length > 0) objectPath = `${normalized}/${files[0].name}`;
   }
 
   if (!objectPath) return null;
 
-  const { data: signed, error: signErr } = await supabase.storage
+  const { data: signed } = await supabase.storage
     .from("avatars")
     .createSignedUrl(objectPath, 60 * 60);
-  if (signErr) return null;
   return signed?.signedUrl ?? null;
 }
 
@@ -162,7 +160,6 @@ function HomePage() {
   const [showLiveSessionModal, setShowLiveSessionModal] = useState(false);
 
   const handleSignOut = () => {
-    // Handle sign out logic here
     router.replace("/landing-page");
   };
 
@@ -478,7 +475,35 @@ function HomePage() {
     }));
   }, []);
 
-  // refresh on screen focus (avatar + counts)
+  // ====== NEW: confidence aggregation (backend logic only) ======
+  const fetchAverageConfidence = useCallback(async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+
+    const { data } = await supabase
+      .from("student_progress")
+      .select("confidence")
+      .eq("student_id", uid);
+
+    if (!data || data.length === 0) {
+      setStats({ averageConfidence: 0 });
+      return;
+    }
+
+    const vals = data
+      .map((d: any) => Number(d?.confidence))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (vals.length === 0) {
+      setStats({ averageConfidence: 0 });
+      return;
+    }
+
+    const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    setStats({ averageConfidence: Math.max(0, Math.min(100, avg)) });
+  }, []);
+
+  // refresh on screen focus (profile/avatar + counts + confidence)
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -510,13 +535,13 @@ function HomePage() {
         if (cancelled) return;
         setAvatarUri(url);
 
-        await fetchCounts();
+        await Promise.all([fetchCounts(), fetchAverageConfidence()]);
       })();
 
       return () => {
         cancelled = true;
       };
-    }, [fetchCounts])
+    }, [fetchCounts, fetchAverageConfidence])
   );
 
   // realtime: recompute when this user's progress changes
@@ -540,6 +565,29 @@ function HomePage() {
           },
           () => {
             fetchCounts();
+            fetchAverageConfidence();
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [fetchCounts, fetchAverageConfidence]);
+
+  // NEW: realtime for modules table so counts refresh when modules change
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    (async () => {
+      channel = supabase
+        .channel("rt-modules-home")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "modules" },
+          () => {
+            fetchCounts();
           }
         )
         .subscribe();
@@ -553,7 +601,8 @@ function HomePage() {
   // initial fetch so numbers show on very first mount
   useEffect(() => {
     fetchCounts();
-  }, [fetchCounts]);
+    fetchAverageConfidence();
+  }, [fetchCounts, fetchAverageConfidence]);
 
   // ===== UI Components =====
   const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -575,12 +624,12 @@ function HomePage() {
     }).start();
   };
 
-  const QuickActionButton = ({ 
-    onPress, 
-    icon, 
-    title, 
+  const QuickActionButton = ({
+    onPress,
+    icon,
+    title,
     subtitle,
-    iconColor = "#FFFFFF" 
+    iconColor = "#FFFFFF",
   }: {
     onPress: () => void;
     icon: string;
@@ -606,7 +655,7 @@ function HomePage() {
     </AnimatedTouchable>
   );
 
-  // Sidebar Component
+  // Sidebar Component (navigation unchanged; prop added to open Peer Review levels)
   const Sidebar = ({
     showSidebar,
     toggleSidebar,
@@ -615,6 +664,7 @@ function HomePage() {
     router,
     setShowReadingLevelModal,
     setShowCommunityModal,
+    setShowCommunityLevelModal, // added
   }: {
     showSidebar: boolean;
     toggleSidebar: () => void;
@@ -623,6 +673,7 @@ function HomePage() {
     router: any;
     setShowReadingLevelModal: (show: boolean) => void;
     setShowCommunityModal: (show: boolean) => void;
+    setShowCommunityLevelModal: (show: boolean) => void;
   }) => (
     <Animated.View
       className="absolute right-0 top-0 bottom-0 w-64 bg-[#0F172A]/95 drop-shadow-xl rounded-3xl z-50"
@@ -655,7 +706,7 @@ function HomePage() {
           </TouchableOpacity>
         </View>
 
-        {/* Quick Action Items */}
+        {/* SPEAKING EXERCISE */}
         <QuickActionButton
           onPress={() => {
             toggleSidebar();
@@ -667,6 +718,7 @@ function HomePage() {
           iconColor="#FFFFFF"
         />
 
+        {/* READING EXERCISES */}
         <QuickActionButton
           onPress={() => {
             toggleSidebar();
@@ -678,6 +730,7 @@ function HomePage() {
           iconColor="#FFFFFF"
         />
 
+        {/* PEER REVIEW */}
         <QuickActionButton
           onPress={() => {
             toggleSidebar();
@@ -689,6 +742,7 @@ function HomePage() {
           iconColor="#FFFFFF"
         />
 
+        {/* LIVE SESSION */}
         <QuickActionButton
           onPress={() => {
             toggleSidebar();
@@ -894,6 +948,7 @@ function HomePage() {
           router={router}
           setShowReadingLevelModal={setShowReadingLevelModal}
           setShowCommunityModal={setShowCommunityModal}
+          setShowCommunityLevelModal={setShowCommunityLevelModal} // pass the logic prop
         />
       )}
       {showSidebar && <Overlay />}
@@ -1028,7 +1083,7 @@ function HomePage() {
                   {/* Performance Stats */}
                   <View className="flex-1 ml-4">
                     <View className="mb-4">
-                    <Text className="text-violet-300 top-2 text-lg font-medium mb-1">
+                      <Text className="text-violet-300 top-2 text-lg font-medium mb-1">
                         Overall Performance
                       </Text>
                     </View>

@@ -6,10 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
@@ -41,10 +42,9 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   if (signedRes.error) return null;
   return signedRes.data?.signedUrl ?? null;
 }
-
 /* ──────────────────────────────────────────────────────────────────────────────── */
 
-/* Background Decorator (unchanged) */
+// Background Decorator Component
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -63,7 +63,6 @@ const BackgroundDecor = () => (
   </View>
 );
 
-/* Your original UI type */
 type Session = {
   id: string;
   name: string;
@@ -72,7 +71,7 @@ type Session = {
   viewers: string;
   time: string;
   duration: string;
-  isMyTeacher?: boolean;
+  isMyTeacher?: boolean; // reused as "Classmate" flag for your dropdown
 };
 
 /* Minimal DB rows */
@@ -103,18 +102,17 @@ const STATIC_SESSION: Session = {
   viewers: "1.2k",
   time: "LIVE NOW",
   duration: "45 min session",
-  isMyTeacher: false, // it will show under “Everyone”
+  isMyTeacher: true, // appears under "Classmate" filter in your UI
 };
 
 const LiveSessions = () => {
   const router = useRouter();
-  const pathname = usePathname();
-
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "My Teachers">("Everyone");
+  const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "Classmate">("Everyone");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   /* header avatar like Home */
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -123,7 +121,10 @@ const LiveSessions = () => {
 
   /* dynamic sessions coming from Supabase + the static one */
   const [sessions, setSessions] = useState<Session[]>([STATIC_SESSION]);
-  const [myTeacherIds, setMyTeacherIds] = useState<Set<string>>(new Set());
+
+  /* In your previous logic, this Set held teacher IDs.
+     Here we reuse the boolean to drive the "Classmate" filter UI without changing structure. */
+  const [classmateIds, setClassmateIds] = useState<Set<string>>(new Set());
 
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
@@ -138,7 +139,8 @@ const LiveSessions = () => {
   const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
     if (option === "Live Session") {
-      router.push("/live-sessions-select");
+      // We are already on the live list; just close. (Avoid self-navigation loop)
+      return;
     } else if (option === "Community Post") {
       router.push("/community-selection");
     }
@@ -176,7 +178,8 @@ const LiveSessions = () => {
     return () => { mounted = false; };
   }, []);
 
-  /* load my teachers (for the "My Teachers" filter) */
+  /* load "classmates" (reusing your teacher_students membership)
+     If you have a real classmates table later, plug it in here without touching UI. */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -196,7 +199,7 @@ const LiveSessions = () => {
         if (!r) return;
         setIds.add(r.teacher_id);
       });
-      setMyTeacherIds(setIds);
+      setClassmateIds(setIds);
     })();
     return () => { mounted = false; };
   }, []);
@@ -213,12 +216,13 @@ const LiveSessions = () => {
           .eq("status", "live")
           .order("started_at", { ascending: false });
 
-        if (error || !mounted) return;
+        if (error || !mounted) {
+          setSessions([STATIC_SESSION]); // keep static on error
+          return;
+        }
 
         const rows = (data as LiveSessionRow[]) ?? [];
-
         if (rows.length === 0) {
-          // keep the single static card when nothing is live
           setSessions([STATIC_SESSION]);
           return;
         }
@@ -243,14 +247,14 @@ const LiveSessions = () => {
             viewers: String(r.viewers ?? 0),
             time: "LIVE NOW",
             duration: "45 min session",
-            isMyTeacher: myTeacherIds.has(r.host_id),
+            // Reusing the boolean for your "Classmate" filter without changing UI
+            isMyTeacher: classmateIds.has(r.host_id),
           };
         });
 
-        // always keep ONE static at the top + dynamic lives
+        // keep ONE static at the top + dynamic lives
         setSessions([STATIC_SESSION, ...mapped]);
       } catch {
-        // on any error, still keep static
         setSessions([STATIC_SESSION]);
       }
     };
@@ -258,10 +262,10 @@ const LiveSessions = () => {
     fetchLive();
 
     const ch = supabase
-      .channel(`live_sessions:live`)
+      .channel(`live_sessions:all`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: LIVE_TABLE, filter: "status=eq.live" },
+        { event: "*", schema: "public", table: LIVE_TABLE },
         () => fetchLive()
       )
       .subscribe();
@@ -270,7 +274,7 @@ const LiveSessions = () => {
       try { supabase.removeChannel(ch); } catch {}
       mounted = false;
     };
-  }, [myTeacherIds]);
+  }, [classmateIds]);
 
   return (
     <View className="flex-1 bg-[#0F172A]">
@@ -330,7 +334,7 @@ const LiveSessions = () => {
               <View className="p-0.5 bg-white/10 rounded-full">
                 <Image
                   source={{
-                    uri: avatarUri || "https://randomuser.me/api/portraits/women/44.jpg",
+                    uri: avatarUri || TRANSPARENT_PNG,
                   }}
                   className="w-8 h-8 rounded-full"
                 />
@@ -363,60 +367,98 @@ const LiveSessions = () => {
             </View>
           </View>
 
-          {/* Live Sessions Section (UI unchanged) */}
+          {/* Live Sessions Section */}
           <View className="mb-5 bottom-8">
-            <View className="flex-row justify-between items-center mb-5">
-              <Text className="text-white text-xl font-bold">
+            <View className="mb-4">
+              <Text className="text-white text-xl font-bold mb-4">
                 People live now
               </Text>
-              <View className="relative">
-                <TouchableOpacity
-                  className="flex-row items-center bg-white/10 px-3 py-1.5 rounded-lg"
-                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
-                >
-                  <Text className="text-white mr-2">{selectedFilter}</Text>
-                  <Ionicons name="chevron-down" size={16} color="white" />
-                </TouchableOpacity>
+              <View className="flex-row items-center space-x-3">
+                {/* Search Bar */}
+                <View className="relative flex-1">
+                  <TextInput
+                    className="bg-white/10 text-white rounded-xl pl-10 pr-8 py-2.5 text-sm"
+                    placeholder="Search by name or title..."
+                    placeholderTextColor="#94a3b8"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                  <Ionicons
+                    name="search"
+                    size={16}
+                    color="#94a3b8"
+                    style={{
+                      position: "absolute",
+                      left: 12,
+                      top: 12,
+                    }}
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: 12,
+                        top: 12,
+                      }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {/* Filter Dropdown */}
+                <View className="relative">
+                  <TouchableOpacity
+                    className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
+                    onPress={() => setShowFilterDropdown(!showFilterDropdown)}
+                  >
+                    <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
+                    <Ionicons name="chevron-down" size={14} color="white" />
+                  </TouchableOpacity>
 
-                {showFilterDropdown && (
-                  <View className="absolute top-10 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
-                    <TouchableOpacity
-                      className="px-4 py-2 border-b border-white/10"
-                      onPress={() => {
-                        setSelectedFilter("Everyone");
-                        setShowFilterDropdown(false);
-                      }}
-                    >
-                      <Text className="text-white">Everyone</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      className="px-4 py-2"
-                      onPress={() => {
-                        setSelectedFilter("My Teachers");
-                        setShowFilterDropdown(false);
-                      }}
-                    >
-                      <Text className="text-white">My Teachers</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  {showFilterDropdown && (
+                    <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
+                      <TouchableOpacity
+                        className="px-4 py-2.5 border-b border-white/10"
+                        onPress={() => {
+                          setSelectedFilter("Everyone");
+                          setShowFilterDropdown(false);
+                        }}
+                      >
+                        <Text className="text-white text-sm">Everyone</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        className="px-4 py-2.5"
+                        onPress={() => {
+                          setSelectedFilter("Classmate");
+                          setShowFilterDropdown(false);
+                        }}
+                      >
+                        <Text className="text-white text-sm">Classmate</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
 
             {sessions
-              .filter(
-                (session) =>
+              .filter(session => {
+                const matchesFilter =
                   selectedFilter === "Everyone" ||
-                  (selectedFilter === "My Teachers" && session.isMyTeacher)
-              )
-              .slice(
-                0,
-                selectedFilter === "My Teachers" ? 3 : sessions.length
-              )
+                  (selectedFilter === "Classmate" && session.isMyTeacher);
+                const q = searchQuery.trim().toLowerCase();
+                const matchesSearch =
+                  q === "" ||
+                  session.name.toLowerCase().includes(q) ||
+                  session.title.toLowerCase().includes(q);
+                return matchesFilter && matchesSearch;
+              })
+              .slice(0, selectedFilter === "Classmate" ? 3 : sessions.length)
               .map((session) => (
                 <View
                   key={session.id}
-                  className="mb-5 bg-white/10 rounded-2xl p-5 border border-white/20"
+                  className="mb-5 bg-white/5 rounded-2xl p-5 border border-white/20"
                 >
                   {/* Session Status Bar */}
                   <View className="flex-row justify-between items-center mb-4">
@@ -445,7 +487,9 @@ const LiveSessions = () => {
                       <Text className="text-white font-medium">
                         {session.name}
                       </Text>
-                      <Text className="text-violet-300 text-xs">Student</Text>
+                      <Text className="text-violet-300 text-xs">
+                        {session.isMyTeacher ? "Classmate" : "Host"}
+                      </Text>
                     </View>
                   </View>
 
@@ -469,24 +513,24 @@ const LiveSessions = () => {
                       })
                     }
                   >
-                    <Text className="text-white text-based font-bold">
+                    <Text className="text-white text-base font-bold">
                       Join Session
                     </Text>
                   </TouchableOpacity>
                 </View>
               ))}
-            {selectedFilter === "My Teachers" &&
+            {selectedFilter === "Classmate" &&
               sessions.filter((session) => session.isMyTeacher).length === 0 && (
                 <View className="items-center justify-center py-8">
                   <Ionicons name="people-outline" size={48} color="#94a3b8" />
                   <Text className="text-slate-400 mt-2 text-center">
-                    No live sessions from your teachers at the moment
+                    No live sessions from your classmate at the moment
                   </Text>
                 </View>
               )}
           </View>
 
-          {/* Community Recordings Section (unchanged) */}
+          {/* Community Recordings Section */}
           <View className="mb-8 bottom-14">
             <View className="flex-row justify-between items-center mb-5">
               <Text className="text-white text-xl top-2 font-bold">
@@ -602,7 +646,9 @@ const LiveSessions = () => {
             user={{
               name: fullName,
               email: email,
-              image: { uri: avatarUri || TRANSPARENT_PNG },
+              image: {
+                uri: avatarUri || TRANSPARENT_PNG,
+              },
             }}
           />
         </View>
@@ -623,7 +669,7 @@ const LiveSessions = () => {
           const route =
             level === "Basic"
               ? "/basic-exercise-reading"
-              : "/advance-execise-reading";
+              : "/advance-exercise-reading"; // fixed spelling
           router.push(route);
         }}
       />
