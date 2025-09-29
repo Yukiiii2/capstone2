@@ -10,6 +10,30 @@ import uuid
 import os
 import tempfile
 import wave
+import difflib
+
+
+def compare_transcriptions(transcription: str, expected_text: str):
+    """
+    Compare the transcription with the expected text and identify discrepancies.
+
+    Args:
+        transcription (str): The transcribed text from the audio.
+        expected_text (str): The expected text to compare against.
+
+    Returns:
+        list: A list of discrepancies, where each discrepancy is marked as:
+              - "- " for missing words in the transcription.
+              - "+ " for extra/misheard words in the transcription.
+    """
+    transcription_words = transcription.split()
+    expected_words = expected_text.split()
+
+    # Use difflib to compare words
+    diff = difflib.ndiff(expected_words, transcription_words)
+    discrepancies = [word for word in diff if word.startswith("- ") or word.startswith("+ ")]
+
+    return discrepancies
 
 # =========================
 # Supabase Configuration
@@ -32,7 +56,7 @@ os.environ["PATH"] += os.pathsep + r"C:\ffmpeg\bin"
 # =========================
 analyzer = FeedbackAnalyzer()
 nlp = spacy.load("en_core_web_sm")
-whisper_model = whisper.load_model("base")
+whisper_model = whisper.load_model("medium")
 
 # =========================
 # FastAPI App Configuration
@@ -90,11 +114,19 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
                 detail=f"Attempt ID {request.attempt_id} does not exist in the attempts table",
             )
 
-        # --- Generate Feedback ---
-        result = analyzer.analyze_feedback(request.speech_text, request.spacy_stats)
+        # --- Compare Transcription with Expected Text ---
+        expected_text = "Ice cream, use cream, we all scream for ice cream."
+        discrepancies = compare_transcriptions(request.speech_text, expected_text)
 
-        if not result or "feedback" not in result:
-            raise HTTPException(status_code=500, detail="Failed to generate feedback")
+        # --- Generate Feedback ---
+        feedback = "Your speech was clear and accurate."
+        if discrepancies:
+            feedback = "There were some discrepancies in your speech:\n"
+            for discrepancy in discrepancies:
+                if discrepancy.startswith("- "):
+                    feedback += f"- Expected: {discrepancy[2:]}\n"
+                elif discrepancy.startswith("+ "):
+                    feedback += f"- Heard: {discrepancy[2:]}\n"
 
         # --- Prepare Feedback Data ---
         feedback_data = {
@@ -103,7 +135,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             "attempt_id": request.attempt_id,
             "evaluation": {
                 "spacy_stats": request.spacy_stats,
-                "feedback": result["feedback"],
+                "feedback": feedback,
             },
             "transcription": request.speech_text,
         }
@@ -124,7 +156,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             "id": feedback_data["id"],
             "speech_text": request.speech_text,
             "spacy_stats": request.spacy_stats,
-            "feedback": result["feedback"],
+            "feedback": feedback,
         }
 
     except HTTPException as e:
@@ -155,9 +187,9 @@ async def get_feedback(feedback_id: str):
 
 
 @app.post("/process-audio")
-async def process_audio(file: UploadFile = File(...)):
+async def process_audio(file: UploadFile = File(...), expected_text: str = None):
     """
-    Process uploaded audio file → Transcribe speech using Whisper.
+    Process uploaded audio file → Transcribe speech using Whisper → Compare with expected text → Extract statistics for /analyze-feedback.
     """
     temp_audio_path = None
     try:
@@ -178,11 +210,46 @@ async def process_audio(file: UploadFile = File(...)):
 
         print(f"Transcription: {transcription}")
 
-        return {"transcription": transcription}
+        # --- Compare Transcription with Expected Text ---
+        discrepancies = []
+        if expected_text:
+            discrepancies = compare_transcriptions(transcription, expected_text)
+            print(f"Discrepancies: {discrepancies}")
+
+        # --- Analyze Transcription with spaCy ---
+        doc = nlp(transcription)
+
+        # Calculate readability stats
+        sentences = list(doc.sents)
+        avg_sentence_length = sum(len(sent) for sent in sentences) / len(sentences) if sentences else None
+
+        # Prepare spacy_stats
+        spacy_stats = {
+            "num_tokens": len(doc),
+            "tokens": [{"text": token.text, "pos": token.pos_} for token in doc],
+            "named_entities": [{"text": ent.text, "label": ent.label_} for ent in doc.ents],
+            "readability": {
+                "flesch_reading_ease": None,  # Optional: Add a library for this if needed
+                "avg_sentence_length": avg_sentence_length,
+            },
+            "sentiment": {
+                "polarity": None,  # Optional: Add sentiment analysis if needed
+                "subjectivity": None,
+            },
+        }
+
+        print(f"spaCy Stats: {spacy_stats}")
+
+        return {
+            "transcription": transcription,
+            "expected_text": expected_text,
+            "discrepancies": discrepancies,
+            "spacy_stats": spacy_stats,
+        }
 
     except Exception as e:
         print(f"Error in /process-audio: {e}")
-        raise HTTPException(status_code=500, detail="Failed to transcribe audio file")
+        raise HTTPException(status_code=500, detail="Failed to process audio file")
     finally:
         if temp_audio_path and os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
