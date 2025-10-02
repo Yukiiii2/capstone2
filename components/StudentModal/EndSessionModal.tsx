@@ -1,18 +1,22 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, Alert, Animated, Easing } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
-import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from 'expo-blur';
 
 interface EndSessionModalProps {
   visible: boolean;
   onDismiss: () => void;
+
+  // Parent-owned actions (parent knows the recorded URI + upload state)
+  onDownloadVideo?: () => Promise<void>;
+  onViewAIAnalysis: () => void;
+  onShareToCommunity?: () => Promise<void> | void;
+
+  // Busy flags from parent to disable buttons while uploading/saving
   isDownloading: boolean;
   setIsDownloading: (downloading: boolean) => void;
-  onViewAIAnalysis: () => void;
-  onDownloadVideo?: () => Promise<void>;
+  isUploading?: boolean;
+  actionBusyText?: string;
 }
 
 const EndSessionModal: React.FC<EndSessionModalProps> = ({
@@ -22,21 +26,26 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
   setIsDownloading,
   onViewAIAnalysis,
   onDownloadVideo,
+  onShareToCommunity,
+  isUploading = false,
+  actionBusyText = "Please wait…",
 }) => {
   const router = useRouter();
+
+  // Hooks MUST be called unconditionally, before any early return.
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+  const [isFiring, setIsFiring] = useState(false);
 
-  // Animation effects
+  // Animate in when visible flips true
   useEffect(() => {
     if (!visible) {
-      // Reset animation values when not visible
       scaleAnim.setValue(0.9);
       opacityAnim.setValue(0);
+      setIsFiring(false);
       return;
     }
 
-    // Create animation refs
     const scaleAnimation = Animated.spring(scaleAnim, {
       toValue: 1,
       useNativeDriver: true,
@@ -51,50 +60,67 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
       easing: Easing.out(Easing.ease),
     });
 
-    // Start animations
     const parallelAnim = Animated.parallel([scaleAnimation, opacityAnimation]);
     parallelAnim.start();
 
-    // Cleanup function
     return () => {
       parallelAnim.stop();
     };
   }, [visible, scaleAnim, opacityAnim]);
 
-  // Handle download with proper error handling and feedback
   const handleDownload = async () => {
-    if (onDownloadVideo) {
+    if (!onDownloadVideo) {
+      Alert.alert("No recording available", "Please record first, then tap Continue to save.");
+      return;
+    }
+    if (isFiring || isDownloading) return;
+    setIsFiring(true);
+    try {
       await onDownloadVideo();
-    } else {
-      // Fallback to default behavior if no custom handler provided
-      try {
-        setIsDownloading(true);
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        
-        if (status !== 'granted') {
-          Alert.alert(
-            "Permission Required",
-            "Please allow access to your media library to save videos.",
-            [{ text: "OK" }]
-          );
-          return;
-        }
-        
-        Alert.alert("Success", "Video saved to your gallery!");
-      } catch (error) {
-        console.error("Error saving video:", error);
-        Alert.alert("Error", "Failed to save video. Please try again.");
-      } finally {
-        setIsDownloading(false);
-      }
+    } finally {
+      setIsFiring(false);
     }
   };
 
+  const handleShareToCommunity = async () => {
+    if (isFiring || isUploading) return;
+    setIsFiring(true);
+    try {
+      if (onShareToCommunity) {
+        await onShareToCommunity(); // parent ensures upload, then navigates
+        onDismiss();
+      } else {
+        // fallback only (not recommended)
+        onDismiss();
+        router.push("StudentScreen/SpeakingExercise/create-post");
+      }
+    } catch (e: any) {
+      Alert.alert("Unable to share", String(e?.message || e));
+    } finally {
+      setIsFiring(false);
+    }
+  };
+
+  const handleAIAnalysis = () => {
+    if (isFiring || isUploading) return;
+    setIsFiring(true);
+    try {
+      onViewAIAnalysis(); // parent passes local_uri/media_url when navigating
+    } finally {
+      setIsFiring(false);
+    }
+  };
+
+  // Now it’s safe to early-return AFTER all hooks were called
   if (!visible) return null;
+
+  const saveDisabled = isDownloading || isFiring;
+  const communityDisabled = isUploading || isFiring;
+  const analysisDisabled = isUploading || isFiring;
 
   const options = [
     {
+      key: "save",
       icon: isDownloading ? "cloud-download" : "save",
       iconSet: isDownloading ? "MaterialIcons" : "Ionicons",
       title: isDownloading ? "Saving..." : "Save to gallery",
@@ -102,46 +128,44 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
       iconBg: "bg-white/10",
       iconColor: "#FFFFFF",
       onPress: handleDownload,
-      disabled: isDownloading,
+      disabled: saveDisabled,
     },
     {
+      key: "community",
       icon: "people",
       iconSet: "Ionicons",
-      title: "Post to Community",
-      description: "Get feedback from the community",
+      title: communityDisabled ? actionBusyText : "Post to Community",
+      description: communityDisabled ? "Please wait…" : "Get feedback from the community",
       iconBg: "bg-white/10",
       iconColor: "#FFFFFF",
-      onPress: () => {
-        onDismiss();
-        router.push("StudentScreen/SpeakingExercise/create-post");
-      },
+      onPress: handleShareToCommunity,
+      disabled: communityDisabled,
     },
     {
+      key: "analysis",
       icon: "analytics",
       iconSet: "Ionicons",
-      title: "Full AI Analysis",
-      description: "Detailed performance insights",
+      title: analysisDisabled ? actionBusyText : "Full AI Analysis",
+      description: analysisDisabled ? "Please wait…" : "Detailed performance insights",
       iconBg: "bg-white/10",
       iconColor: "#FFFFFF",
-      onPress: () => {
-        onDismiss();
-        router.push("StudentScreen/SpeakingExercise/full-results-speaking");
-      },
+      onPress: handleAIAnalysis,
+      disabled: analysisDisabled,
     },
   ];
 
   return (
-    <Animated.View 
+    <Animated.View
       className="absolute top-0 left-0 right-0 bottom-0 justify-center items-center z-50"
       style={{ opacity: opacityAnim }}
     >
       <View className="absolute top-0 left-0 right-0 bottom-0 bg-[#1A1F2E]/95 backdrop-blur-xl" />
-      
-      <Animated.View 
+
+      <Animated.View
         className="w-[90%] max-w-md rounded-3xl overflow-hidden"
         style={{
           transform: [{ scale: scaleAnim }],
-          shadowColor: 'rgba(0,0,0,0.3)',
+          shadowColor: "rgba(0,0,0,0.3)",
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.2,
           shadowRadius: 15,
@@ -153,9 +177,7 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
             <View className="w-16 h-16 rounded-2xl bg-white/20 items-center justify-center mb-3">
               <Ionicons name="checkmark" size={40} color="#FFFFFF" />
             </View>
-            <Text className="text-white text-2xl font-bold text-center">
-              Session Complete!
-            </Text>
+            <Text className="text-white text-2xl font-bold text-center">Session Complete!</Text>
             <Text className="text-gray-300 text-center mt-2 text-base">
               What would you like to do next?
             </Text>
@@ -164,32 +186,31 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
           <View className="space-y-3 mb-6">
             {options.map((option) => (
               <TouchableOpacity
-                key={option.title}
-                className={`flex-row items-center p-4 rounded-2xl bg-white/5 border border-white/10 ${option.disabled ? 'opacity-70' : 'opacity-100'}`}
+                key={option.key}
+                className={`flex-row items-center p-4 rounded-2xl bg-white/5 border border-white/10 ${
+                  option.disabled ? "opacity-70" : "opacity-100"
+                }`}
                 activeOpacity={0.8}
                 onPress={option.onPress}
                 disabled={option.disabled}
               >
-                <View className={`w-12 h-12 rounded-xl items-center justify-center mr-4 ${option.iconBg}`}>
-                  {option.iconSet === 'Ionicons' ? (
+                <View
+                  className={`w-12 h-12 rounded-xl items-center justify-center mr-4 ${option.iconBg}`}
+                >
+                  {option.iconSet === "Ionicons" ? (
                     <Ionicons name={option.icon as any} size={22} color={option.iconColor} />
                   ) : (
                     <MaterialIcons name={option.icon as any} size={22} color={option.iconColor} />
                   )}
                 </View>
                 <View className="flex-1">
-                  <Text className="text-white font-semibold text-base">
-                    {option.title}
-                    {option.disabled && '...'}
-                  </Text>
-                  <Text className="text-gray-300 text-xs mt-1">
-                    {option.description}
-                  </Text>
+                  <Text className="text-white font-semibold text-base">{option.title}</Text>
+                  <Text className="text-gray-300 text-xs mt-1">{option.description}</Text>
                 </View>
-                <Ionicons 
-                  name="chevron-forward" 
-                  size={18} 
-                  color="#64748B" 
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color="#64748B"
                   style={{ opacity: option.disabled ? 0.3 : 0.7 }}
                 />
               </TouchableOpacity>
@@ -201,9 +222,7 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
             onPress={onDismiss}
             activeOpacity={0.9}
           >
-            <Text className="text-white font-medium text-base">
-              Maybe Later
-            </Text>
+            <Text className="text-white font-medium text-base">Maybe Later</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>

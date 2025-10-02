@@ -17,6 +17,8 @@ import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import { Ionicons } from "@expo/vector-icons";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from 'expo-splash-screen';
+// ⬇️ NEW: keep the device awake during sessions (hook, not component)
+import { useKeepAwake } from "expo-keep-awake";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -134,6 +136,9 @@ const LoadingOverlay = () => (
 export default function Layout() {
   const [isReady, setIsReady] = useState(false);
 
+  // ⬇️ NEW: prevent sleep during long recordings / sessions (hook call)
+  useKeepAwake();
+
   // Initialize app and set up UI
   useEffect(() => {
     // Set up UI for Android
@@ -202,6 +207,9 @@ export default function Layout() {
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-session" />
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-sessions" />
             <Stack.Screen name="ProfileMenu/logout" />
+            {/* ⬇️ NEW: explicitly register the live recorder route(s) */}
+            <Stack.Screen name="StudentsScreen/SpeakingExercise/live-video-recording" />
+            <Stack.Screen name="StudentScreen/SpeakingExercise/live-video-recording" />
           </Stack>
         </SafeAreaView>
       </View>
