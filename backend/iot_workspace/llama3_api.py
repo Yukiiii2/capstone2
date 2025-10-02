@@ -11,7 +11,25 @@ import os
 import tempfile
 import wave
 import difflib
+from textblob import TextBlob  # Import TextBlob for sentiment analysis
+import textstat  # Import textstat for readability analysis
 
+
+
+def calculate_readability(transcription, sentences):
+    avg_sentence_length = sum(len(sent) for sent in sentences) / len(sentences) if sentences else None
+    return {
+        "flesch_reading_ease": textstat.flesch_reading_ease(transcription),
+        "gunning_fog": textstat.gunning_fog(transcription),
+        "avg_sentence_length": avg_sentence_length,
+    }
+
+def analyze_delivery(transcription, doc, transcription_result):
+    return {
+        "filler_words": [word for word in transcription.split() if word.lower() in ["um", "uh", "like"]],
+        "repeated_words": [token.text for token in doc if doc.count_by(spacy.attrs.LOWER)[token.lower] > 1],
+        "words_per_minute": len(doc) / (transcription_result["duration"] / 60),
+    }
 
 def compare_transcriptions(transcription: str, expected_text: str):
     """
@@ -93,7 +111,7 @@ class SpeechFeedbackRequest(BaseModel):
 async def analyze_feedback(request: SpeechFeedbackRequest):
     """
     Analyze speech feedback, validate student/attempt IDs,
-    generate evaluation, and store it in Supabase.
+    generate evaluation using Ollama AI, and store it in Supabase.
     """
     global global_feedback
 
@@ -114,19 +132,22 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
                 detail=f"Attempt ID {request.attempt_id} does not exist in the attempts table",
             )
 
-        # --- Compare Transcription with Expected Text ---
-        expected_text = "Ice cream, use cream, we all scream for ice cream."
-        discrepancies = compare_transcriptions(request.speech_text, expected_text)
+        # --- Generate Feedback Using Ollama AI ---
+        feedback_result = analyzer.analyze_feedback(request.speech_text, request.spacy_stats)
 
-        # --- Generate Feedback ---
-        feedback = "Your speech was clear and accurate."
-        if discrepancies:
-            feedback = "There were some discrepancies in your speech:\n"
-            for discrepancy in discrepancies:
-                if discrepancy.startswith("- "):
-                    feedback += f"- Expected: {discrepancy[2:]}\n"
-                elif discrepancy.startswith("+ "):
-                    feedback += f"- Heard: {discrepancy[2:]}\n"
+        if "error" in feedback_result:
+            raise HTTPException(status_code=500, detail=feedback_result["error"])
+
+        # --- Format Feedback for Readability ---
+        formatted_feedback = {
+            "summary": "Your speech was analyzed successfully.",
+            "details": feedback_result["feedback"],  # Assuming the AI returns structured feedback
+            "recommendations": [
+                "Focus on improving pronunciation for specific words.",
+                "Practice with tongue twisters to enhance clarity.",
+                "Review the discrepancies highlighted in the analysis."
+            ]
+        }
 
         # --- Prepare Feedback Data ---
         feedback_data = {
@@ -135,7 +156,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             "attempt_id": request.attempt_id,
             "evaluation": {
                 "spacy_stats": request.spacy_stats,
-                "feedback": feedback,
+                "feedback": formatted_feedback,
             },
             "transcription": request.speech_text,
         }
@@ -156,7 +177,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             "id": feedback_data["id"],
             "speech_text": request.speech_text,
             "spacy_stats": request.spacy_stats,
-            "feedback": feedback,
+            "feedback": formatted_feedback,
         }
 
     except HTTPException as e:
@@ -186,13 +207,19 @@ async def get_feedback(feedback_id: str):
         raise HTTPException(status_code=500, detail="An error occurred while retrieving the feedback")
 
 
+import wave
+
 @app.post("/process-audio")
 async def process_audio(file: UploadFile = File(...), expected_text: str = None):
     """
-    Process uploaded audio file → Transcribe speech using Whisper → Compare with expected text → Extract statistics for /analyze-feedback.
+    Process uploaded audio file → Transcribe speech using Whisper → Compare with expected text → Extract enhanced statistics for /analyze-feedback.
     """
     temp_audio_path = None
     try:
+        # --- Validate File Type ---
+        if not file.filename.endswith((".wav", ".mp3", ".m4a")):
+            raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid audio file.")
+
         # --- Save Uploaded File ---
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             temp_audio_path = tmp.name
@@ -200,42 +227,38 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
 
         print(f"Temporary audio file path: {temp_audio_path}")
 
-        # --- Log Audio File Details ---
-        with wave.open(temp_audio_path, "rb") as wav_file:
-            print(f"Audio file details: {wav_file.getparams()}")
+        # --- Calculate Audio Duration ---
+        try:
+            with wave.open(temp_audio_path, "rb") as wav_file:
+                frame_rate = wav_file.getframerate()
+                num_frames = wav_file.getnframes()
+                duration = num_frames / float(frame_rate)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to calculate audio duration: {str(e)}")
+
+        print(f"Audio Duration: {duration} seconds")
 
         # --- Transcribe Audio ---
         transcription_result = whisper_model.transcribe(temp_audio_path)
-        transcription = transcription_result["text"]
+        transcription = transcription_result.get("text", "").strip()
+        if not transcription:
+            raise ValueError("Whisper failed to generate a transcription.")
 
         print(f"Transcription: {transcription}")
 
-        # --- Compare Transcription with Expected Text ---
-        discrepancies = []
-        if expected_text:
-            discrepancies = compare_transcriptions(transcription, expected_text)
-            print(f"Discrepancies: {discrepancies}")
-
         # --- Analyze Transcription with spaCy ---
         doc = nlp(transcription)
-
-        # Calculate readability stats
         sentences = list(doc.sents)
-        avg_sentence_length = sum(len(sent) for sent in sentences) / len(sentences) if sentences else None
 
-        # Prepare spacy_stats
+        # Extract spaCy statistics
         spacy_stats = {
             "num_tokens": len(doc),
-            "tokens": [{"text": token.text, "pos": token.pos_} for token in doc],
+            "tokens": [{"text": token.text, "pos": token.pos_, "dep": token.dep_, "head": token.head.text} for token in doc],
             "named_entities": [{"text": ent.text, "label": ent.label_} for ent in doc.ents],
-            "readability": {
-                "flesch_reading_ease": None,  # Optional: Add a library for this if needed
-                "avg_sentence_length": avg_sentence_length,
-            },
-            "sentiment": {
-                "polarity": None,  # Optional: Add sentiment analysis if needed
-                "subjectivity": None,
-            },
+            "noun_chunks": [{"text": chunk.text, "root": chunk.root.text, "root_dep": chunk.root.dep_} for chunk in doc.noun_chunks],
+            "sentences": [{"text": sent.text, "length": len(sent)} for sent in sentences],
+            "readability": calculate_readability(transcription, sentences),
+            "delivery": analyze_delivery(transcription, doc, {"duration": duration}),
         }
 
         print(f"spaCy Stats: {spacy_stats}")
@@ -243,7 +266,6 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
         return {
             "transcription": transcription,
             "expected_text": expected_text,
-            "discrepancies": discrepancies,
             "spacy_stats": spacy_stats,
         }
 
