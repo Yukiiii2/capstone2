@@ -32,7 +32,7 @@
   ],
   "include": [
     "app",
-    "lib",
+    "backend/lib",
     "**/*.d.ts",
     "src/types/**/*.d.ts"
   ],
