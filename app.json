@@ -1,8 +1,8 @@
 {
   "expo": {
-    "scheme": "capstone2",
     "name": "capstone2",
     "slug": "capstone2",
+    "scheme": "capstone2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,10 +20,8 @@
         "NSCameraUsageDescription": "We need camera access so you can record your presentation.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record audio during video recording.",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save videos to your photo library.",
-        "NSPhotoLibraryUsageDescription": "This app needs permission to access your photo library to save videos.",
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "NSPhotoLibraryUsageDescription": "This app needs permission to access your photo library to save videos."
+     
       }
     },
     "android": {
@@ -37,44 +35,40 @@
         "barStyle": "light"
       },
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.WAKE_LOCK",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_CAMERA",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_MEDIA_VIDEO",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_CAMERA",
+        "FOREGROUND_SERVICE_MICROPHONE"
       ],
       "softwareKeyboardLayoutMode": "pan",
       "windowSoftInputMode": "adjustResize"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
+    "web": { "favicon": "./assets/favicon.png" },
     "plugins": [
       "expo-router",
       "expo-secure-store",
       "expo-dev-client",
-      "expo-media-library",
       [
         "react-native-vision-camera",
         {
+          "enableMicrophonePermission": true,
           "cameraPermissionText": "We need camera access so you can record your presentation.",
           "microphonePermissionText": "We need microphone access to capture your voice."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow ${PRODUCT_NAME} to access your photos.",
+          "savePhotosPermission": "Allow ${PRODUCT_NAME} to save photos.",
+          "isAccessMediaLocationEnabled": true
         }
       ]
     ],
     "extra": {
       "router": {},
-      "eas": {
-        "projectId": "11dc4851-7555-4362-97bc-956807c92d3f"
-      }
-    },
-    "owner": "hakushaku910"
-  }
-}
+      "eas": { "projectId": "11dc4851-7555-4362-97bc-956807c92d3f" }
+    }
+  }}
