@@ -18,10 +18,12 @@
       "bundleIdentifier": "com.yourcompany.capstone2",
       "infoPlist": {
         "NSCameraUsageDescription": "We need camera access so you can record your presentation.",
-        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record audio during video recording.",
+        "NSMicrophoneUsageDescription": "We need microphone access to capture your voice.",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save videos to your photo library.",
         "NSPhotoLibraryUsageDescription": "This app needs permission to access your photo library to save videos."
-     
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
       }
     },
     "android": {
@@ -40,12 +42,31 @@
         "READ_MEDIA_VIDEO",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_CAMERA",
-        "FOREGROUND_SERVICE_MICROPHONE"
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_MEDIA_VIDEO",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_CAMERA",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_MEDIA_LOCATION"
       ],
       "softwareKeyboardLayoutMode": "pan",
-      "windowSoftInputMode": "adjustResize"
+      "windowSoftInputMode": "adjustResize",
+      "runtimeVersion": "1.0.0"
     },
-    "web": { "favicon": "./assets/favicon.png" },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -69,6 +90,12 @@
     ],
     "extra": {
       "router": {},
-      "eas": { "projectId": "11dc4851-7555-4362-97bc-956807c92d3f" }
+      "eas": {
+        "projectId": "11dc4851-7555-4362-97bc-956807c92d3f"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/11dc4851-7555-4362-97bc-956807c92d3f"
     }
-  }}
+  }
+}

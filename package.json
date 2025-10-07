@@ -37,6 +37,7 @@
     "expo-sharing": "~13.1.5",
     "expo-splash-screen": "~0.30.10",
     "expo-status-bar": "~2.2.3",
+    "expo-updates": "~0.28.17",
     "expo-video": "~2.2.2",
     "nativewind": "^2.0.11",
     "postcss": "^8.5.6",
@@ -52,10 +53,10 @@
     "react-native-screens": "~4.11.1",
     "react-native-svg": "15.11.2",
     "react-native-url-polyfill": "^2.0.0",
-    "react-native-vision-camera": "^4.7.2",
+    "react-native-vision-camera": "^3.8.0",
     "react-native-web": "^0.20.0",
     "react-native-webview": "13.13.5",
-    "react-native-worklets-core": "^1.6.2",
+    "react-native-worklets-core": "1.6.2",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

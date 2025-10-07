@@ -1,5 +1,5 @@
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -22,17 +22,16 @@ import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 
-// ⬇️ Supabase (unchanged)
+// Supabase
 import { supabase } from "@/lib/supabaseClient";
 
-// ⬇️ Vision Camera
+// Vision Camera
 import {
   Camera,
   useCameraDevice,
   useCameraPermission,
 } from "react-native-vision-camera";
 
-// Constants
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
 const tips = [
@@ -75,9 +74,14 @@ const BackgroundDecor = () => (
 );
 
 export default function PrivateVideoRecording() {
-  // ===== CAMERA (first) =====
+  // ===== CAMERA FIRST =====
   const cameraRef = useRef<Camera>(null);
-  const device = useCameraDevice("front");
+
+  // Prefer front, fallback to back
+  const front = useCameraDevice("front");
+  const back = useCameraDevice("back");
+  const device = front ?? back;
+
   const { hasPermission: hasCamPerm, requestPermission: requestCamPerm } =
     useCameraPermission();
 
@@ -86,9 +90,9 @@ export default function PrivateVideoRecording() {
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const recordingActiveRef = useRef(false);
   const [cameraReady, setCameraReady] = useState(false);
-  const [pendingStart, setPendingStart] = useState(false); // arm start until camera is ready
+  const [pendingStart, setPendingStart] = useState(false); // arm until camera ready
 
-  // ---- Real recording timer ----
+  // Timer
   const [elapsedMs, setElapsedMs] = useState(0);
   const elapsedTimerRef = useRef<NodeJS.Timeout | null>(null);
   const formatElapsed = (ms: number) => {
@@ -98,7 +102,7 @@ export default function PrivateVideoRecording() {
     return `${mm}:${ss}`;
   };
 
-  // Permissions: camera only (no mic)
+  // Request camera perm on mount
   useEffect(() => {
     (async () => {
       try {
@@ -108,14 +112,13 @@ export default function PrivateVideoRecording() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Start recording only after camera initialized + tiny delay
+  // Start recording once fullscreen camera is initialized
   useEffect(() => {
     const run = async () => {
       if (!pendingStart || !cameraReady || !device || !cameraRef.current) return;
       if (!hasCamPerm) {
         Alert.alert("Permission required", "Please allow camera to record.");
         setPendingStart(false);
-        setIsFullScreen(false);
         return;
       }
       if (recordingActiveRef.current || isRecording) {
@@ -136,24 +139,27 @@ export default function PrivateVideoRecording() {
           200
         );
 
-        await cameraRef.current.startRecording({
-          flash: "off",
-          onRecordingFinished: (video) => {
-            recordingActiveRef.current = false;
-            const uri = video.path.startsWith("file://")
-              ? video.path
-              : `file://${video.path}`;
-            setRecordedUri(uri);
-          },
-          onRecordingError: (err) => {
-            recordingActiveRef.current = false;
-            setIsRecording(false);
-            Alert.alert(
-              "Recording error",
-              err?.message ?? "Something went wrong while recording."
-            );
-          },
-        });
+        // tiny delay avoids Camera2 race
+        setTimeout(() => {
+          cameraRef.current?.startRecording({
+            flash: "off",
+            onRecordingFinished: (video) => {
+              recordingActiveRef.current = false;
+              const uri = video.path.startsWith("file://")
+                ? video.path
+                : `file://${video.path}`;
+              setRecordedUri(uri);
+            },
+            onRecordingError: (err) => {
+              recordingActiveRef.current = false;
+              setIsRecording(false);
+              Alert.alert(
+                "Recording error",
+                err?.message ?? "Something went wrong while recording."
+              );
+            },
+          });
+        }, 200);
       } catch {
         recordingActiveRef.current = false;
         setIsRecording(false);
@@ -185,7 +191,7 @@ export default function PrivateVideoRecording() {
     stop();
   }, [isRecording]);
 
-  // ===== REST OF YOUR SCREEN (unchanged UI) =====
+  // ===== REST OF SCREEN =====
   const router = useRouter();
   const pathname = usePathname();
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
@@ -206,9 +212,6 @@ export default function PrivateVideoRecording() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const feedbackAnim = useRef(new Animated.Value(0)).current;
 
-  const screenWidth = Dimensions.get("window").width;
-  const screenHeight = Dimensions.get("window").height;
-
   useEffect(() => {
     StatusBar.setBarStyle("light-content");
     if (Platform.OS === "android") {
@@ -217,7 +220,7 @@ export default function PrivateVideoRecording() {
     }
   }, []);
 
-  // Load user/avatar (unchanged)
+  // Load user/avatar
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -287,7 +290,7 @@ export default function PrivateVideoRecording() {
     return () => clearInterval(timer);
   }, []);
 
-  // AI feedback animation while recording
+  // Fake “AI feedback” while recording
   useEffect(() => {
     if (!isRecording) {
       feedbackAnim.setValue(0);
@@ -339,9 +342,6 @@ export default function PrivateVideoRecording() {
     return "Speaking";
   };
 
-  const activeTab = getActiveTab();
-
-  // Navigation handlers (unchanged)
   const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
     if (option === "Live Session") {
@@ -517,7 +517,7 @@ export default function PrivateVideoRecording() {
     </View>
   );
 
-  // Full Screen Recording View
+  // Fullscreen recording view (NOTE: no androidPreviewViewType prop)
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
       {device && hasCamPerm ? (
@@ -525,18 +525,15 @@ export default function PrivateVideoRecording() {
           ref={cameraRef}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           device={device}
-          isActive={true}      // keep active while fullscreen
-          video={true}
-          audio={false}        // VIDEO ONLY
+          isActive={isFullScreen || isRecording}
+          video
+          audio={false}
           photo={false}
           onInitialized={() => {
-            // tiny delay lets Camera2 finish configuring surfaces on slower phones
             setTimeout(() => setCameraReady(true), 250);
           }}
           onError={(err) => {
-            // keep this minimal; VisionCamera logs can be noisy
             Alert.alert("Camera error", err?.message ?? "Camera failed to start.");
-            setIsFullScreen(false);
           }}
         />
       ) : (
@@ -545,7 +542,7 @@ export default function PrivateVideoRecording() {
 
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="camera" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
-        <Text className="text-white text-sm">Front Camera</Text>
+        <Text className="text-white text-sm">{front ? "Front Camera" : "Back Camera"}</Text>
       </View>
 
       <AIFeedback />
@@ -663,16 +660,16 @@ export default function PrivateVideoRecording() {
                   </View>
                 </View>
 
-                {/* Video Container */}
+                {/* Static card (no inline preview) */}
                 <View className="w-full aspect-[4/3] bg-gray-900 border border-white/30 relative items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-black/30">
                   {!isRecording && (
                     <View className="absolute">
                       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
                         <TouchableOpacity
                           onPress={async () => {
-                            setIsFullScreen(true);
                             if (!hasCamPerm) await requestCamPerm();
-                            // arming start; will begin after onInitialized + delay
+                            setIsFullScreen(true);
+                            setCameraReady(false);
                             setPendingStart(true);
                           }}
                           className="w-16 h-16 rounded-full items-center justify-center bg-gradient-to-br from-red-600 to-indigo-700 border-2 border-red-500"
@@ -689,7 +686,11 @@ export default function PrivateVideoRecording() {
                       isRecording ? "bottom-4" : "bottom-8"
                     } self-center text-white text-xs bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-sm`}
                   >
-                    {isRecording ? "Recording in progress" : "Tap to start recording"}
+                    {isRecording
+                      ? "Recording in progress"
+                      : cameraReady
+                      ? "Tap to start recording"
+                      : "Camera will open fullscreen"}
                   </Text>
                 </View>
 

@@ -1,1 +1,29 @@
-node_modules
+# Node dependencies
+node_modules/
+
+# Android build folders
+android/.gradle/
+android/build/
+android/app/build/
+
+# Local configuration
+android/local.properties
+
+# Gradle cache and logs
+.gradle/
+*.log
+
+# Android Studio / IntelliJ project files
+*.iml
+.idea/
+*.ipr
+*.iws
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Expo or React Native build cache (optional)
+.expo/
+expo-build/
+dist/
