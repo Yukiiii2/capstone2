@@ -53,7 +53,6 @@ export default function TeacherLoginScreen() {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isMounted, setIsMounted] = useState(true);
 
   const updateFormData = (field: LoginField, value: string) => {
@@ -145,19 +144,6 @@ export default function TeacherLoginScreen() {
       if (isMounted) setIsLoading(false);
     }
   }, [formData, isMounted, routeTeacherAfterLogin]);
-
-  const handleGoogleSignIn = useCallback(async () => {
-    try {
-      setIsGoogleLoading(true);
-    // real Google auth requires deep-linking config; keeping as stub
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      Alert.alert("Google Login", "Google Sign-In successful (dummy).");
-    } catch (error) {
-      console.error("Google Sign-In error:", error);
-    } finally {
-      if (isMounted) setIsGoogleLoading(false);
-    }
-  }, [isMounted]);
 
   // reset password via Supabase
   const handleForgotPassword = useCallback(async () => {
@@ -305,7 +291,7 @@ export default function TeacherLoginScreen() {
                   <Text className="text-white/80 text-sm">Remember me</Text>
                 </Pressable>
                 <TouchableOpacity onPress={handleForgotPassword}>
-                  <Text className="text-violet-400 text-sm -left-9">
+                  <Text className="text-violet-400 text-sm">
                     Forgot Password?
                   </Text>
                 </TouchableOpacity>
@@ -315,7 +301,9 @@ export default function TeacherLoginScreen() {
               <TouchableOpacity
                 onPress={handleLogin}
                 disabled={!isFormValid || isLoading}
-                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${isFormValid ? "bg-purple-500" : "bg-gray-600"}`}
+                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${
+                  isFormValid ? "bg-purple-500" : "bg-gray-600"
+                }`}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
@@ -327,42 +315,24 @@ export default function TeacherLoginScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Divider */}
-              <View className="flex-row items-center my-4">
-                <View className="flex-1 h-px bg-white/20" />
-                <Text className="text-white/60 px-3 text-sm">
-                  or continue with
-                </Text>
-                <View className="flex-1 h-px bg-white/20" />
-              </View>
-
-              {/* Google Sign In */}
-              <TouchableOpacity
-                onPress={handleGoogleSignIn}
-                disabled={isGoogleLoading}
-                className="flex-row items-center justify-center py-3.5 rounded-xl border border-white/20 mb-6"
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={require("../../../assets/Google.png")}
-                  className="w-5 h-5 mr-2"
-                  resizeMode="contain"
-                />
-                <Text className="text-white text-base">
-                  {isGoogleLoading ? "Signing in..." : "Sign in with Google"}
-                </Text>
-              </TouchableOpacity>
-
               {/* Sign Up Link */}
-              <View className="flex-row justify-center space-x-1">
-                <Text className="text-white/80 text-sm">
-                  Don't have an account?
-                </Text>
-                <TouchableOpacity onPress={handleSignUp} activeOpacity={0.7}>
-                  <Text className="text-violet-400 text-sm font-medium">
-                    Sign Up
-                  </Text>
-                </TouchableOpacity>
+              <View className="justify-center top-4 mb-4">
+                <View className="border border-white/20 rounded-lg p-4">
+                  <View className="flex-row justify-center items-center space-x-1">
+                    <Text className="text-white/80 text-sm">
+                      Don't have an account?
+                    </Text>
+                    <TouchableOpacity 
+                      onPress={handleSignUp} 
+                      activeOpacity={0.7}
+                      className="px-3 py-1.5 left-2 rounded-md bg-white/5 border border-white/10"
+                    >
+                      <Text className="text-violet-300 text-sm font-medium">
+                        Sign Up
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
             </View>
           </View>

@@ -1,6 +1,20 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StatusBar, Linking, Animated, Easing, Dimensions } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Animated, 
+  Easing, 
+  TouchableOpacity, 
+  ScrollView, 
+  Image, 
+  Pressable, 
+  Alert, 
+  Dimensions,
+  StatusBar,
+  Linking
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams, router } from "expo-router";
 
@@ -19,80 +33,103 @@ const BackgroundDecor = () => (
 );
 
 type QuizQ = { id: number; question: string; options: string[]; correct: number };
+type RubricItem = {
+  label: string;
+  rating?: string; // Made optional with ?
+  descriptions: {
+    high: string;
+    medium: string;
+    low: string;
+  };
+};
+
 type LessonDetail = {
   id: number;
   title: string;
   subtitle: string;
   intro: string;
-  bullets: string[];
+  bullets?: string[];
   importance: string[];
   tips: string[];
   quiz: QuizQ[];
-  taskTitle: string;
+  taskTitle?: string;
   taskBody: string;
-  rubric: { label: string; weight: number }[];
-  references: { title: string; url: string }[];
+  rubric: RubricItem[];
+  references: { title?: string; url: string }[];
 };
 
 const LESSONS: LessonDetail[] = [
   {
-    id: 1,
-    title: "Handling Q&A and Objections",
-    subtitle: "Basic • Lesson 1",
+    id: 4,
+    title: "Managing Stage Fright",
+    subtitle: "Basic • Lesson 4",
     intro:
-      "Master the art of handling questions and objections during presentations. This essential skill will help you maintain control, demonstrate expertise, and build credibility with your audience.",
-    bullets: [
-      "Listen carefully to the entire question before responding",
-      "Repeat or rephrase the question for clarity and to ensure everyone hears it",
-      "Stay connected to your main message and key points",
-      "Maintain a professional and confident demeanor throughout"
-    ],
+      "Stage fright is nervousness before speaking in public. It can be reduced with preparation and practice.",
     importance: [
-      "Builds credibility and trust with your audience",
-      "Demonstrates your expertise on the subject matter",
-      "Helps clarify misunderstandings and reinforce your message",
-      "Turns potential challenges into opportunities to strengthen your position"
+      "Builds confidence",
+      "Improves performance",
+      "Helps focus on message",
     ],
     tips: [
-      "Practice active listening skills - focus completely on the questioner",
-      "Prepare answers for common questions in advance",
-      "Stay calm and composed, even when faced with difficult questions",
-      "Use positive body language and maintain eye contact"
+      "Practice deep breathing",
+      "Visualize success",
+      "Start small with friendly audiences",
     ],
     quiz: [
       {
         id: 1,
-        question: "What should you do first when someone asks a question?",
-        options: ["Answer immediately", "Listen completely", "Ask them to repeat", "Change the subject"],
+        question: "What is stage fright?",
+        options: ["Confidence", "Nervousness before speaking", "Excitement to perform", "Forgetting the speech"],
         correct: 1,
       },
       {
         id: 2,
-        question: "Why is it important to repeat the question?",
-        options: [
-          "To gain time to think",
-          "To ensure everyone heard it",
-          "To show you're listening",
-          "All of the above"
-        ],
-        correct: 3,
+        question: "How can you manage stage fright?",
+        options: ["Ignore the audience", "Visualize success", "Avoid practice", "Speak faster"],
+        correct: 1,
       },
     ],
-    taskTitle: "Q&A Practice Session",
     taskBody:
-      "Record a 1-minute video where you answer three different questions. Demonstrate good listening skills and clear responses.",
+      "Task/Test: Deliver a 1–2 minute self-introduction speech in front of the camera. Focus is not on the content but on how calm, relaxed, and confident you appear while speaking.",
     rubric: [
-      { label: "Listening skills", weight: 30 },
-      { label: "Clarity of response", weight: 30 },
-      { label: "Professional demeanor", weight: 20 },
-      { label: "Connection to main message", weight: 20 },
+      { 
+        label: "Body Control", 
+        descriptions: {
+          high: "Stands/sits relaxed, no shaking hands",
+          medium: "Some small nervous movements",
+          low: "Very fidgety, shaking, restless"
+        }
+      },
+      { 
+        label: "Eye Contact", 
+        descriptions: {
+          high: "Looks at camera/audience confidently",
+          medium: "Sometimes avoids eye contact",
+          low: "Rarely looks at audience/camera"
+        }
+      },
+      { 
+        label: "Voice Steadiness", 
+        descriptions: {
+          high: "Voice is steady, not shaky",
+          medium: "Voice slightly shaky at times",
+          low: "Voice often shaky or trembling"
+        }
+      },
+      { 
+        label: "Calmness", 
+        descriptions: {
+          high: "Appears calm and composed",
+          medium: "A little tense but manageable",
+          low: "Very tense, nervous, or panicked"
+        }
+      }
     ],
     references: [
-      { title: "Effective Communication Skills Guide", url: "https://example.com/communication" },
-      { title: "Public Speaking Mastery", url: "https://example.com/public-speaking" },
-      { title: "Handling Difficult Questions", url: "https://example.com/difficult-questions" }
-    ],
-  },
+      { url: "https://health.clevelandclinic.org/stage-fright"},
+      { url: "https://hbr.org/2014/05/reframe-your-nerves-before-a-presentation"}
+    ]
+  }
 ];
 
 // Animated Progress Bar Component
@@ -231,34 +268,20 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
             <Text className="text-white text-2xl font-bold">Lesson Content</Text>
             <View className="w-10" />
           </View>
-          <Text className="text-white/90 leading-6 text-base mb-6">{data.intro}</Text>
+          <Text className="text-white leading-6 text-lg mb-6">{data.intro}</Text>
+
 
           <View className="mb-6">
-            <View className="flex-row items-center mb-3">
-              <Ionicons name="list-outline" size={20} color="#ffffff" />
-              <Text className="text-white text-lg font-semibold ml-2">Key Points</Text>
-            </View>
-            {data.bullets.map((b, i) => (
-              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
-                <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Text className="text-white font-bold">{i+1}</Text>
-                </View>
-                <Text className="text-white/90 text-base flex-1">{b}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View className="mb-6">
-            <View className="flex-row items-center mb-3">
+            <View className="flex-row items-center mb-1">
               <Ionicons name="alert-circle-outline" size={20} color="#ffffff" />
               <Text className="text-white text-lg font-semibold ml-2">Importance</Text>
             </View>
             {data.importance.map((imp, i) => (
-              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
-                <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Ionicons name="star" size={14} color="#ffffff" />
+              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-1 rounded-lg">
+                <View className="w-5 h-5 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.1">
+                  <Ionicons name="star" size={10} color="#ffffff" />
                 </View>
-                <Text className="text-white/90 text-base flex-1">{imp}</Text>
+                <Text className="text-white/90 text-xs top-0.5 flex-1">{imp}</Text>
               </View>
             ))}
           </View>
@@ -269,11 +292,11 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
               <Text className="text-white text-lg font-semibold ml-2">Tips & Strategies</Text>
             </View>
             {data.tips.map((t, i) => (
-              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
-                <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Ionicons name="bulb" size={14} color="#ffffff" />
+              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-1 rounded-lg">
+                <View className="w-5 h-5 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.1">
+                  <Ionicons name="bulb" size={10} color="#ffffff" />
                 </View>
-                <Text className="text-white/90 text-base flex-1">{t}</Text>
+                <Text className="text-white/90 text-xs top-0.5 flex-1">{t}</Text>
               </View>
             ))}
           </View>
@@ -291,9 +314,9 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
                   className="flex-row items-center py-2"
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="document-text-outline" size={18} color="#ffffff" className="mr-3" />
-                  <Text className="text-violet-300 text-base underline">
-                    {ref.title}
+                  <Ionicons name="link" size={18} color="#a78bfa" className="mr-3" />
+                  <Text className="text-violet-300 text-xs left-2 underline">
+                    {ref.title || ref.url}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -302,7 +325,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
 
           <View className="flex-row justify-between mt mb-4 px-4">
             <TouchableOpacity 
-              onPress={() => {}}
+              onPress={() => onBack()}
               className="py-3 px-8 rounded-xl bg-white/20 border border-white/20 flex-1 mr-3 items-center"
               activeOpacity={0.7}
             >
@@ -501,26 +524,66 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
     >
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mt-10 mb-4 mx-4">
-          <View className="items-center mb-6">
+          <View className="items-center">
             <Text className="text-white text-2xl font-bold">Recording Task</Text>
           </View>
 
-          <View className="mb-4">
-            <Text className="text-white text-lg font-semibold mb-2">{data.taskTitle}</Text>
-            <Text className="text-white/80 text-sm leading-5">{data.taskBody}</Text>
+          <View className="mb-10">
+            <Text className="text-white text-sm top-4 leading-5">{data.taskBody}</Text>
           </View>
 
-          <View className="mb-4">
-            <View className="flex-row items-center mb-2">
+          <View className="mb-5">
+            <View className="flex-row items-center mb-3">
               <Ionicons name="list-outline" size={18} color="#ffffff" />
               <Text className="text-white text-base font-semibold ml-2">Evaluation Rubric</Text>
             </View>
-            {data.rubric.map((item, i) => (
-              <View key={i} className="flex-row justify-between items-center py-2 border-b border-white/10 last:border-b-0">
-                <Text className="text-white text-sm flex-1">{item.label}</Text>
-                <Text className="text-white font-semibold text-sm">{item.weight}%</Text>
+            <View className="border-2 border-white/20 rounded-lg overflow-hidden">
+              {/* Table Header */}
+              <View className="flex-row bg-white/10">
+                <View className="w-1/4 p-2 border-r-2 border-white/20">
+                  <Text className="text-white font-medium text-xs">Criteria</Text>
+                </View>
+                <View className="w-1/4 p-2 border-r-2 border-white/20 items-center justify-center">
+                  <Text className="text-white font-bold text-sm">5</Text>
+                </View>
+                <View className="w-1/4 p-2 border-r-2 border-white/20 items-center justify-center">
+                  <Text className="text-white font-bold text-sm">3</Text>
+                </View>
+                <View className="w-1/4 p-2 items-center justify-center">
+                  <Text className="text-white font-bold text-sm">1</Text>
+                </View>
               </View>
-            ))}
+              
+              {/* Table Rows - Only first 4 criteria */}
+              {data.rubric.slice(0, 4).map((item, i) => (
+                <View key={i} className="border-t-2 border-white/10">
+                  <View className="flex-row min-h-[100px]">
+                    <View className="w-1/4 p-2 border-r-2 border-white/10">
+                      <Text className="text-white text-xs font-medium">{item.label}</Text>
+                    </View>
+                    <View className="w-1/4 p-2 border-r-2 border-white/10">
+                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.high}</Text>
+                    </View>
+                    <View className="w-1/4 p-2 border-r-2 border-white/10">
+                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.medium}</Text>
+                    </View>
+                    <View className="w-1/4 p-2">
+                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.low}</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+            {/* Score Guide */}
+            <View className="mt-4 bg-white/5 p-3 rounded-lg">
+              <Text className="text-white font-medium mb-2">Score Guide:</Text>
+              <View className="space-y-2">
+                <Text className="text-white/90 text-xs">16–20 = <Text className="text-green-400">Excellent</Text></Text>
+                <Text className="text-white/90 text-xs mt-2">11–15 = <Text className="text-blue-400">Good</Text></Text>
+                <Text className="text-white/90 text-xs mt-2">6–10 = <Text className="text-yellow-400">Needs Work</Text></Text>
+                <Text className="text-white/90 text-xs mt-2">1–5 = <Text className="text-red-400">Poor</Text></Text>
+              </View>
+            </View>
           </View>
 
           <View className="flex-row justify-between mt-2 space-x-3">
@@ -587,7 +650,7 @@ export default function LessonScreen() {
       <ScrollView 
         ref={scrollViewRef}
         className="flex-1 z-10"
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
         showsVerticalScrollIndicator={false}
       >
         <View className="pt-10 px-4 pb-4">

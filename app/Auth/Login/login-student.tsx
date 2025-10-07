@@ -19,19 +19,19 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
 
 const BackgroundDecor = () => (
-  <View className="absolute inset-0 w-full h-full z-0">
-    <View className="absolute inset-0">
+  <View style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 0 }}>
+    <View style={{ position: 'absolute', inset: 0 }}>
       <LinearGradient
         colors={["#0F172A", "#1E293B", "#0F172A"]}
-        className="flex-1"
+        style={{ flex: 1 }}
       />
     </View>
     {/* Decorative Circles */}
-    <View className="absolute w-40 h-40 bg-[#a78bfa]/5 rounded-full -top-30 -left-12 z-10" />
-    <View className="absolute w-24 h-24 bg-[#a78bfa]/5 rounded-full top-230 -right-10 z-10" />
-    <View className="absolute w-20 h-20 bg-[#a78bfa]/5 rounded-full bottom-10 left-12 z-10" />
-    <View className="absolute w-36 h-36 bg-[#a78bfa]/5 rounded-full -bottom-5 -right-8 z-10" />
-    <View className="absolute w-20 h-20 bg-[#a78bfa]/5 rounded-full top-28 left-60 z-10" />
+    <View style={{ position: 'absolute', width: 160, height: 160, backgroundColor: '#a78bfa0d', borderRadius: 80, top: -120, left: -48, zIndex: 10 }} />
+    <View style={{ position: 'absolute', width: 96, height: 96, backgroundColor: '#a78bfa0d', borderRadius: 48, top: 920, right: -40, zIndex: 10 }} />
+    <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, bottom: 40, left: 48, zIndex: 10 }} />
+    <View style={{ position: 'absolute', width: 144, height: 144, backgroundColor: '#a78bfa0d', borderRadius: 72, bottom: -20, right: -32, zIndex: 10 }} />
+    <View style={{ position: 'absolute', width: 80, height: 80, backgroundColor: '#a78bfa0d', borderRadius: 40, top: 112, left: 240, zIndex: 10 }} />
   </View>
 );
 
@@ -51,9 +51,9 @@ export default function StudentLoginScreen() {
   });
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isMounted, setIsMounted] = useState(true);
+
+  const [isLoading, setIsLoading] = useState(false);
 
   const updateFormData = (field: LoginField, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -63,7 +63,7 @@ export default function StudentLoginScreen() {
     return () => setIsMounted(false);
   }, []);
 
-  // route student after successful login
+  // Route student after successful login
   const routeStudentAfterLogin = useCallback(
     async (userId: string, metaRole?: string | null) => {
       const { data: profile, error: profErr } = await supabase
@@ -84,7 +84,7 @@ export default function StudentLoginScreen() {
         return;
       }
 
-      // create minimal profile if missing
+      // Create minimal profile if missing
       if (!profile) {
         const { data: userRes } = await supabase.auth.getUser();
         const md = userRes?.user?.user_metadata || {};
@@ -102,7 +102,7 @@ export default function StudentLoginScreen() {
     [router]
   );
 
-  // sign in with Supabase; UI unchanged
+  // Handle login with email and password
   const handleLogin = useCallback(async () => {
     const { email, password } = formData;
     if (!email || !password) {
@@ -135,7 +135,7 @@ export default function StudentLoginScreen() {
         return;
       }
 
-      await routeStudentAfterLogin(user.id, (user.user_metadata as any)?.role);
+      await routeStudentAfterLogin(user.id, user.user_metadata?.role);
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Something went wrong.");
     } finally {
@@ -143,19 +143,7 @@ export default function StudentLoginScreen() {
     }
   }, [formData, isMounted, routeStudentAfterLogin]);
 
-  const handleGoogleSignIn = useCallback(async () => {
-    try {
-      setIsGoogleLoading(true);
-      // keep as a stub; real Google flow needs deep linking setup
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      Alert.alert("Google Login", "Google Sign-In successful (dummy).");
-    } catch (error) {
-      console.error("Google Sign-In error:", error);
-    } finally {
-      if (isMounted) setIsGoogleLoading(false);
-    }
-  }, [isMounted]);
-
+  // Handle forgot password
   const handleForgotPassword = useCallback(async () => {
     const email = formData.email.trim();
     if (!email) {
@@ -174,40 +162,41 @@ export default function StudentLoginScreen() {
     }
   }, [formData.email]);
 
-  const handleSignUp = useCallback(() => router.push(SIGNUP_ROUTE), [router]);
+  const handleSignUp = useCallback(() => {
+    router.push(SIGNUP_ROUTE);
+  }, [router]);
 
   const isFormValid = formData.email.trim() && formData.password.length >= 6;
 
   return (
-    <View className="flex-1 bg-[#0F172A]">
+    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <StatusBar translucent backgroundColor="transparent" />
       <BackgroundDecor />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, zIndex: 1 }}
-          className="px-4 py-8"
+          contentContainerStyle={{ flexGrow: 1, zIndex: 1, paddingHorizontal: 16, paddingVertical: 32 }}
           showsVerticalScrollIndicator={false}
         >
-          <View className="w-full max-w-md mx-auto pt-12 px-4 bottom-10">
+          <View style={{ width: '100%', maxWidth: 448, alignSelf: 'center', paddingTop: 48, paddingHorizontal: 16, position: 'relative', bottom: 40 }}>
             {/* Header */}
             <TouchableOpacity
               className="flex-row items-center mb-6"
               onPress={() => router.push(ROLE_SELECTION_ROUTE)}
               activeOpacity={0.8}
             >
-              <View className="w-16 h-16 rounded-2xl items-center justify-center overflow-hidden -mt-3 -ml-4">
+              <View className="w-16 h-16 rounded-2xl items-center justify-center overflow-hidden -ml-4">
                 <Image
                   source={require("../../../assets/Speaksy.png")}
                   className="w-[60px] h-[110px]"
                   resizeMode="contain"
                 />
               </View>
-              <Text className="text-white text-3xl font-bold -ml-2 -mt-3">
+              <Text className="text-white text-3xl font-bold -ml-2">
                 Voclaria
               </Text>
             </TouchableOpacity>
@@ -250,7 +239,7 @@ export default function StudentLoginScreen() {
               </View>
 
               {/* Password */}
-              <Text className="text-white text-sm mb-1">Passwod</Text>
+              <Text className="text-white text-sm mb-1">Password</Text>
               <View className="flex-row items-center bg-white/20 rounded-lg mb-6 pr-3 border border-white/20">
                 <TextInput
                   placeholder="Enter your password"
@@ -263,9 +252,7 @@ export default function StudentLoginScreen() {
                   autoComplete="password"
                   textContentType="password"
                 />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                >
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
                   <Ionicons
                     name={showPassword ? "eye-off" : "eye"}
                     size={20}
@@ -294,7 +281,7 @@ export default function StudentLoginScreen() {
                   <Text className="text-white/80 text-sm">Remember me</Text>
                 </Pressable>
                 <TouchableOpacity onPress={handleForgotPassword}>
-                  <Text className="text-violet-400 text-sm -left-9">
+                  <Text className="text-violet-400 text-sm">
                     Forgot Password?
                   </Text>
                 </TouchableOpacity>
@@ -304,7 +291,9 @@ export default function StudentLoginScreen() {
               <TouchableOpacity
                 onPress={handleLogin}
                 disabled={!isFormValid || isLoading}
-                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${isFormValid ? "bg-purple-500" : "bg-gray-600"}`}
+                className={`w-full py-3.5 rounded-xl items-center justify-center mt-2 mb-4 ${
+                  isFormValid ? "bg-purple-500" : "bg-gray-600"
+                }`}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
@@ -316,42 +305,24 @@ export default function StudentLoginScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Divider */}
-              <View className="flex-row items-center my-4">
-                <View className="flex-1 h-px bg-white/20" />
-                <Text className="text-white/60 px-3 text-sm">
-                  or continue with
-                </Text>
-                <View className="flex-1 h-px bg-white/20" />
-              </View>
-
-              {/* Google Sign In */}
-              <TouchableOpacity
-                onPress={handleGoogleSignIn}
-                disabled={isGoogleLoading}
-                className="flex-row items-center justify-center py-3.5 rounded-xl border border-white/20 mb-6"
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={require("../../../assets/Google.png")}
-                  className="w-5 h-5 mr-2"
-                  resizeMode="contain"
-                />
-                <Text className="text-white text-base">
-                  {isGoogleLoading ? "Signing in..." : "Sign in with Google"}
-                </Text>
-              </TouchableOpacity>
-
               {/* Sign Up Link */}
-              <View className="flex-row justify-center space-x-1">
-                <Text className="text-white/80 text-sm">
-                  Don't have an account?
-                </Text>
-                <TouchableOpacity onPress={handleSignUp} activeOpacity={0.7}>
-                  <Text className="text-violet-400 text-sm font-medium">
-                    Sign Up
-                  </Text>
-                </TouchableOpacity>
+              <View className="justify-center top-4 mb-4">
+                <View className="border border-white/20 rounded-lg p-4">
+                  <View className="flex-row justify-center items-center space-x-1">
+                    <Text className="text-white/80 text-sm">
+                      Don't have an account?
+                    </Text>
+                    <TouchableOpacity 
+                      onPress={handleSignUp} 
+                      activeOpacity={0.7}
+                      className="px-3 py-1.5 left-2 rounded-md bg-white/5 border border-white/10"
+                    >
+                      <Text className="text-violet-300 text-sm font-medium">
+                        Sign Up
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
             </View>
           </View>

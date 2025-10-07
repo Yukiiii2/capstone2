@@ -467,7 +467,7 @@ export default function CreateAccountStudent() {
                 borderRadius: 20,
                 padding: 14,
                 marginBottom: 30,
-                marginTop: -25,
+                marginTop: 10,
                 shadowColor: "#000",
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.3,
@@ -1024,7 +1024,7 @@ export default function CreateAccountStudent() {
           style={{ zIndex: 1 }}
         >
           {/* Header */}
-          <View className="flex-row justify-between bottom-0.1 items-center mb-7 w-full">
+          <View className="flex-row justify-between top-3 items-center mb-7 w-full">
             <TouchableOpacity
               className="flex-row items-center"
               onPress={() => router.push("/")}
@@ -1059,29 +1059,7 @@ export default function CreateAccountStudent() {
                 )}
               </TouchableOpacity>
 
-              <View className="mt-6">
-                <View className="flex-row items-center my-4">
-                  <View className="flex-1 h-px bottom-16 bg-white/20" />
-                  <Text className="text-gray-400 text-xs bottom-16 font-medium px-3">
-                    or continue with
-                  </Text>
-                  <View className="flex-1 h-px bottom-16 bg-white/20" />
-                </View>
-
-                <View className="items-center">
-                  <TouchableOpacity
-                    className="flex-row items-center justify-center w-full max-w-[320px] bg-white/10 bottom-16 border border-white/20 rounded-lg py-3 mb-3"
-                    onPress={() => console.log("Google Sign In")}
-                  >
-                    <Image
-                      source={require("../../assets/Google.png")}
-                      className="w-5 h-5 mr-3"
-                    />
-                    <Text className="text-white font-medium">
-                      Continue with Google
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+              <View className="bottom-6">
                 <Text className="text-gray-400 text-xs text-center mt-2">
                   Already have an account?{" "}
                   <Text
@@ -1132,28 +1110,6 @@ export default function CreateAccountStudent() {
 
           {activeStep === 0 && (
             <View className="mt-6">
-              <View className="flex-row bottom-16 items-center my-4">
-                <View className="flex-1  h-px bg-white/20" />
-                <Text className="text-gray-400 text-xs font-medium px-3">
-                  Continue with
-                </Text>
-                <View className="flex-1 h-px bg-white/20" />
-              </View>
-
-              <View className="items-center">
-                <TouchableOpacity
-                  className="flex-row items-center justify-center w-full bg-white/10 border border-white/20 bottom-16 rounded-lg py-3 mb-3"
-                  onPress={() => console.log("Google Sign In")}
-                >
-                  <Image
-                    source={require("../../assets/Google.png")}
-                    className="w-5 h-5 mr-3"
-                  />
-                  <Text className="text-white font-medium">
-                    Continue with Google
-                  </Text>
-                </TouchableOpacity>
-              </View>
               <Text className="text-gray-400 text-xs text-center mt-2">
                 Already have an account?{" "}
                 <Text

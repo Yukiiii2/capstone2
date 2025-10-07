@@ -188,7 +188,7 @@ const LogoutScreen = () => {
               onPress={() => router.replace("/StudentScreen/HomePage")}
             >
               <Text className="text-white font-semibold text-base">
-                Go to Homepage
+                Exit App
               </Text>
             </TouchableOpacity>
           </View>
