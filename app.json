@@ -7,27 +7,18 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
+    "platforms": ["android"],
+
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.capstone2",
-      "infoPlist": {
-        "NSCameraUsageDescription": "We need camera access so you can record your presentation.",
-        "NSMicrophoneUsageDescription": "We need microphone access to capture your voice.",
-        "NSPhotoLibraryAddUsageDescription": "This app needs permission to save videos to your photo library.",
-        "NSPhotoLibraryUsageDescription": "This app needs permission to access your photo library to save videos."
-      },
-      "runtimeVersion": {
-        "policy": "appVersion"
-      }
-    },
+
     "android": {
       "package": "com.yourcompany.capstone2",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1A1F2E"
@@ -43,34 +34,23 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_CAMERA",
         "FOREGROUND_SERVICE_MICROPHONE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.ACCESS_MEDIA_LOCATION",
-        "CAMERA",
-        "RECORD_AUDIO",
-        "READ_MEDIA_VIDEO",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_CAMERA",
-        "FOREGROUND_SERVICE_MICROPHONE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.ACCESS_MEDIA_LOCATION"
       ],
       "softwareKeyboardLayoutMode": "pan",
       "windowSoftInputMode": "adjustResize",
-      "runtimeVersion": "1.0.0"
+      "jsEngine": "hermes"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+
+    "experiments": {
+      "reactNativeEngine": "hermes",
+      "baseFabric": false
     },
+
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-dev-client",
       [
         "react-native-vision-camera",
         {
@@ -88,14 +68,9 @@
         }
       ]
     ],
+
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "11dc4851-7555-4362-97bc-956807c92d3f"
-      }
-    },
-    "updates": {
-      "url": "https://u.expo.dev/11dc4851-7555-4362-97bc-956807c92d3f"
+      "router": {}
     }
   }
 }
