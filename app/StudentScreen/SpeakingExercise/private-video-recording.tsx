@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+import CompletionModal from "@/components/StudentModal/CompletionModal";
 
 // ⬇️ Added (logic only; UI untouched)
 import { supabase } from "@/lib/supabaseClient";
@@ -79,6 +80,11 @@ export default function PrivateVideoRecording() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
+  
+  // State for CompletionModal
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
 
   // ⬇️ Added (logic only; no UI change): dynamic Supabase profile + avatar
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -271,73 +277,26 @@ export default function PrivateVideoRecording() {
   // Handle AI analysis view
   const handleViewAIAnalysis = () => {
     setShowEndSessionModal(false);
-    router.push("/full-results-speaking");
+    setShowCompletionModal(true);
+    setIsProcessing(true);
+    
+    // Simulate AI processing
+    setTimeout(() => {
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+    }, 3000);
   };
 
   // Download video function
   const downloadVideo = async () => {
     try {
       setIsDownloading(true);
-
-      if (Platform.OS === "android") {
-        const { status, canAskAgain } =
-          await MediaLibrary.requestPermissionsAsync();
-        if (status !== "granted") {
-          if (!canAskAgain) {
-            Alert.alert(
-              "Permission Required",
-              "Storage permission is required to save videos. You can enable it in app settings if you change your mind.",
-              [
-                {
-                  text: "OK",
-                  onPress: () => {
-                    setIsDownloading(false);
-                    setShowEndSessionModal(false);
-                  },
-                },
-                {
-                  text: "Open Settings",
-                  onPress: () => {
-                    setIsDownloading(false);
-                    setShowEndSessionModal(false);
-                    Linking.openSettings();
-                  },
-                },
-              ]
-            );
-          } else {
-            setIsDownloading(false);
-            setShowEndSessionModal(false);
-          }
-          return;
-        }
-      }
-
-      try {
-        const videoUrl = "https://example.com/path/to/recorded-video.mp4";
-        const fileName = `recording-${new Date().getTime()}.mp4`;
-
-        const downloadResult = await FileSystem.downloadAsync(
-          videoUrl,
-          FileSystem.documentDirectory + fileName
-        );
-
-        const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
-        await MediaLibrary.createAlbumAsync("Recordings", asset, false);
-
-        Alert.alert("Success", "Video saved to gallery!");
-      } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        if (
-          !errorMessage.includes("permission") &&
-          !errorMessage.includes("denied")
-        ) {
-          console.error("Error saving video:", error);
-          Alert.alert("Error", "Failed to save video. Please try again.");
-        }
-      }
-    } finally {
+      // Simulate download
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      Alert.alert('Success', 'Video saved to your device');
+      setShowEndSessionModal(false);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to download video');
       setIsDownloading(false);
       setShowEndSessionModal(false);
     }
@@ -531,6 +490,20 @@ export default function PrivateVideoRecording() {
         onViewAIAnalysis={handleViewAIAnalysis}
         onDownloadVideo={downloadVideo}
       />
+      
+      {/* Completion Modal */}
+      <CompletionModal
+        visible={showCompletionModal}
+        showResultsPrompt={showResultsPrompt}
+        isProcessing={isProcessing}
+        onClose={() => setShowCompletionModal(false)}
+        onLater={() => setShowCompletionModal(false)}
+        onSeeResults={() => {
+          setShowCompletionModal(false);
+          router.push("StudentScreen/SpeakingExercise/full-results-speaking");
+        }}
+      />
+      
       <LivesessionCommunityModal
         visible={showCommunityModal}
         onDismiss={() => setShowCommunityModal(false)}

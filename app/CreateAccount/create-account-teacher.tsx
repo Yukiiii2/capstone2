@@ -98,11 +98,9 @@ export default function CreateAccountTeacher() {
   });
 
   // Form state
-  const [selectedVerificationType, setSelectedVerificationType] =
-    useState<string>("");
+  const [selectedVerificationType, setSelectedVerificationType] = useState<string>("");
   const [verificationFile, setVerificationFile] = useState<string | null>(null);
-  const [showVerificationDropdown, setShowVerificationDropdown] =
-    useState(false);
+  const [showVerificationDropdown, setShowVerificationDropdown] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   
@@ -117,16 +115,7 @@ export default function CreateAccountTeacher() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  type FormData = {
-    firstName: string;
-    lastName: string;
-    mobileNumber: string;
-    email: string;
-    password: string;
-    confirmPassword: string;
-    schoolUniversity: string;
-  };
-
+  // Form field type for rendering form inputs
   type FormField = {
     icon: string;
     label: string;
@@ -134,6 +123,8 @@ export default function CreateAccountTeacher() {
     key: keyof FormData;
     type: "text" | "email" | "password";
     secure: boolean;
+    maxLength?: number;
+    format?: (text: string) => string;
   };
 
   React.useEffect(() => {
@@ -143,6 +134,27 @@ export default function CreateAccountTeacher() {
       useNativeDriver: true,
     }).start();
   }, [fadeAnim, activeStep]);
+
+  const pickVerificationDocument = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+        exif: false,
+        base64: false,
+        videoMaxDuration: 0,
+        selectionLimit: 1,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setVerificationFile(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      showCustomAlert("Error", "Failed to pick image. Please try again.");
+    }
+  };
 
   const pickImage = async () => {
     try {
@@ -243,6 +255,16 @@ export default function CreateAccountTeacher() {
     );
   };
 
+  // Handle back navigation
+  const handleBack = () => {
+    if (activeStep > 0) {
+      setActiveStep(activeStep - 1);
+      scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
+    } else {
+      router.back();
+    }
+  };
+
   const handleNext = () => {
     if (activeStep === 0 && !validateStep(0)) {
       return; // Don't proceed if validation fails
@@ -261,12 +283,6 @@ export default function CreateAccountTeacher() {
     }
   };
 
-  const handleBack = () => {
-    if (activeStep > 0) {
-      setActiveStep(activeStep - 1);
-      scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
-    }
-  };
 
   // Check if all required fields are filled
   const isFormComplete = () => {
@@ -502,22 +518,20 @@ export default function CreateAccountTeacher() {
       case 0:
         return (
           <Animated.View
-            style={[
-              {
-                opacity: fadeAnim,
-                backgroundColor: "rgba(30, 41, 59, 0.7)",
-                borderRadius: 20,
-                padding: 14,
-                marginBottom: 30,
-                marginTop: 10,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 10,
-                borderWidth: 1,
-                borderColor: "rgba(255, 255, 255, 0.1)",
-              },
-            ]}
+            style={{
+              opacity: fadeAnim,
+              backgroundColor: "rgba(30, 41, 59, 0.7)",
+              borderRadius: 20,
+              padding: 14,
+              marginBottom: 30,
+              marginTop: 10,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.1)",
+            }}
             className="space-y-4"
           >
             <View className="items-center mb-2">
@@ -740,7 +754,7 @@ export default function CreateAccountTeacher() {
             ))}
           </Animated.View>
         );
-      case 2:
+      case 1:
         return (
           <Animated.View
             style={[
@@ -749,24 +763,24 @@ export default function CreateAccountTeacher() {
                 backgroundColor: "rgba(30, 41, 59, 0.7)",
                 borderRadius: 20,
                 padding: 14,
-                marginBottom: 30,
-                marginTop: 10,
+                marginTop: -10,
+                marginBottom: 15,
+                borderWidth: 1,
+                borderColor: "rgba(255, 255, 255, 0.1)",
                 shadowColor: "#000",
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.3,
                 shadowRadius: 10,
-                borderWidth: 1,
-                borderColor: "rgba(255, 255, 255, 0.1)",
               },
             ]}
-            className="space-y-4"
+            className="space-y-6"
           >
             <View className="items-center">
               <Text className="text-white text-2xl font-bold mb-1">
                 Teacher Verification
               </Text>
               <Text className="text-gray-400 text-center text-sm mb-4">
-                Step 2 of 2: Verify your teaching credentials
+                Step 2 of 2: Verify your teacher status
               </Text>
               {renderProgressBar()}
             </View>
@@ -802,7 +816,7 @@ export default function CreateAccountTeacher() {
 
                 <Modal
                   visible={showVerificationDropdown}
-                  transparent={true}
+                  transparent
                   animationType="fade"
                   onRequestClose={() => setShowVerificationDropdown(false)}
                 >
@@ -828,11 +842,9 @@ export default function CreateAccountTeacher() {
                               }}
                             >
                               <MaterialCommunityIcons
-                                name={
-                                  option.icon as keyof typeof MaterialCommunityIcons.glyphMap
-                                }
+                                name={option.icon as any}
                                 size={20}
-                                color="#FFFFFF"
+                                color="#A78BFA"
                               />
                               <Text className="text-white text-sm">
                                 {option.label}
@@ -847,7 +859,7 @@ export default function CreateAccountTeacher() {
               </View>
 
               {selectedVerificationType && (
-                <View className="space-y-4">
+                <View className="space-y-4 mt-4">
                   <View className="space-y-2">
                     <View>
                       <Text className="text-white text-xs mb-1">
@@ -901,7 +913,7 @@ export default function CreateAccountTeacher() {
                             </TouchableOpacity>
                             <TouchableOpacity
                               className="bg-white/20 p-1 rounded"
-                              onPress={pickImage}
+                              onPress={pickVerificationDocument}
                             >
                               <Ionicons
                                 name="refresh"
@@ -915,7 +927,7 @@ export default function CreateAccountTeacher() {
                     ) : (
                       <TouchableOpacity
                         className="bg-violet-600/20 border border-dashed border-violet-400/30 rounded-lg p-6 items-center active:bg-violet-600/30"
-                        onPress={pickImage}
+                        onPress={pickVerificationDocument}
                       >
                         <View className="flex-row items-center">
                           <Ionicons
@@ -928,7 +940,7 @@ export default function CreateAccountTeacher() {
                           </Text>
                         </View>
                         <Text className="text-gray-400 text-[12px] mt-2">
-                          JPG, PNG, PDF (Max 5MB)
+                          JPG, PNG (Max 5MB)
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -961,13 +973,14 @@ export default function CreateAccountTeacher() {
                         </Text>
                       </View>
                     </View>
+
+                    {/* Buttons removed as per request */}
                   </View>
                 </View>
               )}
             </View>
           </Animated.View>
         );
-
       case 2:
         return (
           <Animated.View

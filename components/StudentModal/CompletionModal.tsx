@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 
 interface CompletionModalProps {
   visible: boolean;
@@ -21,26 +20,19 @@ interface CompletionModalProps {
   onSeeResults: () => void;
 }
 
-/**
- * CompletionModal - Displays a modal with different states for completion and results
- * Handles both processing state and results prompt state
- */
 const CompletionModal: React.FC<CompletionModalProps> = ({
   visible,
   showResultsPrompt,
   isProcessing,
   onClose,
   onLater,
-  onSeeResults,
+  onSeeResults
 }) => {
-  const router = useRouter();
-
-  // Decorative circle positions and size  
-
   const handleSeeResults = () => {
-    if (onSeeResults) onSeeResults();
-    router.push("/StudentScreen/ReadingExercise/full-result-reading");
+    onSeeResults();
   };
+  
+  // Removed debug logging
 
   return (
     <Modal
@@ -51,7 +43,6 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
       statusBarTranslucent={true}
     >
       {/* Status bar with translucent background */}
-      <StatusBar translucent backgroundColor="transparent" />
       
       <View className="flex-1 bg-gray-900 pt-6">
         {/* Gradient Background */}

@@ -21,6 +21,7 @@ import { useRouter, usePathname } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+import CompletionModal from "@/components/StudentModal/CompletionModal";
 
 // ⬇️ Added: Supabase client (logic only; UI unchanged)
 import { supabase } from "@/lib/supabaseClient";
@@ -69,7 +70,6 @@ const BackgroundDecor = () => (
 );
 
 export default function PrivateVideoRecording() {
-  // Hooks and state
   const router = useRouter();
   const pathname = usePathname();
   const [isRecording, setIsRecording] = useState(false);
@@ -77,12 +77,32 @@ export default function PrivateVideoRecording() {
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
-  const [showLevelModal, setShowLevelModal] = useState(false);
-  const [showContinueButton, setShowContinueButton] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  
+  // State for CompletionModal
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
+  const [showContinueButton, setShowContinueButton] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
+  const [showLevelModal, setShowLevelModal] = useState(false);
 
+  // Pass necessary props to EndSessionModal
+  const endSessionModalProps = {
+    showEndSessionModal,
+    setShowEndSessionModal,
+    showCompletionModal,
+    setShowCompletionModal,
+    isProcessing,
+    setIsProcessing,
+    showResultsPrompt,
+    setShowResultsPrompt,
+    showContinueButton,
+    setShowContinueButton,
+    isDownloading,
+    setIsDownloading,
+  };
   // 🔧 Added: dynamic profile (no UI changes)
   const [fullName, setFullName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -324,7 +344,14 @@ export default function PrivateVideoRecording() {
   // Handle AI analysis view
   const handleViewAIAnalysis = () => {
     setShowEndSessionModal(false);
-    router.push("/full-results-speaking");
+    setShowCompletionModal(true);
+    setIsProcessing(true);
+    
+    // Simulate AI processing
+    setTimeout(() => {
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+    }, 3000);
   };
 
   // Download video function
@@ -585,6 +612,19 @@ export default function PrivateVideoRecording() {
         setIsDownloading={setIsDownloading}
         onViewAIAnalysis={handleViewAIAnalysis}
         onDownloadVideo={downloadVideo}
+      />
+      
+      {/* Completion Modal */}
+      <CompletionModal
+        visible={showCompletionModal}
+        showResultsPrompt={showResultsPrompt}
+        isProcessing={isProcessing}
+        onClose={() => setShowCompletionModal(false)}
+        onLater={() => setShowCompletionModal(false)}
+        onSeeResults={() => {
+          setShowCompletionModal(false);
+          router.push("StudentScreen/SpeakingExercise/full-results-speaking");
+        }}
       />
       <LivesessionCommunityModal
         visible={showCommunityModal}

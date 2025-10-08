@@ -139,9 +139,12 @@ export default function CreateAccountStudent() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+        exif: false,
+        base64: false,
+        videoMaxDuration: 0,
+        selectionLimit: 1,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setVerificationFile(result.assets[0].uri);
