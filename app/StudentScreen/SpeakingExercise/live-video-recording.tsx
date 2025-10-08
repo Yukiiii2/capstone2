@@ -1,5 +1,6 @@
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 import React, { useState, useRef, useEffect } from "react";
+
 import {
   View,
   Text,
@@ -21,6 +22,9 @@ import { useRouter, usePathname } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+import RNFFmpeg from 'react-native-ffmpeg';
+import { FFmpegKit } from 'ffmpeg-kit-react-native';
+
 
 // Supabase
 import { supabase } from "@/lib/supabaseClient";
@@ -141,15 +145,35 @@ export default function PrivateVideoRecording() {
 
         // tiny delay avoids Camera2 race
         setTimeout(() => {
-          cameraRef.current?.startRecording({
-            flash: "off",
-            onRecordingFinished: (video) => {
-              recordingActiveRef.current = false;
-              const uri = video.path.startsWith("file://")
-                ? video.path
-                : `file://${video.path}`;
-              setRecordedUri(uri);
-            },
+            cameraRef.current?.startRecording({
+              flash: "off",
+              onRecordingFinished: async (video) => {
+                recordingActiveRef.current = false;
+
+                // Convert the recorded file to .wav
+                const inputPath = video.path.startsWith("file://")
+                  ? video.path
+                  : `file://${video.path}`;
+                const outputPath = `${FileSystem.cacheDirectory}recording-${Date.now()}.wav`;
+
+               try {
+                  const session = await FFmpegKit.execute(
+                    `-i ${inputPath} -acodec pcm_s16le -ar 44100 ${outputPath}`
+                  );
+
+                  const returnCode = await session.getReturnCode(); // Returns a ReturnCode object
+                  const returnCodeValue = returnCode?.getValue(); // Extract the numeric value
+
+                  if (returnCodeValue === 0) {
+                    console.log("Conversion successful:", outputPath);
+                    setRecordedUri(outputPath); // Update the recorded URI to the .wav file
+                  } else {
+                    console.error("Conversion failed with return code:", returnCodeValue);
+                  }
+                } catch (err) {
+                  console.error("FFmpeg error:", err);
+                }
+              },
             onRecordingError: (err) => {
               recordingActiveRef.current = false;
               setIsRecording(false);
