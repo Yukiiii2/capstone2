@@ -26,6 +26,8 @@ import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
+// 🎯 NEW: completion modal (keeps your existing UI style)
+import CompletionModal from "@/components/StudentModal/CompletionModal";
 
 // 🎙️ audio-only (no expo-camera)
 import { Audio } from "expo-av";
@@ -160,6 +162,11 @@ export default function PrivateVideoRecording() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
+
+  // 🔥 NEW: completion modal state
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
 
   // avatar
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -581,7 +588,6 @@ export default function PrivateVideoRecording() {
   // ===== Fullscreen "recording" view (audio overlays to match live) =====
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
-      {/* No camera preview; we keep the same HUD feel */}
       {hasPerms ? null : (
         <View
           style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}
@@ -592,7 +598,6 @@ export default function PrivateVideoRecording() {
         </View>
       )}
 
-      {/* Indicator */}
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="mic" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
         <Text className="text-white text-sm">Microphone Active</Text>
@@ -600,7 +605,6 @@ export default function PrivateVideoRecording() {
 
       <AIFeedback />
 
-      {/* Timer */}
       <View className="absolute top-[60px] left-[24px] bg-black/50 px-3 py-1.5 rounded-full z-10">
         <View className="flex-row items-center">
           <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
@@ -609,7 +613,6 @@ export default function PrivateVideoRecording() {
         </View>
       </View>
 
-      {/* Stop */}
       <TouchableOpacity
         className="absolute bottom-10 w-[70px] h-[70px] rounded-full bg-white justify-center items-center z-10"
         onPress={async () => {
@@ -621,7 +624,6 @@ export default function PrivateVideoRecording() {
         <View className="w-[30px] h-[30px] bg-red-500 rounded" />
       </TouchableOpacity>
 
-      {/* Tip pill */}
       <View className="absolute bottom-[120px] flex-row items-center bg-black/50 px-3 py-2 rounded-full z-10">
         <View className="flex-row items-center">
           <Image
@@ -648,9 +650,18 @@ export default function PrivateVideoRecording() {
     else if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
+  // 🔁 OPEN COMPLETION MODAL (process → results)
   const handleViewAIAnalysis = () => {
     setShowEndSessionModal(false);
-    pushWithCtx("/full-results-speaking", uploadUrl ? { media_url: uploadUrl } : {});
+    setShowCompletionModal(true);
+    setIsProcessing(true);
+    setShowResultsPrompt(false);
+
+    // Simulate AI processing
+    setTimeout(() => {
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+    }, 3000);
   };
 
   // Save to gallery (works with audio files too)
@@ -740,13 +751,35 @@ export default function PrivateVideoRecording() {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
+      {/* End Session actions (unchanged UI) */}
       <EndSessionModal
         visible={showEndSessionModal}
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis}
+        onViewAIAnalysis={handleViewAIAnalysis}   // 🔁 opens completion flow
         onDownloadVideo={downloadVideo}
+      />
+
+      {/* Completion: analyze → see results */}
+      <CompletionModal
+        visible={showCompletionModal}
+        isProcessing={isProcessing}
+        showResultsPrompt={showResultsPrompt}
+        onClose={() => setShowCompletionModal(false)}
+        onLater={() => setShowCompletionModal(false)}
+        onSeeResults={() => {
+          setShowCompletionModal(false);
+          // ✅ ABSOLUTE route; pass context + local/cloud URIs
+          router.push({
+            pathname: "/StudentsScreen/SpeakingExercise/full-results-speaking",
+            params: {
+              ...moduleCtx,
+              local_uri: recordedUri ?? "",
+              media_url: uploadUrl ?? "",
+            },
+          });
+        }}
       />
 
       <LivesessionCommunityModal

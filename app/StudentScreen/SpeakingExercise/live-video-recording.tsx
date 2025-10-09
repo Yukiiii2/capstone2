@@ -1004,17 +1004,25 @@ export default function LiveVideoRecording() {
 
       {/* ✅ Completion modal shown BEFORE any results route */}
       <CompletionModal
-        visible={showCompletionModal}
-        showResultsPrompt={showResultsPrompt}
-        isProcessing={isProcessing}
-        onClose={() => setShowCompletionModal(false)}
-        onLater={() => setShowCompletionModal(false)}
-        onSeeResults={() => {
-          // when you have a results screen ready, navigate here.
-          // pushWithCtx("/your-results-screen", { media_url: uploadUrl, local_uri: recordedUri });
-          setShowCompletionModal(false);
-        }}
-      />
+  visible={showCompletionModal}
+  showResultsPrompt={showResultsPrompt}
+  isProcessing={isProcessing}
+  onClose={() => setShowCompletionModal(false)}
+  onLater={() => setShowCompletionModal(false)}
+  onSeeResults={() => {
+    setShowCompletionModal(false);
+    // ✅ ABSOLUTE route + include any context/params you want the results screen to use
+    router.push({
+      pathname: "/StudentScreen/SpeakingExercise/full-results-speaking",
+      params: {
+        ...moduleCtx,              // module_id, module_title, level, display (if present)
+        local_uri: recordedUri ?? "",
+        media_url: uploadUrl ?? "",
+        session_id: sessionId ?? "",
+      },
+    });
+  }}
+/>
 
       <LivesessionCommunityModal
         visible={showCommunityModal}

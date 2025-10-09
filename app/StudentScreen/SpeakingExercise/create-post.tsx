@@ -15,17 +15,22 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
+import { Audio } from "expo-av";
 import { Switch } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "@/lib/supabaseClient";
 
+const isAudioUrl = (uri?: string | null) =>
+  !!uri && /\.(m4a|mp3|aac|wav|ogg)(\?|#|$)/i.test(uri);
+
 const CreatePost = () => {
   const router = useRouter();
 
-  // ---------- Robust params handling ----------
+  // ---------- Robust params handling (+ audio support) ----------
   const rawParams = useLocalSearchParams<{
     videoUri?: string | string[];
+    audioUri?: string | string[];
     module_id?: string | string[];
     module_title?: string | string[];
     moduleTitle?: string | string[];
@@ -34,7 +39,16 @@ const CreatePost = () => {
 
   const pick = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v);
 
-  const videoUri = pick(rawParams.videoUri);
+  const incomingVideoUri = pick(rawParams.videoUri) ?? undefined;
+  const incomingAudioUri = pick(rawParams.audioUri) ?? undefined;
+
+  // If they pass a "videoUri" that is actually an audio file (e.g., .m4a),
+  // treat it as audio to avoid black Video component.
+  const coercedAudioFromVideo = isAudioUrl(incomingVideoUri) ? incomingVideoUri : undefined;
+
+  const audioUri = incomingAudioUri || coercedAudioFromVideo || undefined;
+  const videoUri = coercedAudioFromVideo ? undefined : incomingVideoUri;
+
   const module_id = pick(rawParams.module_id);
   const levelParam = pick(rawParams.level) as "basic" | "advanced" | undefined;
 
@@ -58,22 +72,25 @@ const CreatePost = () => {
   const videoRef = useRef<Video>(null);
   const tagInputRef = useRef<TextInput>(null);
 
+  // 🎧 audio sound ref
+  const soundRef = useRef<Audio.Sound | null>(null);
+
   // State variables
   const [postText, setPostText] = useState("");
-  const [isPublic, setIsPublic] = useState(true); // UI chip toggle only
+  const [isPublic, setIsPublic] = useState(true);
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTag, setNewTag] = useState("");
   const [tags, setTags] = useState(["Presentation", "Practice", "Professional"]);
   const [allowComments, setAllowComments] = useState(true);
   const [allowRatings, setAllowRatings] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Video state
   const [hasPlayed, setHasPlayed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-
-  // Video status state (kept for your logic)
   const [videoStatus, setVideoStatus] = useState<{
     isLoaded: boolean;
     isPlaying: boolean;
@@ -86,7 +103,14 @@ const CreatePost = () => {
     positionMillis: 0,
   });
 
-  // ------- Profile: avatar or initials (from profiles table) -------
+  // Audio state
+  const [isAudioLoaded, setIsAudioLoaded] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0); // ms
+  const [audioPosition, setAudioPosition] = useState(0); // ms
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  // ------- Profile: avatar or initials -------
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string>("You");
 
@@ -116,7 +140,6 @@ const CreatePost = () => {
       const nameValue = (profile?.name ?? user.user_metadata?.full_name ?? "You").trim();
       setDisplayName(nameValue || "You");
 
-      // Resolve signed URL from avatars bucket if avatar_url is stored there
       const resolveAndSign = async (): Promise<string | null> => {
         const stored = profile?.avatar_url?.toString();
         if (!stored) return null;
@@ -156,7 +179,7 @@ const CreatePost = () => {
     };
   }, []);
 
-  // Seed tags from the *editable* title’s first word (keeps your chip UI vibe)
+  // Seed tags from title’s first word
   useEffect(() => {
     const first = (postTitle || "").trim().split(/\s+/)[0];
     if (!first) return;
@@ -168,7 +191,7 @@ const CreatePost = () => {
     });
   }, [postTitle]);
 
-  // Initialize video on mount and when videoUri changes
+  // --------- VIDEO setup ----------
   useEffect(() => {
     if (!videoRef.current || !videoUri) return;
     const setupVideo = async () => {
@@ -186,12 +209,8 @@ const CreatePost = () => {
     };
   }, [videoUri]);
 
-  /**
-   * Handles video playback toggle
-   */
   const handlePlayVideo = async () => {
     if (!videoRef.current) return;
-
     try {
       if (videoStatus.isPlaying) {
         await videoRef.current.pauseAsync();
@@ -200,21 +219,81 @@ const CreatePost = () => {
         await videoRef.current.playAsync();
         setIsPlaying(true);
       }
-
-      if (!hasPlayed) {
-        setHasPlayed(true);
-      }
+      if (!hasPlayed) setHasPlayed(true);
     } catch (error) {
       console.error("Error toggling video playback:", error);
     }
   };
 
-  /**
-   * Downloads video to device gallery
-   */
-  const downloadVideo = async () => {
-    if (!videoUri) {
-      Alert.alert("Error", "No video available to save.");
+  // --------- AUDIO setup ----------
+  useEffect(() => {
+    let mounted = true;
+    const loadAudio = async () => {
+      if (!audioUri) return;
+      setIsLoadingAudio(true);
+      try {
+        // Unload previous
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+          soundRef.current = null;
+        }
+        const { sound, status } = await Audio.Sound.createAsync(
+          { uri: audioUri },
+          { shouldPlay: false },
+          (s) => {
+            if (!s.isLoaded) return;
+            setIsAudioPlaying(s.isPlaying);
+            setAudioDuration(s.durationMillis ?? 0);
+            setAudioPosition(s.positionMillis ?? 0);
+          }
+        );
+        if (!mounted) {
+          await sound.unloadAsync();
+          return;
+        }
+        soundRef.current = sound;
+        const st = await sound.getStatusAsync();
+        setIsAudioLoaded(st.isLoaded);
+        setAudioDuration(st.isLoaded ? st.durationMillis ?? 0 : 0);
+        setAudioPosition(st.isLoaded ? st.positionMillis ?? 0 : 0);
+      } catch (e) {
+        console.warn("Audio load error:", e);
+        setIsAudioLoaded(false);
+      } finally {
+        setIsLoadingAudio(false);
+      }
+    };
+    loadAudio();
+
+    return () => {
+      mounted = false;
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+    };
+  }, [audioUri]);
+
+  const toggleAudioPlay = async () => {
+    if (!soundRef.current || !isAudioLoaded) return;
+    const s = soundRef.current;
+    const status = await s.getStatusAsync();
+    if (!status.isLoaded) return;
+
+    if (status.isPlaying) {
+      await s.pauseAsync();
+      setIsAudioPlaying(false);
+    } else {
+      await s.playAsync();
+      setIsAudioPlaying(true);
+    }
+  };
+
+  // --------- Save media (video OR audio) ----------
+  const downloadMedia = async () => {
+    const mediaUri = videoUri || audioUri;
+    if (!mediaUri) {
+      Alert.alert("Error", "No media available to save.");
       return;
     }
 
@@ -222,12 +301,11 @@ const CreatePost = () => {
       setIsDownloading(true);
 
       const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
-
       if (status !== "granted") {
         if (!canAskAgain) {
           Alert.alert(
             "Permission Required",
-            "Storage permission is required to save videos. You can enable it in app settings if you change your mind.",
+            "Storage permission is required to save. You can enable it in app settings.",
             [
               { text: "OK", style: "default", onPress: () => setIsDownloading(false) },
               {
@@ -245,29 +323,36 @@ const CreatePost = () => {
         return;
       }
 
-      const fileName = `recording-${new Date().getTime()}.mp4`;
+      const isAud = isAudioUrl(mediaUri);
+      const ext = isAud ? "m4a" : "mp4";
+      const fileName = `recording-${Date.now()}.${ext}`;
       const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
-      await FileSystem.copyAsync({ from: videoUri as string, to: fileUri });
+      // If it's a local file URI already, just copy; if it's https, download
+      if (/^file:\/\//i.test(mediaUri)) {
+        await FileSystem.copyAsync({ from: mediaUri, to: fileUri });
+      } else {
+        await FileSystem.downloadAsync(mediaUri, fileUri);
+      }
 
       const asset = await MediaLibrary.createAssetAsync(fileUri);
       await MediaLibrary.createAlbumAsync("Recordings", asset, false);
 
-      Alert.alert("Success", "Video saved to gallery!");
+      Alert.alert("Success", `${isAud ? "Audio" : "Video"} saved to gallery!`);
     } catch (error) {
-      console.error("Error saving video:", error);
+      console.error("Error saving media:", error);
       Alert.alert(
         "Error",
-        error instanceof Error ? `Failed to save video: ${error.message}` : "An unknown error occurred while saving the video."
+        error instanceof Error
+          ? `Failed to save: ${error.message}`
+          : "An unknown error occurred while saving."
       );
     } finally {
       setIsDownloading(false);
     }
   };
 
-  /**
-   * Handles posting content (DB insert only; UI unchanged)
-   */
+  // --------- Create post ----------
   const handlePost = async () => {
     const safeTitle = postTitle.trim() || "Untitled";
 
@@ -275,6 +360,9 @@ const CreatePost = () => {
       Alert.alert("Add something first", "Write a short caption before posting.");
       return;
     }
+
+    const media_url = (videoUri as string) || (audioUri as string) || null;
+    const media_type = videoUri ? "video" : audioUri ? "audio" : null;
 
     try {
       const { data: auth } = await supabase.auth.getUser();
@@ -289,18 +377,17 @@ const CreatePost = () => {
         .insert([
           {
             user_id: user.id,
-            title: safeTitle,             // ← saves the editable title
+            title: safeTitle,
             content: postText.trim(),
-            media_url: (videoUri as string) || null,
-            module: postTitle || null,    // keep for filtering if you want; can remove
+            media_url,
+            media_type, // <- optional; helpful for rendering later
+            module: postTitle || null,
             type: "speaking",
             status: "published",
             visibility: "public",
             allow_comments: allowComments,
             allow_reviews: allowRatings,
-            // Optionally store context later:
-            // module_id: module_id || null,
-            // level: levelParam || null,
+            // module_id, level: levelParam, ... if you want
           },
         ])
         .select("id")
@@ -321,9 +408,6 @@ const CreatePost = () => {
     }
   };
 
-  /**
-   * Adds a new tag to the tags list
-   */
   const handleAddTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
       setTags((prev) => [...prev, newTag.trim()]);
@@ -332,16 +416,10 @@ const CreatePost = () => {
     setShowTagInput(false);
   };
 
-  /**
-   * Removes a tag from the tags list
-   */
   const removeTag = (tagToRemove: string) => {
     setTags((prev) => prev.filter((tag) => tag !== tagToRemove));
   };
 
-  /**
-   * Background decoration component (UI unchanged)
-   */
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -355,7 +433,6 @@ const CreatePost = () => {
     </View>
   );
 
-  // Level chip label (from params; keeps your chip UI)
   const levelLabel =
     levelParam === "advanced"
       ? "Advanced"
@@ -364,6 +441,12 @@ const CreatePost = () => {
       : isPublic
       ? "Advanced"
       : "Basic";
+
+  const fmt = (ms: number) => {
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
 
   return (
     <View className="flex-1 bg-gray-900">
@@ -385,9 +468,9 @@ const CreatePost = () => {
           <TouchableOpacity onPress={() => router.back()} className="p-2 bottom-5 left-2 -ml-2">
             <Ionicons name="arrow-back" size={30} color="#fff" />
           </TouchableOpacity>
-          <Text className="text-white text-xl font-bold">Create Post</Text>
-          <View className="w-8" />
         </View>
+
+        {/* ===== Media Preview(s) ===== */}
 
         {/* Video Preview */}
         {videoUri && (
@@ -412,6 +495,10 @@ const CreatePost = () => {
                   setDuration(status.durationMillis || 0);
                   setCurrentTime(status.positionMillis || 0);
                   setIsPlaying(status.isPlaying);
+                  const newProgress = status.durationMillis
+                    ? ((status.positionMillis || 0) / status.durationMillis) * 100
+                    : 0;
+                  setProgress(newProgress);
                 }}
               />
               {!isPlaying && (
@@ -434,6 +521,51 @@ const CreatePost = () => {
                 </TouchableOpacity>
               )}
             </View>
+
+            {/* Simple video progress row */}
+            <View className="px-1 py-2">
+              <Text className="text-gray-300 text-xs">
+                {fmt(currentTime)} / {fmt(duration)}
+              </Text>
+              <View className="w-full bg-white/20 rounded-full h-1.5 mt-1">
+                <View className="bg-white h-full rounded-full" style={{ width: `${progress}%` }} />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Audio Preview */}
+        {audioUri && (
+          <View className="mb-4 rounded-xl overflow-hidden bg-white/10 border border-white/10 p-4">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-white font-medium">Audio Preview</Text>
+              <TouchableOpacity
+                onPress={toggleAudioPlay}
+                className="bg-black/40 rounded-full px-3 py-1.5"
+                disabled={!isAudioLoaded || isLoadingAudio}
+              >
+                <Text className="text-white text-sm">
+                  {isLoadingAudio ? "Loading…" : isAudioPlaying ? "Pause" : "Play"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View className="mt-2">
+              <View className="w-full bg-white/20 rounded-full h-1.5">
+                <View
+                  className="bg-white h-full rounded-full"
+                  style={{
+                    width: `${
+                      audioDuration ? Math.min(100, (audioPosition / audioDuration) * 100) : 0
+                    }%`,
+                  }}
+                />
+              </View>
+              <View className="flex-row justify-between mt-1">
+                <Text className="text-gray-300 text-xs">{fmt(audioPosition)}</Text>
+                <Text className="text-gray-300 text-xs">{fmt(audioDuration)}</Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -452,20 +584,28 @@ const CreatePost = () => {
             <View className="flex-1">
               <Text className="text-white font-medium">{displayName || "You"}</Text>
               <TouchableOpacity
-                onPress={() => setIsPublic(!isPublic)} // UI only
+                onPress={() => setIsPublic(!isPublic)}
                 className="flex-row items-center mt-1 bg-white/10 rounded-full px-3 py-1 self-start"
               >
                 <Ionicons
-                  name={levelLabel === "Advanced" ? "school" : "school-outline"}
+                  name={
+                    (levelParam ?? (isPublic ? "advanced" : "basic")) === "advanced"
+                      ? "school"
+                      : "school-outline"
+                  }
                   size={14}
                   color="#9CA3AF"
                 />
-                <Text className="text-gray-400 text-xs ml-1">{levelLabel}</Text>
+                <Text className="text-gray-400 text-xs ml-1">
+                  {(levelParam ?? (isPublic ? "advanced" : "basic")) === "advanced"
+                    ? "Advanced"
+                    : "Basic"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Editable Title (replaces static heading) */}
+          {/* Editable Title */}
           <View className="mb-2 mt-2" style={{ left: 6 }}>
             <TextInput
               value={postTitle}
@@ -476,75 +616,6 @@ const CreatePost = () => {
               style={{ paddingVertical: 0 }}
               maxLength={120}
             />
-          </View>
-
-          <View className="mb-4 rounded-xl overflow-hidden bg-black/30 border border-white/10">
-            {hasPlayed ? (
-              <View className="relative">
-                <Video
-                  ref={videoRef}
-                  style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" }}
-                  source={{ uri: videoUri || "" }}
-                  useNativeControls
-                  resizeMode={ResizeMode.CONTAIN}
-                  isLooping
-                  shouldPlay={isPlaying}
-                  onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
-                    if (!status.isLoaded) return;
-                    setIsPlaying(status.isPlaying);
-                    if (status.durationMillis) setDuration(status.durationMillis);
-                    if (status.positionMillis !== undefined) {
-                      setCurrentTime(status.positionMillis);
-                      const newProgress = status.durationMillis
-                        ? (status.positionMillis / status.durationMillis) * 100
-                        : 0;
-                      setProgress(newProgress);
-                    }
-                  }}
-                />
-                {!isPlaying && (
-                  <TouchableOpacity
-                    className="absolute inset-0 bg-black/30"
-                    activeOpacity={1}
-                    onPress={handlePlayVideo}
-                  />
-                )}
-                {isPlaying && (
-                  <TouchableOpacity
-                    className="absolute top-2 right-2 bg-black/50 w-10 h-10 rounded-full items-center justify-center"
-                    onPress={handlePlayVideo}
-                  >
-                    <Ionicons name="pause" size={20} color="#fff" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ) : (
-              <TouchableOpacity
-                className="aspect-video bg-black/50 items-center justify-center"
-                activeOpacity={0.8}
-                onPress={handlePlayVideo}
-              >
-                <Ionicons name="play-circle" size={60} color="white" style={{ opacity: 0.8 }} />
-                <Text className="text-white mt-2 text-sm">Tap to preview</Text>
-              </TouchableOpacity>
-            )}
-            <View className="p-3">
-              <View className="flex-row justify-between items-center mb-2">
-                <Text className="text-white font-medium">Your Recording</Text>
-                <Text className="text-gray-400 text-xs">
-                  {`${Math.floor(currentTime / 60000)}:${Math.floor((currentTime % 60000) / 1000)
-                    .toString()
-                    .padStart(2, "0")} / ${Math.floor(duration / 60000)}:${Math.floor(
-                    (duration % 60000) / 1000
-                  )
-                    .toString()
-                    .padStart(2, "0")}`}
-                </Text>
-              </View>
-              <View className="w-full bg-white/20 rounded-full h-1.5">
-                <View className="bg-white h-full rounded-full" style={{ width: `${progress}%` }} />
-              </View>
-            </View>
           </View>
 
           <TextInput
@@ -652,12 +723,14 @@ const CreatePost = () => {
           </View>
         </View>
 
-        {/* Post Guidelines */}
+        {/* Guidelines */}
         <View className="bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
           <View className="p-3">
             <Text className="text-white font-medium mb-2">Community Guidelines</Text>
             <View className="space-y-1">
-              <Text className="text-gray-400 text-sm">• Keep content relevant to language learning.</Text>
+              <Text className="text-gray-400 text-sm">
+                • Keep content relevant to language learning.
+              </Text>
               <Text className="text-gray-400 text-sm">• No inappropriate Caption.</Text>
             </View>
           </View>
@@ -668,13 +741,13 @@ const CreatePost = () => {
           <TouchableOpacity
             className="flex-1 bg-white/30 border border-white/20 rounded-xl py-3 items-center justify-center"
             activeOpacity={0.7}
-            onPress={downloadVideo}
+            onPress={downloadMedia}
             disabled={isDownloading}
           >
             {isDownloading ? (
               <ActivityIndicator color="#ffffff" size="small" />
             ) : (
-              <Text className="text-white text-[13px] font-semibold">Save Video</Text>
+              <Text className="text-white text-[13px] font-semibold">Save to Device</Text>
             )}
           </TouchableOpacity>
 
