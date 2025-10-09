@@ -38,31 +38,31 @@ type ModuleType = {
 // Progress set to ZERO as requested
 const MODULES: ModuleType[] = [
   {
-    key: "ReadingFundamentals",
+    key: "Simple Words (Beginner)",
     label: "BASIC",
-    title: "Reading Fundamentals",
-    desc: "Master the basics of effective reading with foundational techniques and comprehension strategies.",
+    title: "Simple Words (Beginner)",
+    desc: "Practice clear pronunciation of basic English words.",
     progress: 0,
     color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+    navigateTo: "StudentScreen/ReadingExercise/ReadingBasic/basicreading-1",
   },
   {
-    key: "VocabularyBasics",
+    key: "Simple Sentences (Intermediate)",
     label: "BASIC",
-    title: "Vocabulary Building Basics",
-    desc: "Build your vocabulary foundation with essential words and context clues for better comprehension.",
+    title: "Simple Sentences (Intermediate)",
+    desc: "Improve fluency and pace when reading short sentences.",
     progress: 0,
     color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+    navigateTo: "StudentScreen/ReadingExercise/ReadingBasic/basicreading-2",
   },
   {
-    key: "SentenceStructure",
+    key: "Short Paragraph",
     label: "BASIC",
-    title: "Sentence Structure & Grammar",
-    desc: "Understand basic sentence patterns and grammar rules to improve reading comprehension.",
+    title: "Short Paragraph",
+    desc: "Demonstrate expressive and fluent reading with proper tone and emotion.",
     progress: 0,
     color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+    navigateTo: "StudentScreen/ReadingExercise/ReadingBasic/basicreading-3",
   },
 ];
 
@@ -368,10 +368,11 @@ const HomeScreen = () => {
         Basic Reading Practice Modules
       </Text>
       <Text className="text-gray-300 text-xs leading-5 text-justify">
-        Start your reading journey with foundational skills
+        To develop pronunciation, fluency, clarity, 
+
       </Text>
       <Text className="text-gray-300 text-xs leading-5 text-justify">
-        and essential techniques for effective learning
+      and expression through guided reading levels.
       </Text>
     </View>
   );

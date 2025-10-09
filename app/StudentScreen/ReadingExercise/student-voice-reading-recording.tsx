@@ -20,7 +20,11 @@ const { width, height } = Dimensions.get("window");
 
 export default function StudentVoiceReadingRecording() {
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<{ 
+    content: string; 
+    title: string;
+    module?: string;
+  }>();
   
   // State management
   const [recording, setRecording] = useState(false);
@@ -32,18 +36,9 @@ export default function StudentVoiceReadingRecording() {
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   
-  // Profile icon from Ionicons instead of image
-  const ProfileIcon = () => (
-    <View className="w-8 h-8 rounded-full bg-indigo-600 items-center justify-center">
-      <Ionicons name="person" size={20} color="white" />
-    </View>
-  );
-  
-  // Handle icon press
-  const handleIconPress = (icon: string) => {
-    // Add your icon press handlers here
-    console.log(`${icon} icon pressed`);
-  };
+  // Get content and title from params with defaults
+  const content = params.content || "No content available";
+  const title = params.title || "Reading Exercise";
   
   // Refs for animations and intervals
   const feedbackInterval = useRef<NodeJS.Timeout | null>(null);
@@ -187,6 +182,7 @@ export default function StudentVoiceReadingRecording() {
       setTimeout(() => {
         setIsProcessing(false);
         setShowResultsPrompt(true);
+        setAnalysisComplete(true);
         setAiFeedback(
           "Your pronunciation is good, but try to speak a bit slower for better clarity."
         );
@@ -207,9 +203,13 @@ export default function StudentVoiceReadingRecording() {
   // Handle see results button press in modal
   const handleSeeResults = () => {
     setShowCompletionPopup(false);
-    // Always forward the current module param, fallback to 'basic'
-    const moduleType = typeof params.module === 'string' ? params.module : 'basic';
-    router.replace(`/StudentScreen/ReadingExercise/full-result-reading?module=${moduleType}`);
+    setAnalysisComplete(true);
+    // Immediately navigate to full results
+    const moduleType = params.module || 'basic';
+    router.replace({
+      pathname: "/StudentScreen/ReadingExercise/full-result-reading",
+      params: { module: moduleType }
+    });
   };
 
   // Handle modal close
@@ -265,29 +265,26 @@ export default function StudentVoiceReadingRecording() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <BackgroundDecor />
 
-      {/* Removed header section */}
+      {/* Header Section */}
       <View>
         <View>
           <Text className="text-white text-xl p-5 top-1 left font-bold mb-2">
-            Reading Confidence Assessment
+            {title}
           </Text>
           <Text className="text-gray-200 text-justify p-5 bottom-10 text-sm opacity-80 leading-5">
-            Read the following passage aloud to help us 
+            Read the following content aloud to help us 
           </Text>
           <Text className="text-gray-200 text-justify p-5 bottom-16 -top-20 text-sm opacity-80 leading-5">
-          evaluate your reading confidence level
+            evaluate your reading confidence level
           </Text>
         </View>
       </View>
 
-      {/* Passage Card with Glassmorphism Effect */}
+      {/* Content Card with Glassmorphism Effect */}
       <View className="mx-5 -top-10 -mt-8 rounded-2xl overflow-hidden border-2 border-white/40 shadow-lg shadow-black/10">
         <BlurView intensity={20} tint="light" className="p-5 bg-white/45">
-          <Text className="text-white text-base leading-[39px] text-shadow">
-            Liam reads every morning before school. Today, he picked a story
-            about a boy and his dog. He focused on each sentence and used
-            pictures to imagine the events. After reading, he thought about the
-            main idea to remember the details.
+          <Text className="text-white text-base leading-relaxed text-shadow">
+            {content}
           </Text>
         </BlurView>
       </View>
@@ -397,13 +394,19 @@ export default function StudentVoiceReadingRecording() {
       {/* Action Buttons - Fixed at Bottom */}
       {!recording && (
         <View className={`absolute bottom-5 left-0 right-0 flex-row px-5 ${analysisComplete ? "justify-center" : "justify-between"}`}>
+          {/* Back Button - Only show when not showing results */}
           {!analysisComplete && (
             <TouchableOpacity
               onPress={() => {
+                // Go back to the appropriate screen based on the module
                 if (params.module === 'advance' || params.module === 'advanced') {
-                  router.replace('/StudentScreen/ReadingExercise/advance-execise-reading');
+                  router.replace({
+                    pathname: "/StudentScreen/ReadingExercise/advance-execise-reading"
+                  });
                 } else {
-                  router.replace('/StudentScreen/ReadingExercise/basic-exercise-reading');
+                  router.replace({
+                    pathname: "/StudentScreen/ReadingExercise/basic-exercise-reading"
+                  });
                 }
               }}
               className="flex-1 bg-white/10 rounded-xl py-3.5 px-4 items-center justify-center mr-2 border border-white/20"
@@ -411,19 +414,23 @@ export default function StudentVoiceReadingRecording() {
               <Text className="text-white font-semibold text-base">Back</Text>
             </TouchableOpacity>
           )}
+          
+          {/* Main Action Button - Only show Start Recording or View Results */}
           <TouchableOpacity
             onPress={() => {
-              // Always forward the current module param, fallback to 'basic'
-              const moduleType = typeof params.module === 'string' ? params.module : 'basic';
-              router.replace(`/StudentScreen/ReadingExercise/full-result-reading?module=${moduleType}`);
+              if (analysisComplete) {
+                handleSeeResults();
+              } else {
+                startRecording();
+              }
             }}
-            disabled={!analysisComplete}
-            className={`${analysisComplete ? "flex-[0.8] min-w-[200px] ml-0" : "flex-1 ml-2"} ${
-              analysisComplete ? "bg-violet-500/80" : "bg-gray-500"
-            } rounded-xl py-3.5 px-4 items-center justify-center`}
+            className={`${analysisComplete ? "flex-[0.8] min-w-[200px]" : "flex-1"} ${
+              analysisComplete ? "bg-violet-500/80" : "bg-white/10"
+            } rounded-xl py-3.5 px-4 items-center justify-center ${!analysisComplete ? "ml-2" : ""} border border-white/20`}
+            disabled={isProcessing}
           >
             <Text className="text-white font-bold">
-              {analysisComplete ? "View Full Results Now" : "Start First"}
+              {analysisComplete ? "View Full Results Now" : "Start Recording"}
             </Text>
           </TouchableOpacity>
         </View>
