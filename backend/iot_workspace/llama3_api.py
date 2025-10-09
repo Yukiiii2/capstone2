@@ -115,8 +115,11 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
     """
     global global_feedback
 
+    print("START: /analyze-feedback endpoint")  # Log start of endpoint
+
     try:
         # --- Validate Student ID ---
+        print(f"Validating Student ID: {request.student_id}")
         student_check = supabase.table("profiles").select("id").eq("id", request.student_id).execute()
         if not student_check.data:
             raise HTTPException(
@@ -125,6 +128,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             )
 
         # --- Validate Attempt ID ---
+        print(f"Validating Attempt ID: {request.attempt_id}")
         attempt_check = supabase.table("attempts").select("id").eq("id", request.attempt_id).execute()
         if not attempt_check.data:
             raise HTTPException(
@@ -133,6 +137,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
             )
 
         # --- Generate Feedback Using Ollama AI ---
+        print("Generating feedback using Ollama AI")
         feedback_result = analyzer.analyze_feedback(request.speech_text, request.spacy_stats)
 
         if "error" in feedback_result:
@@ -164,6 +169,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
         print("Feedback Data to Insert:", feedback_data)
 
         # --- Store in Supabase ---
+        print("Storing feedback in Supabase")
         response = supabase.table("feedback_ai").insert(feedback_data).execute()
         print("Supabase Response:", response)
 
@@ -173,6 +179,8 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
         # Save in global variable (temporary cache)
         global_feedback = feedback_data
 
+        print("COMPLETED: /analyze-feedback endpoint")  # Log completion of endpoint
+
         return {
             "id": feedback_data["id"],
             "speech_text": request.speech_text,
@@ -181,42 +189,24 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
         }
 
     except HTTPException as e:
+        print(f"ERROR: /analyze-feedback - {e.detail}")
         raise e
     except Exception as e:
-        print(f"Error in /analyze-feedback: {e}")
+        print(f"ERROR: /analyze-feedback - {e}")
         raise HTTPException(status_code=500, detail="An error occurred while processing the feedback")
 
-
-@app.get("/get-feedback/{feedback_id}")
-async def get_feedback(feedback_id: str):
-    """
-    Retrieve stored feedback by feedback_id.
-    """
-    try:
-        response = supabase.table("feedback_ai").select("*").eq("id", feedback_id).execute()
-
-        if not response.data:
-            raise HTTPException(status_code=404, detail="Feedback not found")
-
-        return {"feedback": response.data[0]}
-
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        print(f"Error in /get-feedback/{feedback_id}: {e}")
-        raise HTTPException(status_code=500, detail="An error occurred while retrieving the feedback")
-
-
-import wave
 
 @app.post("/process-audio")
 async def process_audio(file: UploadFile = File(...), expected_text: str = None):
     """
     Process uploaded audio file → Transcribe speech using Whisper → Compare with expected text → Extract enhanced statistics for /analyze-feedback.
     """
+    print("START: /process-audio endpoint")  # Log start of endpoint
+
     temp_audio_path = None
     try:
         # --- Validate File Type ---
+        print(f"Uploaded file: {file.filename}")
         if not file.filename.endswith((".wav", ".mp3", ".m4a")):
             raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid audio file.")
 
@@ -239,6 +229,7 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
         print(f"Audio Duration: {duration} seconds")
 
         # --- Transcribe Audio ---
+        print("Transcribing audio using Whisper")
         transcription_result = whisper_model.transcribe(temp_audio_path)
         transcription = transcription_result.get("text", "").strip()
         if not transcription:
@@ -247,6 +238,7 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
         print(f"Transcription: {transcription}")
 
         # --- Analyze Transcription with spaCy ---
+        print("Analyzing transcription with spaCy")
         doc = nlp(transcription)
         sentences = list(doc.sents)
 
@@ -263,6 +255,8 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
 
         print(f"spaCy Stats: {spacy_stats}")
 
+        print("COMPLETED: /process-audio endpoint")  # Log completion of endpoint
+
         return {
             "transcription": transcription,
             "expected_text": expected_text,
@@ -270,7 +264,7 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
         }
 
     except Exception as e:
-        print(f"Error in /process-audio: {e}")
+        print(f"ERROR: /process-audio - {e}")
         raise HTTPException(status_code=500, detail="Failed to process audio file")
     finally:
         if temp_audio_path and os.path.exists(temp_audio_path):

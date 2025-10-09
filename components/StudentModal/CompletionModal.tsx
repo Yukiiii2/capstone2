@@ -37,52 +37,58 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
   const [feedback, setFeedback] = useState<any>(null);
 
   useEffect(() => {
-    const processAudioAndAnalyzeFeedback = async () => {
-      if (!audioFile || !visible) return;
+  const processAudioAndAnalyzeFeedback = async () => {
+    if (!audioFile || !visible) return;
 
-      setIsProcessing(true);
-      try {
-        // --- Step 1: Process Audio ---
-        const formData = new FormData();
-        formData.append("file", audioFile);
-        if (expectedText) formData.append("expected_text", expectedText);
+    setIsProcessing(true);
+    try {
+      console.log("Sending audio file to /process-audio endpoint...");
+      const formData = new FormData();
+      formData.append("file", audioFile);
+      if (expectedText) formData.append("expected_text", expectedText);
 
-        const processAudioResponse = await axios.post(
-          "http://127.0.0.1:8000/process-audio",
-          formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
-          }
-        );
+      
 
-        const { transcription, spacy_stats } = processAudioResponse.data;
+      const processAudioResponse = await axios.post(
+        "http://192.168.1.113:8000/process-audio",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
-        // --- Step 2: Analyze Feedback ---
-        const analyzeFeedbackResponse = await axios.post(
-          "http://127.0.0.1:8000/analyze-feedback",
-          {
-            speech_text: transcription,
-            spacy_stats,
-          }
-        );
+      console.log("Received response from /process-audio:", processAudioResponse.data);
 
-        setFeedback(analyzeFeedbackResponse.data);
-        setShowResultsPrompt(true);
-      } catch (error) {
-        console.error("Error processing audio or analyzing feedback:", error);
-        Alert.alert(
-          "Error",
-          "An error occurred while processing the audio or analyzing feedback. Please try again."
-        );
-      } finally {
-        setIsProcessing(false);
-      }
-    };
+      const { transcription, spacy_stats } = processAudioResponse.data;
 
-    processAudioAndAnalyzeFeedback();
-  }, [audioFile, visible]);
+      console.log("Sending transcription to /analyze-feedback endpoint...");
+      const analyzeFeedbackResponse = await axios.post(
+        "http://192.168.1.113:8000/analyze-feedback",
+        {
+          speech_text: transcription,
+          spacy_stats,
+        }
+      );
+
+      console.log("Received response from /analyze-feedback:", analyzeFeedbackResponse.data);
+
+      setFeedback(analyzeFeedbackResponse.data);
+      setShowResultsPrompt(true);
+    } catch (error) {
+      console.error("Error processing audio or analyzing feedback:", error);
+      Alert.alert(
+        "Error",
+        "An error occurred while processing the audio or analyzing feedback. Please try again."
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  processAudioAndAnalyzeFeedback();
+}, [audioFile, visible]);
 
   const handleSeeResults = () => {
     if (feedback) {
