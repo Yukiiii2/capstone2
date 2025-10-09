@@ -25,7 +25,6 @@
     "expo-av": "~15.1.7",
     "expo-battery": "~9.1.4",
     "expo-blur": "~14.1.5",
-    "expo-camera": "~16.1.11",
     "expo-constants": "~17.1.7",
     "expo-dev-client": "~5.2.4",
     "expo-document-picker": "^14.0.7",
@@ -56,7 +55,9 @@
     "react-native-screens": "~4.11.1",
     "react-native-svg": "15.11.2",
     "react-native-url-polyfill": "^2.0.0",
-    "react-native-web": "^0.20.0"
+    "react-native-vision-camera": "^4.7.2",
+    "react-native-web": "^0.20.0",
+    "react-native-worklets-core": "^1.6.2"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",

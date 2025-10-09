@@ -2,12 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, Alert, Animated, Easing } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-<<<<<<< HEAD
-=======
-import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from 'expo-blur';
-import CompletionModal from "./CompletionModal";
->>>>>>> origin/Reading-Modules-Done-October09
 
 interface EndSessionModalProps {
   visible: boolean;
@@ -36,12 +30,6 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
   isUploading = false,
   actionBusyText = "Please wait…",
 }) => {
-  // State for CompletionModal
-  const [showCompletionModal, setShowCompletionModal] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
-  const [analysisComplete, setAnalysisComplete] = useState(false);
-
   const router = useRouter();
 
   // Hooks MUST be called unconditionally, before any early return.
@@ -161,24 +149,12 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
       description: analysisDisabled ? "Please wait…" : "Detailed performance insights",
       iconBg: "bg-white/10",
       iconColor: "#FFFFFF",
-<<<<<<< HEAD
       onPress: handleAIAnalysis,
       disabled: analysisDisabled,
-=======
-      onPress: () => {
-        // Dismiss the current modal and let the parent handle the completion modal
-        onDismiss();
-        // Call the parent's onViewAIAnalysis to handle the completion modal
-        if (onViewAIAnalysis) {
-          onViewAIAnalysis();
-        }
-      },
->>>>>>> origin/Reading-Modules-Done-October09
     },
   ];
 
   return (
-<<<<<<< HEAD
     <Animated.View
       className="absolute top-0 left-0 right-0 bottom-0 justify-center items-center z-50"
       style={{ opacity: opacityAnim }}
@@ -195,31 +171,7 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
           shadowRadius: 15,
           elevation: 5,
         }}
-=======
-    <View className="absolute top-0 left-0 right-0 bottom-0 z-50">
-      <Animated.View 
-        className="absolute top-0 left-0 right-0 bottom-0 justify-center items-center"
-        style={{ opacity: opacityAnim, zIndex: 1 }}
->>>>>>> origin/Reading-Modules-Done-October09
       >
-        <View className="absolute top-0 left-0 right-0 bottom-0 bg-[#1A1F2E]/95" />
-        <BlurView 
-          intensity={20} 
-          tint="dark"
-          className="absolute top-0 left-0 right-0 bottom-0"
-        />
-      
-        <Animated.View 
-          className="w-[90%] max-w-md rounded-3xl overflow-hidden"
-          style={{
-            transform: [{ scale: scaleAnim }],
-            shadowColor: 'rgba(0,0,0,0.3)',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.2,
-            shadowRadius: 15,
-            elevation: 5,
-          }}
-        >
         <View className="bg-[#1A1F2E] p-6">
           <View className="items-center mb-6">
             <View className="w-16 h-16 rounded-2xl bg-white/20 items-center justify-center mb-3">
@@ -273,22 +225,8 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
             <Text className="text-white font-medium text-base">Maybe Later</Text>
           </TouchableOpacity>
         </View>
-        </Animated.View>
       </Animated.View>
-      
-      {/* Completion Modal */}
-      <CompletionModal
-        visible={showCompletionModal}
-        showResultsPrompt={showResultsPrompt}
-        isProcessing={isProcessing}
-        onClose={() => setShowCompletionModal(false)}
-        onLater={() => setShowCompletionModal(false)}
-        onSeeResults={() => {
-          setShowCompletionModal(false);
-          router.push("StudentScreen/SpeakingExercise/full-results-speaking");
-        }}
-      />
-    </View>
+    </Animated.View>
   );
 };
 

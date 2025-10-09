@@ -40,17 +40,8 @@ const base64ToUint8Array = (base64: string) => {
 
 export default function StudentVoiceReadingRecording() {
   const router = useRouter();
-<<<<<<< HEAD
   const params = useLocalSearchParams();
 
-=======
-  const params = useLocalSearchParams<{ 
-    content: string; 
-    title: string;
-    module?: string;
-  }>();
-  
->>>>>>> origin/Reading-Modules-Done-October09
   // State management
   const [recording, setRecording] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -60,7 +51,6 @@ export default function StudentVoiceReadingRecording() {
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-<<<<<<< HEAD
 
   // Recording refs/state
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -87,14 +77,6 @@ export default function StudentVoiceReadingRecording() {
   };
 
   // Animations & intervals
-=======
-  
-  // Get content and title from params with defaults
-  const content = params.content || "No content available";
-  const title = params.title || "Reading Exercise";
-  
-  // Refs for animations and intervals
->>>>>>> origin/Reading-Modules-Done-October09
   const feedbackInterval = useRef<NodeJS.Timeout | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -355,7 +337,6 @@ export default function StudentVoiceReadingRecording() {
       setTimeout(() => {
         setIsProcessing(false);
         setShowResultsPrompt(true);
-        setAnalysisComplete(true);
         setAiFeedback(
           "Your pronunciation is good, but try to speak a bit slower for better clarity."
         );
@@ -379,7 +360,6 @@ export default function StudentVoiceReadingRecording() {
   // See results (kept same behavior)
   const handleSeeResults = () => {
     setShowCompletionPopup(false);
-<<<<<<< HEAD
     const moduleType = typeof params.module === "string" ? params.module : "basic";
     const levelParam =
       moduleType === "advance" || moduleType === "advanced" ? "advanced" : "basic";
@@ -390,15 +370,6 @@ export default function StudentVoiceReadingRecording() {
         levelParam
       )}&module_title=${encodeURIComponent("Reading Passage")}&score=${scoreParam}`
     );
-=======
-    setAnalysisComplete(true);
-    // Immediately navigate to full results
-    const moduleType = params.module || 'basic';
-    router.replace({
-      pathname: "/StudentScreen/ReadingExercise/full-result-reading",
-      params: { module: moduleType }
-    });
->>>>>>> origin/Reading-Modules-Done-October09
   };
 
   const handleModalClose = () => {
@@ -436,18 +407,14 @@ export default function StudentVoiceReadingRecording() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <BackgroundDecor />
 
-<<<<<<< HEAD
       {/* Header copy */}
-=======
-      {/* Header Section */}
->>>>>>> origin/Reading-Modules-Done-October09
       <View>
         <View>
           <Text className="text-white text-xl p-5 top-1 left font-bold mb-2">
-            {title}
+            Reading Confidence Assessment
           </Text>
           <Text className="text-gray-200 text-justify p-5 bottom-10 text-sm opacity-80 leading-5">
-            Read the following content aloud to help us 
+            Read the following passage aloud to help us 
           </Text>
           <Text className="text-gray-200 text-justify p-5 bottom-16 -top-20 text-sm opacity-80 leading-5">
             evaluate your reading confidence level
@@ -455,15 +422,14 @@ export default function StudentVoiceReadingRecording() {
         </View>
       </View>
 
-<<<<<<< HEAD
       {/* Passage Card */}
-=======
-      {/* Content Card with Glassmorphism Effect */}
->>>>>>> origin/Reading-Modules-Done-October09
       <View className="mx-5 -top-10 -mt-8 rounded-2xl overflow-hidden border-2 border-white/40 shadow-lg shadow-black/10">
         <BlurView intensity={20} tint="light" className="p-5 bg-white/45">
-          <Text className="text-white text-base leading-relaxed text-shadow">
-            {content}
+          <Text className="text-white text-base leading-[39px] text-shadow">
+            Liam reads every morning before school. Today, he picked a story
+            about a boy and his dog. He focused on each sentence and used
+            pictures to imagine the events. After reading, he thought about the
+            main idea to remember the details.
           </Text>
         </BlurView>
       </View>
@@ -564,7 +530,6 @@ export default function StudentVoiceReadingRecording() {
 
       {/* Bottom actions */}
       {!recording && (
-<<<<<<< HEAD
         <View
           className={`absolute bottom-5 left-0 right-0 flex-row px-5 ${
             analysisComplete ? "justify-center" : "justify-between"
@@ -577,22 +542,6 @@ export default function StudentVoiceReadingRecording() {
                   router.replace("/StudentScreen/ReadingExercise/advance-execise-reading");
                 } else {
                   router.replace("/StudentScreen/ReadingExercise/basic-exercise-reading");
-=======
-        <View className={`absolute bottom-5 left-0 right-0 flex-row px-5 ${analysisComplete ? "justify-center" : "justify-between"}`}>
-          {/* Back Button - Only show when not showing results */}
-          {!analysisComplete && (
-            <TouchableOpacity
-              onPress={() => {
-                // Go back to the appropriate screen based on the module
-                if (params.module === 'advance' || params.module === 'advanced') {
-                  router.replace({
-                    pathname: "/StudentScreen/ReadingExercise/advance-execise-reading"
-                  });
-                } else {
-                  router.replace({
-                    pathname: "/StudentScreen/ReadingExercise/basic-exercise-reading"
-                  });
->>>>>>> origin/Reading-Modules-Done-October09
                 }
               }}
               className="flex-1 bg-white/10 rounded-xl py-3.5 px-4 items-center justify-center mr-2 border border-white/20"
@@ -600,11 +549,8 @@ export default function StudentVoiceReadingRecording() {
               <Text className="text-white font-semibold text-base">Back</Text>
             </TouchableOpacity>
           )}
-          
-          {/* Main Action Button - Only show Start Recording or View Results */}
           <TouchableOpacity
             onPress={() => {
-<<<<<<< HEAD
               const moduleType = typeof params.module === "string" ? params.module : "basic";
               const levelParam =
                 moduleType === "advance" || moduleType === "advanced" ? "advanced" : "basic";
@@ -614,21 +560,14 @@ export default function StudentVoiceReadingRecording() {
                   levelParam
                 )}&module_title=${encodeURIComponent("Reading Passage")}&score=${scoreParam}`
               );
-=======
-              if (analysisComplete) {
-                handleSeeResults();
-              } else {
-                startRecording();
-              }
->>>>>>> origin/Reading-Modules-Done-October09
             }}
-            className={`${analysisComplete ? "flex-[0.8] min-w-[200px]" : "flex-1"} ${
-              analysisComplete ? "bg-violet-500/80" : "bg-white/10"
-            } rounded-xl py-3.5 px-4 items-center justify-center ${!analysisComplete ? "ml-2" : ""} border border-white/20`}
-            disabled={isProcessing}
+            disabled={!analysisComplete}
+            className={`${analysisComplete ? "flex-[0.8] min-w-[200px] ml-0" : "flex-1 ml-2"} ${
+              analysisComplete ? "bg-violet-500/80" : "bg-gray-500"
+            } rounded-xl py-3.5 px-4 items-center justify-center`}
           >
             <Text className="text-white font-bold">
-              {analysisComplete ? "View Full Results Now" : "Start Recording"}
+              {analysisComplete ? "View Full Results Now" : "Start First"}
             </Text>
           </TouchableOpacity>
         </View>

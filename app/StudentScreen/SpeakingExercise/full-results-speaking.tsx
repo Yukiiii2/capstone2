@@ -474,17 +474,19 @@ export default function FullResultsSpeaking() {
               </Text>
             </View>
             <View className="bottom-1 space-y-4 top-4">
-              {[
-                { skill: "Clear Voice", level: 85 },
-                { skill: "Pacing", level: 78 },
-                { skill: "Projection", level: 82 },
-                { skill: "Engagement", level: 80 },
-              ].map((item, i) => (
+              {strengths.map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="text-sm text-gray-300">{item.skill}</Text>
-                    <Text className="text-xs text-[#8A5CFF]">
-                      {item.level}%
+                    <View className="flex-row items-center">
+                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                      <Ionicons
+                        name={item.trend === "up" ? "trending-up" : "trending-down"}
+                        size={12}
+                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                      />
+                    </View>
+                    <Text className="text-xs text-[#FFFFFF]">
+                      {fmtPct(item.level)}
                     </Text>
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
@@ -509,17 +511,20 @@ export default function FullResultsSpeaking() {
               </Text>
             </View>
             <View className="bottom-1 space-y-4">
-              {[
-                { skill: "Articulation", level: 65 },
-                { skill: "Clarity", level: 58 },
-                { skill: "Projection", level: 62 },
-                { skill: "Response Time", level: 70 },
-              ].map((item, i) => (
+              {improvements.map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="text-sm text-gray-300">{item.skill}</Text>
-                    <Text className="text-xs text-[#8A5CFF]">
-                      {100 - item.level}%
+                    <View className="flex-row items-center">
+                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                      <Ionicons
+                        name={item.trend === "up" ? "trending-up" : "trending-down"}
+                        size={12}
+                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                      />
+                    </View>
+                    {/* show "gap" as 100 - level for variety */}
+                    <Text className="text-xs text-[#FFFFFF]">
+                      {fmtPct(100 - item.level)}
                     </Text>
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
@@ -546,36 +551,7 @@ export default function FullResultsSpeaking() {
           </View>
 
           <View className="space-y-6">
-            {[
-              {
-                label: "Overall Confidence",
-                value: 75,
-                icon: "bar-chart",
-                trend: "up",
-                change: 3.2,
-              },
-              {
-                label: "Voice Clarity",
-                value: 82,
-                icon: "volume-high",
-                trend: "up",
-                change: 1.8,
-              },
-              {
-                label: "Response Time",
-                value: 76,
-                icon: "time",
-                trend: "down",
-                change: 2.4,
-              },
-              {
-                label: "Fluency",
-                value: 73,
-                icon: "pulse",
-                trend: "up",
-                change: 1.1,
-              },
-            ].map((item, i) => {
+            {(metrics ?? []).map((item, i) => {
               const isPositive = item.trend === "up";
               const trendColor = isPositive ? "#10B981" : "#EF4444";
 

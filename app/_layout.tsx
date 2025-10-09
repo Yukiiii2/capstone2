@@ -10,7 +10,7 @@ import {
   Platform,
   StatusBar
 } from "react-native";
-import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
+import { StatusBar as ExpoStatusBar, setStatusBarStyle } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { SafeAreaView } from "react-native-safe-area-context";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";

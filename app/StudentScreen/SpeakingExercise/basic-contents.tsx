@@ -660,23 +660,10 @@ export default function BasicContents() {
                         ) : (
                           <Pressable
                             onPress={() => {
-                              const moduleId = moduleIdByDisplayId[lesson.id];
-                              if (!moduleId) {
-                                Alert.alert("Module not found", "Please try again in a moment.");
-                                return;
-                              }
-                              // 🆕 Optimistically add to Recent
-                              pushRecent(moduleId, lesson.title);
-
-                              // 🆕 pass full module context forward (ABSOLUTE PATH)
+                              // 🔁 NEW NAV: use your LessonBasic route pattern
                               router.push({
-                                pathname: "/StudentScreen/SpeakingExercise/lessons-basic",
-                                params: {
-                                  module_id: moduleId,
-                                  module_title: encodeURIComponent(lesson.title),
-                                  level: "basic",                // ⬅️ lowercase
-                                  display: String(lesson.id),    // visual index
-                                },
+                                pathname: `/StudentScreen/SpeakingExercise/LessonBasic/basiclesson-${lesson.id}`,
+                                params: { id: String(lesson.id) },
                               });
                             }}
                             style={({ pressed }) => ({
@@ -757,16 +744,10 @@ export default function BasicContents() {
           >
             <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-2xl p-5" onStartShouldSetResponder={() => true}>
               {["All", "Start", "Continue", "Review"].map((cat) => {
-                // Skip navigation for 'All' as it's just a filter
+                // 🔁 NEW: filter only (no navigation to lessons-basic)
                 const handlePress = () => {
                   setFilterType(cat);
                   setCategoryModalVisible(false);
-                  if (cat !== "All") {
-                    router.push({
-                      pathname: "/StudentScreen/SpeakingExercise/lessons-basic",
-                      params: { category: cat },
-                    });
-                  }
                 };
 
                 return (

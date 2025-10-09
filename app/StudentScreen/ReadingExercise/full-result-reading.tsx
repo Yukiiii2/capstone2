@@ -5,15 +5,10 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-<<<<<<< HEAD
   StatusBar,
   ViewStyle,
-=======
-  Image,
-  StatusBar,
->>>>>>> origin/Reading-Modules-Done-October09
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabaseClient";
@@ -34,7 +29,6 @@ type Metric = {
 export default function FullResultReading() {
   const router = useRouter();
 
-<<<<<<< HEAD
   // -------- read params (same idea as speaking) ----------
   const { level, module_id, module_title, score } = useLocalSearchParams<{
     level?: string;          // "basic" | "advanced"
@@ -275,8 +269,6 @@ export default function FullResultReading() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiScore, currentModule.level]);
 
-=======
->>>>>>> origin/Reading-Modules-Done-October09
   /**
    * Background decoration component
    */
@@ -284,14 +276,7 @@ export default function FullResultReading() {
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       {/* Gradient Background */}
       <View className="absolute inset-0">
-<<<<<<< HEAD
         <LinearGradient colors={["#0F172A", "#1E293B", "#0F172A"]} style={{ flex: 1 }} />
-=======
-        <LinearGradient
-          colors={["#0F172A", "#1E293B", "#0F172A"]}
-          style={{ flex: 1 }}
-        />
->>>>>>> origin/Reading-Modules-Done-October09
       </View>
 
       {/* Decorative Circles */}
@@ -319,15 +304,7 @@ export default function FullResultReading() {
         <View className="w-full max-w-[1000px] self-center px-4">
           {/* Header with back button only */}
           <View className="flex-row items-start w-full left-0.1 top-1 mt-4">
-<<<<<<< HEAD
             <TouchableOpacity className="p-3 -ml-1" onPress={() => router.back()} activeOpacity={0.7}>
-=======
-            <TouchableOpacity
-              className="p-3 -ml-1"
-              onPress={() => router.back()}
-              activeOpacity={0.7}
-            >
->>>>>>> origin/Reading-Modules-Done-October09
               <Ionicons name="arrow-back" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -335,13 +312,7 @@ export default function FullResultReading() {
 
         {/* AI Detailed Analysis Heading */}
         <View className="mx-4 mb-5 -mt-3">
-<<<<<<< HEAD
           <Text className="text-white font-bold text-xl text-center">AI DETAILED ANALYSIS</Text>
-=======
-          <Text className="text-white font-bold text-xl text-center">
-            AI DETAILED ANALYSIS
-          </Text>
->>>>>>> origin/Reading-Modules-Done-October09
         </View>
 
         {/* Confidence Card */}
@@ -353,11 +324,7 @@ export default function FullResultReading() {
                 <View className="w-20 h-20 rounded-full border-4 border-[#8A5CFF] items-center justify-center">
                   <View className="w-16 h-16 rounded-full bg-white/10 items-center justify-center shadow-lg">
                     <Text className="text-2xl font-bold items-center justify-center text-white">
-<<<<<<< HEAD
                       {fmtPct(uiScore)}
-=======
-                      78%
->>>>>>> origin/Reading-Modules-Done-October09
                     </Text>
                   </View>
                 </View>
@@ -369,19 +336,10 @@ export default function FullResultReading() {
 
             {/* Right side - Details */}
             <View className="flex-1 ml-6">
-<<<<<<< HEAD
               <Text className="text-white font-semibold text-lg mb-2">Reading Proficiency</Text>
               <Text className="text-sm text-gray-300 leading-relaxed">
                 Your reading skills demonstrate strong comprehension and analysis.
                 Build speed and vocabulary to improve further.
-=======
-              <Text className="text-white font-semibold text-lg mb-2">
-              Reading Proficiency
-              </Text>
-              <Text className="text-sm text-gray-300 leading-relaxed">
-              Your reading skills demonstrate strong comprehension and analysis. 
-              Build speed and vocabulary to improve further.
->>>>>>> origin/Reading-Modules-Done-October09
               </Text>
             </View>
           </View>
@@ -395,7 +353,6 @@ export default function FullResultReading() {
               <View className="right-2.5 w-8 h-8 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
                 <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
               </View>
-<<<<<<< HEAD
               <Text className="right-3 text-white font-medium text-lg">Key Strengths</Text>
             </View>
             <View className="bottom-1 space-y-4 top-4">
@@ -404,18 +361,6 @@ export default function FullResultReading() {
                 { skill: "Pacing",       level: clampPct(uiScore + 0), trend: "up" as Trend },
                 { skill: "Grammar",      level: clampPct(uiScore + 4), trend: "up" as Trend },
                 { skill: "Phrasing",     level: clampPct(uiScore + 2), trend: "up" as Trend },
-=======
-              <Text className="right-3 text-white font-medium text-lg">
-                Key Strengths
-              </Text>
-            </View>
-            <View className="bottom-1 space-y-4 top-4">
-              {[
-                { skill: "Volume", level: 85, trend: "up" },
-                { skill: "Pacing", level: 78, trend: "up" },
-                { skill: "Grammar", level: 82, trend: "up" },
-                { skill: "Phrasing", level: 80, trend: "up" },
->>>>>>> origin/Reading-Modules-Done-October09
               ].map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
@@ -428,13 +373,7 @@ export default function FullResultReading() {
                         className="ml-1"
                       />
                     </View>
-<<<<<<< HEAD
                     <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
-=======
-                    <Text className="text-xs text-[#FFFFFF]"> 
-                      {item.level}%
-                    </Text>
->>>>>>> origin/Reading-Modules-Done-October09
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <View
@@ -453,7 +392,6 @@ export default function FullResultReading() {
               <View className="bottom-2.5 right-2.5 w-8 h-8 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
                 <Ionicons name="trending-up" size={16} color="#FFFFFF" />
               </View>
-<<<<<<< HEAD
               <Text className="right-2 text-white font-medium text-base bottom-2">Improvement Areas</Text>
             </View>
             <View className="bottom-1 space-y-4">
@@ -462,18 +400,6 @@ export default function FullResultReading() {
                 { skill: "Vocal Tone",    level: clampPct(100 - (uiScore - 6)),  trend: "down" as Trend },
                 { skill: "Accuracy",      level: clampPct(100 - (uiScore - 8)),  trend: "down" as Trend },
                 { skill: "Pronunciation", level: clampPct(100 - (uiScore - 2)),  trend: "down" as Trend },
-=======
-              <Text className="right-2 text-white font-medium text-base bottom-2">
-                Improvement Areas
-              </Text>
-            </View>
-            <View className="bottom-1 space-y-4">
-              {[
-                { skill: "Clarity", level: 65, trend: "down" },
-                { skill: "Vocal Tone", level: 58, trend: "down" },
-                { skill: "Accuracy", level: 62, trend: "down" },
-                { skill: "Pronounciation", level: 70, trend: "down" },
->>>>>>> origin/Reading-Modules-Done-October09
               ].map((item, i) => (
                 <View key={i} className="space-y-1">
                   <View className="flex-row justify-between items-center">
@@ -486,13 +412,7 @@ export default function FullResultReading() {
                         className="ml-1"
                       />
                     </View>
-<<<<<<< HEAD
                     <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
-=======
-                    <Text className="text-xs text-[#FFFFFF]">
-                      {100 - item.level}%
-                    </Text>
->>>>>>> origin/Reading-Modules-Done-October09
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <View
@@ -509,54 +429,12 @@ export default function FullResultReading() {
         {/* Performance Breakdown */}
         <View className="mx-4 p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20 mb-6">
           <View className="mb-6">
-<<<<<<< HEAD
             <Text className="text-white font-semibold text-lg">Performance Metrics</Text>
             <Text className="text-gray-400 text-sm">Detailed analysis of your speaking performance</Text>
           </View>
 
           <View className="space-y-6">
             {metrics.map((item, i) => {
-=======
-            <Text className="text-white font-semibold text-lg">
-              Performance Metrics
-            </Text>
-            <Text className="text-gray-400 text-sm">
-              Detailed analysis of your speaking performance
-            </Text>
-          </View>
-
-          <View className="space-y-6">
-            {[
-              {
-                label: "Fluency Score",
-                value: 75,
-                icon: "bar-chart",
-                trend: "up",
-                change: 3.2,
-              },
-              {
-                label: "Clarity Precision",
-                value: 82,
-                icon: "volume-high",
-                trend: "up",
-                change: 1.8,
-              },
-              {
-                label: "Filler Word Reduction",
-                value: 76,
-                icon: "time",
-                trend: "down",
-                change: 2.4,
-              },
-              {
-                label: "Speaking Rate (WPM)",
-                value: 73,
-                icon: "pulse",
-                trend: "up",
-                change: 1.1,
-              },
-            ].map((item, i) => {
->>>>>>> origin/Reading-Modules-Done-October09
               const isPositive = item.trend === "up";
               const trendColor = isPositive ? "#10B981" : "#EF4444";
 
@@ -601,13 +479,7 @@ export default function FullResultReading() {
         <View className="mx-4 p-6 bg-white/5 rounded-3xl border border-white/20 mb-10 overflow-hidden">
           <View className="relative z-10">
             <View className="flex-row items-center justify-center mb-4">
-<<<<<<< HEAD
               <Text className="text-white font-semibold text-2xl">Next Steps</Text>
-=======
-              <Text className="text-white font-semibold text-2xl">
-                Next Steps
-              </Text>
->>>>>>> origin/Reading-Modules-Done-October09
             </View>
 
             <Text className="text-gray-200 text-center text-sm leading-relaxed mb-6">
