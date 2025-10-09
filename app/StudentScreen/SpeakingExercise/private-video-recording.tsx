@@ -28,9 +28,14 @@ import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
 // 🎯 NEW: completion modal (keeps your existing UI style)
 import CompletionModal from "@/components/StudentModal/CompletionModal";
+import axios from "axios";
 
 // 🎙️ audio-only (no expo-camera)
 import { Audio } from "expo-av";
+
+const [feedback, setFeedback] = useState<any>(null);
+const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+const [expectedText, setExpectedText] = useState<string | null>(null);
 
 /* ---------- Version-safe Audio Mode helpers ---------- */
 async function setAudioModeCompatRecording() {
@@ -396,31 +401,42 @@ export default function PrivateVideoRecording() {
   };
 
   const stopAudioRecording = async () => {
-    try {
-      const rec = audioRecordingRef.current;
-      if (!rec) return null;
+  try {
+    const rec = audioRecordingRef.current;
+    if (!rec) return null;
 
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-      audioRecordingRef.current = null;
+    await rec.stopAndUnloadAsync();
+    const uri = rec.getURI();
+    audioRecordingRef.current = null;
 
-      stopTimer();
-      setIsRecording(false);
+    stopTimer();
+    setIsRecording(false);
 
-      if (uri) {
-        setRecordedUri(uri);
-        setShowContinueButton(true);
-      }
+    if (uri) {
+      setRecordedUri(uri);
+      setShowContinueButton(true);
 
-      await setAudioModeCompatIdle();
+      // Fetch the audio file as a Blob
+      const response = await fetch(uri);
+      const blob = await response.blob();
 
-      return uri;
-    } catch (e) {
-      stopTimer();
-      setIsRecording(false);
-      return null;
+      // Create a File-like object
+      const audioFile = new File([blob], `recording-${Date.now()}.m4a`, {
+        type: "audio/m4a",
+      });
+
+      setSelectedAudioFile(audioFile);
     }
-  };
+
+    await setAudioModeCompatIdle();
+
+    return uri;
+  } catch (e) {
+    stopTimer();
+    setIsRecording(false);
+    return null;
+  }
+};
 
   // ---------- Upload (same as live; m4a into 'recordings') ----------
   const uploadRecording = async () => {
@@ -651,18 +667,59 @@ export default function PrivateVideoRecording() {
   };
 
   // 🔁 OPEN COMPLETION MODAL (process → results)
-  const handleViewAIAnalysis = () => {
-    setShowEndSessionModal(false);
-    setShowCompletionModal(true);
-    setIsProcessing(true);
-    setShowResultsPrompt(false);
+   const handleViewAIAnalysis = async () => {
+        if (!selectedAudioFile) {
+          Alert.alert("Error", "No audio file found. Please record a session first.");
+          return;
+        }
 
-    // Simulate AI processing
-    setTimeout(() => {
-      setIsProcessing(false);
-      setShowResultsPrompt(true);
-    }, 3000);
-  };
+        setShowEndSessionModal(false);
+        setShowCompletionModal(true);
+        setIsProcessing(true);
+
+        try {
+          console.log("Sending audio file to /process-audio endpoint...");
+          const formData = new FormData();
+          formData.append("file", selectedAudioFile);
+          if (expectedText) formData.append("expected_text", expectedText);
+
+          const processAudioResponse = await axios.post(
+            "http://192.168.1.113:8000/process-audio",
+            formData,
+            {
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
+
+          console.log("Received response from /process-audio:", processAudioResponse.data);
+
+          const { transcription, spacy_stats } = processAudioResponse.data;
+
+          console.log("Sending transcription to /analyze-feedback endpoint...");
+          const analyzeFeedbackResponse = await axios.post(
+            "http://192.168.1.113:8000/analyze-feedback",
+            {
+              speech_text: transcription,
+              spacy_stats,
+            }
+          );
+
+          console.log("Received response from /analyze-feedback:", analyzeFeedbackResponse.data);
+
+          setFeedback(analyzeFeedbackResponse.data);
+          setShowResultsPrompt(true);
+        } catch (error) {
+          console.error("Error processing audio or analyzing feedback:", error);
+          Alert.alert(
+            "Error",
+            "An error occurred while processing the audio or analyzing feedback. Please try again."
+          );
+        } finally {
+          setIsProcessing(false);
+        }
+      };
 
   // Save to gallery (works with audio files too)
   const downloadVideo = async () => {
