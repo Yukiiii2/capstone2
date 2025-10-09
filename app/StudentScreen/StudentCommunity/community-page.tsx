@@ -32,7 +32,18 @@ import LivesessionCommunityModal from "../../../components/StudentModal/Livesess
 // ⬇️ bring in Supabase (for real user avatar like Home-page)
 import { supabase } from "@/lib/supabaseClient";
 
+// NEW: media players
+import { Audio, Video, ResizeMode } from "expo-av";
+
 // ---------- helpers (preserved style) ----------
+
+// NEW: detect audio by extension
+const isAudioUrl = (uri?: string | null) =>
+  !!uri && /\.(m4a|mp3|aac|wav|ogg)(\?|#|$)/i.test(uri || "");
+
+// NEW: detect video by extension
+const isVideoUrl = (uri?: string | null) =>
+  !!uri && /\.(mp4|mov|mkv|webm)(\?|#|$)/i.test(uri || "");
 
 async function resolveSignedAvatar(
   userId: string,
@@ -70,6 +81,23 @@ async function resolveSignedAvatar(
   } catch {
     return null;
   }
+}
+
+// NEW: sign media saved in "recordings" bucket (works with "recordings/...", filename only, or http URLs)
+async function resolveSignedRecording(mediaUrl?: string | null): Promise<string | null> {
+  if (!mediaUrl) return null;
+  if (/^https?:\/\//i.test(mediaUrl)) return mediaUrl; // already full URL
+  const base = mediaUrl.replace(/^recordings\//, "");
+  const objectPath = base; // allow root or nested
+  const { data: signed, error } = await supabase
+    .storage
+    .from("recordings")
+    .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
+  if (error) {
+    console.warn("[media] sign error:", error.message);
+    return null;
+  }
+  return signed?.signedUrl ?? null;
 }
 
 const timeAgo = (iso?: string | null) => {
@@ -400,6 +428,9 @@ const CommunityPage: React.FC = () => {
   // NEW: post owner id (for notifications)
   const [postOwnerId, setPostOwnerId] = useState<string | null>(null); // NEW
 
+  // NEW: media type for rendering
+  const [postMediaType, setPostMediaType] = useState<"audio" | "video" | "none">("none");
+
   // ===== likes =====
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(24);
@@ -425,6 +456,20 @@ const CommunityPage: React.FC = () => {
 
   // current user id cache
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // NEW: audio player state
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioPosition, setAudioPosition] = useState(0);
+  const [audioLoading, setAudioLoading] = useState(false);
+
+  const fmt = (ms: number) => {
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
 
   useEffect(() => {
     setCommentEntered(typed.trim().length > 0 ? "y" : "");
@@ -509,7 +554,18 @@ const CommunityPage: React.FC = () => {
     setPostCreatedAgo(`Posted ${timeAgo(data.created_at)}`);
     setPostTitle(data.title || postTitle);
     setPostContent(data.content || postContent);
-    setPostMediaUrl(data.media_url || null);
+
+    // NEW: sign media + set type
+    let signedMedia: string | null = null;
+    if (data.media_url) {
+      signedMedia = await resolveSignedRecording(data.media_url);
+    }
+    setPostMediaUrl(signedMedia);
+    if (signedMedia) {
+      setPostMediaType(isAudioUrl(signedMedia) ? "audio" : (isVideoUrl(signedMedia) ? "video" : "video"));
+    } else {
+      setPostMediaType("none");
+    }
 
     const signed = await resolveSignedAvatar(data.user_id, author?.avatar_url ?? null);
     setPostAuthorAvatar(signed);
@@ -845,6 +901,67 @@ const CommunityPage: React.FC = () => {
     setActiveTab(tab);
   };
 
+  // NEW: load/unload audio when media changes
+  useEffect(() => {
+    let mounted = true;
+    const loadAudio = async () => {
+      if (postMediaType !== "audio" || !postMediaUrl) return;
+      setAudioLoading(true);
+      try {
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+          soundRef.current = null;
+        }
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: postMediaUrl },
+          { shouldPlay: false },
+          (status) => {
+            if (!status.isLoaded) return;
+            setAudioPlaying(status.isPlaying);
+            setAudioDuration(status.durationMillis ?? 0);
+            setAudioPosition(status.positionMillis ?? 0);
+          }
+        );
+        if (!mounted) {
+          await sound.unloadAsync();
+          return;
+        }
+        soundRef.current = sound;
+        const st = await sound.getStatusAsync();
+        setAudioLoaded(st.isLoaded);
+        setAudioDuration(st.isLoaded ? st.durationMillis ?? 0 : 0);
+        setAudioPosition(st.isLoaded ? st.positionMillis ?? 0 : 0);
+      } catch (e) {
+        console.warn("[audio] load error:", e);
+        setAudioLoaded(false);
+      } finally {
+        setAudioLoading(false);
+      }
+    };
+    loadAudio();
+    return () => {
+      mounted = false;
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+    };
+  }, [postMediaType, postMediaUrl]);
+
+  const toggleAudioPlay = async () => {
+    if (!soundRef.current || !audioLoaded) return;
+    const s = soundRef.current;
+    const st = await s.getStatusAsync();
+    if (!st.isLoaded) return;
+    if (st.isPlaying) {
+      await s.pauseAsync();
+      setAudioPlaying(false);
+    } else {
+      await s.playAsync();
+      setAudioPlaying(true);
+    }
+  };
+
   return (
     <View className="flex-1 bg-slate-900">
       {/* Background with gradient and decorative circles */}
@@ -998,49 +1115,92 @@ const CommunityPage: React.FC = () => {
                   {postContent}
                 </Text>
 
-                {/* Video (kept visual; still shows image thumb if media_url absent) */}
-                <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
-                  <Image
-                    source={{
-                      uri:
-                        postMediaUrl ||
-                        "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
-                    }}
-                    className="w-full h-full"
-                    resizeMode="cover"
-                  />
-                  <View className="absolute top-3 left-3  rounded-full px-2 py-1 flex-row items-center z-10">
-                    <Ionicons name="time-outline" size={16} color="white" />
-                    <Text className="text-white text-sm ml-2 font-medium">
-                      5:24 min
-                    </Text>
+                {/* ---------- MEDIA (audio/video) while preserving layout ---------- */}
+                {postMediaType === "audio" && postMediaUrl ? (
+                  <View className="mx-4 mb-3 bg-white/10 border border-white/10 rounded-xl p-4">
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-white font-medium">Audio Preview</Text>
+                      <TouchableOpacity
+                        onPress={toggleAudioPlay}
+                        className="bg-black/40 rounded-full px-3 py-1.5"
+                        disabled={!audioLoaded || audioLoading}
+                      >
+                        <Text className="text-white text-sm">
+                          {audioLoading ? "Loading…" : audioPlaying ? "Pause" : "Play"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View className="mt-2">
+                      <View className="w-full bg-white/20 rounded-full h-1.5">
+                        <View
+                          className="bg-white h-full rounded-full"
+                          style={{
+                            width: `${audioDuration ? Math.min(100, (audioPosition / audioDuration) * 100) : 0}%`,
+                          }}
+                        />
+                      </View>
+                      <View className="flex-row justify-between mt-1">
+                        <Text className="text-gray-300 text-xs">{fmt(audioPosition)}</Text>
+                        <Text className="text-gray-300 text-xs">{fmt(audioDuration)}</Text>
+                      </View>
+                    </View>
                   </View>
-                  <View className="absolute top-3 right-3 bg-black/50 rounded-full px-2 py-1 flex-row items-center z-10">
-                    <Ionicons name="eye-outline" size={14} color="#9ca3af" />
-                    <Text className="text-gray-200 text-xs ml-1 font-medium">
-                      127 views
-                    </Text>
+                ) : postMediaType === "video" && postMediaUrl ? (
+                  <View className="mx-4 mb-3 rounded-xl overflow-hidden bg-black">
+                    <Video
+                      source={{ uri: postMediaUrl }}
+                      style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" }}
+                      resizeMode={ResizeMode.CONTAIN}
+                      useNativeControls
+                      isLooping
+                      shouldPlay={false}
+                    />
                   </View>
-                  <View className="absolute inset-0 bg-black/30" />
-                  <View
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      left: "50%",
-                      transform: [{ translateX: -40 }, { translateY: -40 }],
-                      width: 80,
-                      height: 80,
-                      backgroundColor: "rgba(255, 255, 255, 0.3)",
-                      borderRadius: 40,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderWidth: 1,
-                      borderColor: "rgba(255, 255, 255, 0.2)",
-                    }}
-                  >
-                    <Ionicons name="play" size={36} color="#fff" />
+                ) : (
+                  // Fallback visual (no media attached) – your original card
+                  <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
+                    <Image
+                      source={{
+                        uri:
+                          postMediaUrl ||
+                          "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
+                      }}
+                      className="w-full h-full"
+                      resizeMode="cover"
+                    />
+                    <View className="absolute top-3 left-3  rounded-full px-2 py-1 flex-row items-center z-10">
+                      <Ionicons name="time-outline" size={16} color="white" />
+                      <Text className="text-white text-sm ml-2 font-medium">
+                        5:24 min
+                      </Text>
+                    </View>
+                    <View className="absolute top-3 right-3 bg-black/50 rounded-full px-2 py-1 flex-row items-center z-10">
+                      <Ionicons name="eye-outline" size={14} color="#9ca3af" />
+                      <Text className="text-gray-200 text-xs ml-1 font-medium">
+                        127 views
+                      </Text>
+                    </View>
+                    <View className="absolute inset-0 bg-black/30" />
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: [{ translateX: -40 }, { translateY: -40 }],
+                        width: 80,
+                        height: 80,
+                        backgroundColor: "rgba(255, 255, 255, 0.3)",
+                        borderRadius: 40,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderWidth: 1,
+                        borderColor: "rgba(255, 255, 255, 0.2)",
+                      }}
+                    >
+                      <Ionicons name="play" size={36} color="#fff" />
+                    </View>
                   </View>
-                </View>
+                )}
 
                 {/* Icons below video */}
                 <View className="p-2 bg-white/5 rounded-b-2xl">

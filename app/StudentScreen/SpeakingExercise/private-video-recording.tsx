@@ -779,8 +779,7 @@ export default function PrivateVideoRecording() {
               media_url: uploadUrl ?? "",
             },
           });
-        }}
-      />
+        } } audioFile={null} expectedText={null}      />
 
       <LivesessionCommunityModal
         visible={showCommunityModal}
