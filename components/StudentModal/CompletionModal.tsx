@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,32 +7,88 @@ import {
   ActivityIndicator,
   StatusBar,
   Image,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import axios from "axios"; // Import axios for API calls
 
 interface CompletionModalProps {
   visible: boolean;
-  showResultsPrompt: boolean;
-  isProcessing: boolean;
+  audioFile: File | null; // Pass the audio file to process
+  expectedText: string | null; // Pass the expected text for comparison
   onClose: () => void;
   onLater: () => void;
-  onSeeResults: () => void;
+  onSeeResults: (feedback: any) => void; // Pass feedback data to parent
+  showResultsPrompt?: boolean; // Optional property
+  isProcessing?: boolean; // Add this property
 }
 
 const CompletionModal: React.FC<CompletionModalProps> = ({
   visible,
-  showResultsPrompt,
-  isProcessing,
+  audioFile,
+  expectedText,
   onClose,
   onLater,
-  onSeeResults
+  onSeeResults,
 }) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
+  const [feedback, setFeedback] = useState<any>(null);
+
+  useEffect(() => {
+    const processAudioAndAnalyzeFeedback = async () => {
+      if (!audioFile || !visible) return;
+
+      setIsProcessing(true);
+      try {
+        // --- Step 1: Process Audio ---
+        const formData = new FormData();
+        formData.append("file", audioFile);
+        if (expectedText) formData.append("expected_text", expectedText);
+
+        const processAudioResponse = await axios.post(
+          "http://127.0.0.1:8000/process-audio",
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+
+        const { transcription, spacy_stats } = processAudioResponse.data;
+
+        // --- Step 2: Analyze Feedback ---
+        const analyzeFeedbackResponse = await axios.post(
+          "http://127.0.0.1:8000/analyze-feedback",
+          {
+            speech_text: transcription,
+            spacy_stats,
+          }
+        );
+
+        setFeedback(analyzeFeedbackResponse.data);
+        setShowResultsPrompt(true);
+      } catch (error) {
+        console.error("Error processing audio or analyzing feedback:", error);
+        Alert.alert(
+          "Error",
+          "An error occurred while processing the audio or analyzing feedback. Please try again."
+        );
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+
+    processAudioAndAnalyzeFeedback();
+  }, [audioFile, visible]);
+
   const handleSeeResults = () => {
-    onSeeResults();
+    if (feedback) {
+      onSeeResults(feedback); // Pass feedback data to parent
+    }
   };
-  
-  // Removed debug logging
 
   return (
     <Modal
@@ -42,8 +98,6 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
       onRequestClose={onClose}
       statusBarTranslucent={true}
     >
-      {/* Status bar with translucent background */}
-      
       <View className="flex-1 bg-gray-900 pt-6">
         {/* Gradient Background */}
         <View className="absolute inset-0">
@@ -63,7 +117,9 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
                   Congrats you're done!
                 </Text>
                 <Text className="text-base text-white text-center mb-5">
-                  Please wait for the AI calculation
+                  {isProcessing
+                    ? "Processing your audio and analyzing feedback..."
+                    : "Please wait for the AI calculation"}
                 </Text>
                 {isProcessing && (
                   <View className="my-5">
@@ -72,16 +128,16 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
                 )}
               </>
             ) : (
-            
+              // Results Prompt UI
               <>
                 <View className="w-6 h-6 items-center justify-center">
-                            <Image
-                              source={require("@/assets/ai.png")}
-                              className="w-10 h-10 bottom-2"
-                              resizeMode="contain"
-                              tintColor="white"
-                            />
-                          </View>
+                  <Image
+                    source={require("@/assets/ai.png")}
+                    className="w-10 h-10 bottom-2"
+                    resizeMode="contain"
+                    tintColor="white"
+                  />
+                </View>
                 <Text className="text-xl font-bold mt-4 mb-1 text-center text-white">
                   Analysis Complete!
                 </Text>
