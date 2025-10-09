@@ -135,149 +135,14 @@ const StudentPresentation = () => {
         Animated.timing(sheetOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
       ]).start();
     }
-  }, [isProfileMenuVisible, sheetOpacity, sheetY]);
+  }, [isProfileMenuVisible]);
 
-  // load current teacher id
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth?.user?.id ?? null;
-      if (!mounted) return;
-      setTeacherId(uid);
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  // fetch teacher roster and map to Student shape (logic mirrors student-side patterns)
-  const fetchRoster = useCallback(async () => {
-    if (!teacherId) return;
-
-    // get all student_id rows for this teacher
-    const { data: trows, error } = await supabase
-      .from("teacher_students")
-      .select("student_id, status, grade_level, strand")
-      .eq("teacher_id", teacherId);
-
-    if (error || !trows || trows.length === 0) {
-      setRoster([]);
-      return;
-    }
-
-    const studentIds = Array.from(new Set(trows.map(r => r.student_id)));
-    if (studentIds.length === 0) {
-      setRoster([]);
-      return;
-    }
-
-    // fetch student profiles
-    const { data: profs } = await supabase
-      .from("profiles")
-      .select("id, name, avatar_url")
-      .in("id", studentIds);
-
-    const profById = new Map((profs ?? []).map(p => [p.id, p]));
-
-    // optionally fetch progress; if missing, use defaults like on student side
-    const { data: progress } = await supabase
-      .from("student_progress")
-      .select("student_id, speaking_completed, speaking_total, confidence, anxiety, updated_at")
-      .in("student_id", studentIds);
-
-    const progById = new Map((progress ?? []).map(p => [p.student_id, p]));
-
-    // sign avatars (best-effort)
-    const signedMap = new Map<string, string | null>();
-    await Promise.all(
-      studentIds.map(async (sid) => {
-        const aurl = profById.get(sid)?.avatar_url ?? null;
-        const signed = await resolveSignedAvatar(sid, aurl);
-        signedMap.set(sid, signed);
-      })
-    );
-
-    const mapped: Student[] = trows.map((row, idx) => {
-      const prof = profById.get(row.student_id) as any;
-      const prog = progById.get(row.student_id) as any;
-      const signed = signedMap.get(row.student_id) ?? null;
-
-      const completed = prog?.speaking_completed ?? 0;
-      const total = prog?.speaking_total ?? 0;
-      const pct = total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
-
-      return {
-        id: row.student_id,
-        name: (prof?.name ?? "Student").toString(),
-        avatar: signed || TRANSPARENT_PNG,
-        lastPractice: prog?.updated_at ? "Recently" : "No data yet",
-        rating: 4.0, // placeholder; can be replaced by your metric
-        isMyStudent: true,
-        grade: row?.grade_level ?? undefined,
-        strand: row?.strand ?? undefined,
-        status: row?.status ?? undefined,
-        progress: pct,
-        satisfaction: 0,
-        lesson: {
-          id: 1000 + idx,
-          title: "Speaking Progress",
-          subtitle: "Auto",
-          desc: "Student course progress",
-          type: pct >= 1 ? "Review" : pct > 0 ? "Continue" : "Start",
-          progress: pct,
-          difficulty: "Basic",
-        },
-      };
-    });
-
-    // sort newest first (optional)
-    setRoster(mapped);
-  }, [teacherId]);
-
-  // initial fetch + realtime
-  useEffect(() => {
-    fetchRoster();
-  }, [fetchRoster]);
-
-  useEffect(() => {
-    if (!teacherId) return;
-    const ch = supabase
-      .channel(`teacher_roster:${teacherId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "teacher_students", filter: `teacher_id=eq.${teacherId}` }, () => fetchRoster())
-      .on("postgres_changes", { event: "*", schema: "public", table: "student_progress" }, () => fetchRoster())
-      .subscribe();
-    return () => {
-      try { supabase.removeChannel(ch); } catch {}
-    };
-  }, [teacherId, fetchRoster]);
-
-  /* ===== Merge dynamic roster + your static list (keeps your UI intact) ===== */
-  const mergedStudents: Student[] = useMemo(() => {
-    // keep dynamic students first, then your static cards
-    // avoid duplicates by id
-    const seen = new Set<string>();
-    const ordered: Student[] = [];
-    roster.forEach(s => { if (!seen.has(s.id)) { ordered.push(s); seen.add(s.id); } });
-    STUDENTS.forEach(s => { if (!seen.has(s.id)) { ordered.push(s); seen.add(s.id); } });
-    return ordered;
-  }, [roster]);
-
-  /* ===== Your existing filtering logic, applied to merged list ===== */
-  const filteredStudents = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return mergedStudents.filter(student => {
-      const matchesSearch =
-        q === "" ||
-        student.name.toLowerCase().includes(q) ||
-        (student.lesson?.title?.toLowerCase().includes(q) ?? false);
-      const matchesFilter = selectedFilter === "Everyone" || !!student.isMyStudent;
-      return matchesSearch && matchesFilter;
-    });
-  }, [mergedStudents, searchQuery, selectedFilter]);
-
-  /* ===== Your existing handlers (kept the same) ===== */
-  const handleAddStudent = () => {
-    router.push("/ButtonIcon/add-student");
-  };
+  const filteredStudents = STUDENTS.filter(student => {
+    const matchesSearch = query.trim() === '' || 
+      student.name.toLowerCase().includes(query.trim().toLowerCase());
+    const matchesFilter = selectedFilter === 'Everyone' || student.isMyStudent;
+    return matchesSearch && matchesFilter;
+  });
 
   const toggleFilter = (filter: string) => {
     setSelectedFilter(filter);
@@ -373,60 +238,72 @@ const StudentPresentation = () => {
               </Text>
             </View>
 
-            {/* Search and Filter Row */}
-            <View className="flex-row items-center space-x-3 px-4 mb-4">
-              {/* Search Bar */}
-              <View className="relative flex-1">
-                <TextInput
-                  className="bg-white/10 text-white rounded-xl pl-10 pr-6 py-2.5 text-sm"
-                  placeholder="Search by name or ..."
-                  placeholderTextColor="#94a3b8"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                />
-                <Ionicons
-                  name="search"
-                  size={16}
-                  color="#94a3b8"
-                  style={{ position: "absolute", left: 12, top: 12 }}
-                />
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setSearchQuery("")}
-                    style={{ position: "absolute", right: 12, top: 12 }}
-                  >
-                    <Ionicons name="close-circle" size={16} color="#94a3b8" />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Filter Dropdown */}
-              <View className="relative">
-                <TouchableOpacity
-                  className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
-                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
-                >
-                  <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
-                  <Ionicons name="chevron-down" size={14} color="white" />
-                </TouchableOpacity>
-
-                {showFilterDropdown && (
-                  <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
-                    <TouchableOpacity
-                      className="px-4 py-2.5 border-b border-white/10"
-                      onPress={() => toggleFilter("Everyone")}
-                    >
-                      <Text className="text-white text-sm">Everyone</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      className="px-4 py-2.5"
-                      onPress={() => toggleFilter("My Students")}
-                    >
-                      <Text className="text-white text-sm">My Students</Text>
-                    </TouchableOpacity>
+            {/* Search and Filter Bar */}
+            <View className="mb-6 px-6">
+              <View className="flex-row items-center">
+                <View className="flex-1 rounded-xl bg-white/10 border border-white/10 flex-row items-center shadow-lg">
+                  <View className="pl-1 left-2">
+                    <Ionicons name="search" size={20} color="#a78bfa" />
                   </View>
-                )}
+                  <TextInput
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Search students..."
+                    placeholderTextColor="#9ca3af"
+                    className="text-white flex-1 ml-3 text-base"
+                    style={{ fontFamily: "Inter_400Regular" }}
+                  />
+                </View>
+                
+                <TouchableOpacity 
+                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
+                  className="ml-3 px-4 py-2.5 rounded-xl bg-white/10 border border-white/10 flex-row items-center"
+                >
+                  <Text className="text-white mr-2">
+                    {selectedFilter === 'Everyone' ? 'Everyone' : 'My Students'}
+                  </Text>
+                  <Ionicons 
+                    name={showFilterDropdown ? "chevron-up" : "chevron-down"} 
+                    size={18} 
+                    color="#a78bfa" 
+                  />
+                </TouchableOpacity>
               </View>
+              
+              {/* Dropdown Menu */}
+              {showFilterDropdown && (
+                <View className="absolute right-6 top-12 mt-1 w-48 bg-gray-800 rounded-xl border border-white/10 z-50 overflow-hidden">
+                  <TouchableOpacity 
+                    onPress={() => toggleFilter('Everyone')}
+                    className={`px-4 py-3 flex-row items-center ${selectedFilter === 'Everyone' ? 'bg-indigo-600/20' : ''}`}
+                  >
+                    <Ionicons 
+                      name="people-outline" 
+                      size={18} 
+                      color={selectedFilter === 'Everyone' ? "#a78bfa" : "#9ca3af"} 
+                      className="mr-2"
+                    />
+                    <Text className={`${selectedFilter === 'Everyone' ? 'text-indigo-300' : 'text-gray-300'}`}>
+                      Everyone
+                    </Text>
+                  </TouchableOpacity>
+                  <View className="h-px bg-white/10 w-full" />
+                  <TouchableOpacity 
+                    onPress={() => toggleFilter('My Students')}
+                    className={`px-4 py-3 flex-row items-center ${selectedFilter === 'My Students' ? 'bg-indigo-600/20' : ''}`}
+                  >
+                    <Ionicons 
+                      name="person-outline" 
+                      size={18} 
+                      color={selectedFilter === 'My Students' ? "#a78bfa" : "#9ca3af"} 
+                      className="mr-2"
+                    />
+                    <Text className={`${selectedFilter === 'My Students' ? 'text-indigo-300' : 'text-gray-300'}`}>
+                      My Students
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* Selection Info */}

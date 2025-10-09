@@ -605,57 +605,8 @@ function HomePage() {
   }, [fetchCounts, fetchAverageConfidence]);
 
   // ===== UI Components =====
-  const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
-  const buttonScale = useRef(new Animated.Value(1)).current;
 
-  const animatePressIn = () => {
-    Animated.spring(buttonScale, {
-      toValue: 0.97,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const animatePressOut = () => {
-    Animated.spring(buttonScale, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const QuickActionButton = ({
-    onPress,
-    icon,
-    title,
-    subtitle,
-    iconColor = "#FFFFFF",
-  }: {
-    onPress: () => void;
-    icon: string;
-    title: string;
-    subtitle: string;
-    iconColor?: string;
-  }) => (
-    <AnimatedTouchable
-      className="py-3 px-2 border border-white/10 rounded-lg bg-white/5 mb-2 overflow-hidden"
-      activeOpacity={0.7}
-      onPress={onPress}
-      onPressIn={animatePressIn}
-      onPressOut={animatePressOut}
-      style={{
-        transform: [{ scale: buttonScale }],
-      }}
-    >
-      <View className="flex-row items-center">
-        <Ionicons name={icon as any} size={20} color={iconColor} />
-        <Text className="text-white ml-3 font-medium">{title}</Text>
-      </View>
-      <Text className="text-gray-400 text-xs mt-1 ml-8">{subtitle}</Text>
-    </AnimatedTouchable>
-  );
-
-  // Sidebar Component (navigation unchanged; prop added to open Peer Review levels)
+  // Sidebar Component
   const Sidebar = ({
     showSidebar,
     toggleSidebar,
@@ -706,44 +657,55 @@ function HomePage() {
           </TouchableOpacity>
         </View>
 
-        {/* SPEAKING EXERCISE */}
-        <QuickActionButton
+        {/* Quick Action Items */}
+        <TouchableOpacity
+          className="py-3 px-2 border border-white/10  rounded-lg bg-white/5 mb-2"
+          activeOpacity={0.7}
           onPress={() => {
             toggleSidebar();
             setShowLevelModal(true);
           }}
-          icon="mic-outline"
-          title="SPEAKING EXERCISE"
-          subtitle="Practice Speaking with AI"
-          iconColor="#FFFFFF"
-        />
+        >
+          <View className="flex-row items-center">
+            <Ionicons name="mic-outline" size={20} color="#FFFFFF" />
+            <Text className="text-violet-500 ml-3 font-medium">SPEAKING EXERCISE</Text>
+          </View>
+          <Text className="text-gray-400 text-xs mt-1 ml-8">Practice Speaking with AI</Text>
+        </TouchableOpacity>
 
-        {/* READING EXERCISES */}
-        <QuickActionButton
+        <TouchableOpacity
+          className="py-3 px-2 border border-white/10  rounded-lg bg-white/5 mb-2"
+          activeOpacity={0.7}
           onPress={() => {
             toggleSidebar();
             setShowReadingLevelModal(true);
           }}
-          icon="book-outline"
-          title="READING EXERCISES"
-          subtitle="Practice Reading with AI"
-          iconColor="#FFFFFF"
-        />
+        >
+          <View className="flex-row items-center">
+            <Ionicons name="book-outline" size={20} color="#FFFFFF" />
+            <Text className="text-violet-500 ml-3 font-medium">READING EXERCISES</Text>
+          </View>
+          <Text className="text-gray-400 text-xs mt-1 ml-8">Practice Reading with AI</Text>
+        </TouchableOpacity>
 
-        {/* PEER REVIEW */}
-        <QuickActionButton
+        <TouchableOpacity
+          className="py-3 px-2 border border-white/10  rounded-lg bg-white/5 mb-2"
+          activeOpacity={0.7}
           onPress={() => {
             toggleSidebar();
             setShowCommunityLevelModal(true);
           }}
-          icon="people-outline"
-          title="PEER REVIEW"
-          subtitle="Community Feedback"
-          iconColor="#FFFFFF"
-        />
+        >
+          <View className="flex-row items-center">
+            <Ionicons name="people-outline" size={20} color="#FFFFFF" />
+            <Text className="text-violet-500 ml-3 font-medium">PEER REVIEW</Text>
+          </View>
+          <Text className="text-gray-400 text-xs mt-1 ml-8">Community Feedback</Text>
+        </TouchableOpacity>
 
-        {/* LIVE SESSION */}
-        <QuickActionButton
+        <TouchableOpacity
+          className="py-3 px-2 border border-white/10 rounded-lg bg-white/5"
+          activeOpacity={0.7}
           onPress={() => {
             toggleSidebar();
             router.push("/StudentScreen/StudentLiveSession/live-sessions-select");
@@ -1083,7 +1045,7 @@ function HomePage() {
                   {/* Performance Stats */}
                   <View className="flex-1 ml-4">
                     <View className="mb-4">
-                      <Text className="text-violet-300 top-2 text-lg font-medium mb-1">
+                      <Text className="text-violet-300 text-xs font-medium mb-1">
                         Overall Performance
                       </Text>
                     </View>

@@ -53,15 +53,7 @@
       "expo-router",
       "expo-video",
       "expo-audio",
-      "expo-secure-store",
-      "expo-dev-client",
-      "react-native-vision-camera"
-    ],
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "56b8089b-2692-49fe-87c1-ac9bbb6c7c31"
-      }
-    }
+      "expo-secure-store"
+    ]
   }
 }

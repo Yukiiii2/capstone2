@@ -52,11 +52,14 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
   const pan = useRef(new Animated.ValueXY()).current;
   const lastGestureDy = useRef(0);
 
+<<<<<<< HEAD
   /* ⬇️ Live data state (added) */
   const [teacherId, setTeacherId] = useState<string | null>(null);
   const [liveStudents, setLiveStudents] = useState<Student[]>([]);
   const renderStudents: Student[] = liveStudents.length > 0 ? liveStudents : students;
 
+=======
+>>>>>>> origin/Reading-Modules-Done-October09
   const resetPosition = useCallback(() => {
     Animated.spring(pan, {
       toValue: { x: 0, y: 0 },
@@ -107,6 +110,7 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
       }).start();
     }
   }, [visible, pan, slideAnim]);
+<<<<<<< HEAD
 
   /* ⬇️ Auth (added) */
   useEffect(() => {
@@ -211,6 +215,8 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
       try { supabase.removeChannel(chB); } catch {}
     };
   }, [teacherId, visible, fetchLive]);
+=======
+>>>>>>> origin/Reading-Modules-Done-October09
 
   const handleRemoveStudent = (student: Student) => {
     setStudentToRemove(student);

@@ -136,17 +136,15 @@ const LoadingOverlay = () => (
 export default function Layout() {
   const [isReady, setIsReady] = useState(false);
 
-  // ⬇️ NEW: prevent sleep during long recordings / sessions (hook call)
-  useKeepAwake();
-
-  // Initialize app and set up UI
+  // Set up status bar style
   useEffect(() => {
-    // Set up UI for Android
     if (Platform.OS === 'android') {
-      StatusBar.setBarStyle('light-content');
-      NavigationBar.setBackgroundColorAsync('#1A1F2E');
-      NavigationBar.setButtonStyleAsync('light');
+      setStatusBarStyle('light');
     }
+  }, []);
+
+  // Initialize app
+  useEffect(() => {
     let mounted = true;
     
     async function prepare() {
@@ -201,8 +199,6 @@ export default function Layout() {
             <Stack.Screen name="CreateAccount/create-account-student" />
             <Stack.Screen name="CreateAccount/create-account-teacher" />
             <Stack.Screen name="StudentScreen/SpeakingExercise/advanced-contents" />
-            <Stack.Screen name="StudentScreen/SpeakingExercise/lessons-basic" />
-            <Stack.Screen name="StudentScreen/SpeakingExercise/lessons-advanced" />
             <Stack.Screen name="TeacherScreen/TeacherDashboard/teacher-dashboard" />
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-session" />
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-sessions" />

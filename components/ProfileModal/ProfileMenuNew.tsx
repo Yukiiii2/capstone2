@@ -263,7 +263,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
 
   const handleSignOutPress = () => {
     handleClose();
-    setTimeout(() => onSignOut?.(), 300);
+    setTimeout(() => router.push('/ProfileMenu/logout'), 300);
   };
 
   return (
@@ -308,7 +308,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
                 className="flex-row items-center p-4 rounded-xl active:bg-white/5"
                 onPress={() => {
                   handleClose();
-                  setTimeout(() => router.push("/settings"), 300); // ⬅️ correct route
+                  setTimeout(() => router.push("/ProfileMenu/settings"), 300);
                 }}
                 activeOpacity={0.7}
               >

@@ -1,6 +1,20 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StatusBar, Linking, Animated, Easing, Dimensions } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Animated, 
+  Easing, 
+  TouchableOpacity, 
+  ScrollView, 
+  Image, 
+  Pressable, 
+  Alert, 
+  Dimensions,
+  StatusBar,
+  Linking
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams, router } from "expo-router";
 
@@ -19,176 +33,103 @@ const BackgroundDecor = () => (
 );
 
 type QuizQ = { id: number; question: string; options: string[]; correct: number };
+type RubricItem = {
+  label: string;
+  rating?: string; // Made optional with ?
+  descriptions: {
+    high: string;
+    medium: string;
+    low: string;
+  };
+};
+
 type LessonDetail = {
   id: number;
   title: string;
   subtitle: string;
   intro: string;
-  bullets: string[];
+  bullets?: string[];
   importance: string[];
   tips: string[];
   quiz: QuizQ[];
-  taskTitle: string;
+  taskTitle?: string;
   taskBody: string;
-  rubric: { label: string; weight: number }[];
-  references: { title: string; url: string }[];
+  rubric: RubricItem[];
+  references: { title?: string; url: string }[];
 };
 
-// Advanced content based on your second code
 const LESSONS: LessonDetail[] = [
   {
-    id: 1,
-    title: "Persuasive Speech Strategy (Monroe's Sequence)",
-    subtitle: "Advanced • Lesson 1",
-    intro: "Use Monroe's Motivated Sequence (Attention → Need → Satisfaction → Visualization → Action) to structure persuasive talks that drive real decisions.",
-    bullets: [
-      "Creates a logical & emotional arc for action",
-      "Works for pitches, campaigns, and proposals",
-      "Keeps complex messages easy to follow"
-    ],
+    id: 6,
+    title: "Persuasive Speaking Basics",
+    subtitle: "Basic • Lesson 6",
+    intro:
+      "Persuasive speaking is convincing the audience to believe or do something using logic, emotions, and credibility.",
     importance: [
-      "Open with a vivid story or startling stat",
-      "Define the exact 'Need' the audience feels",
-      "Offer a practical, believable solution",
-      "Show the world 'with' and 'without' your solution",
-      "End with a specific, doable call to action"
+      "Influences decision-making",
+      "Strengthens leadership skills",
+      "Builds confidence in arguments",
     ],
     tips: [
-      "Practice the sequence until it feels natural",
-      "Customize each step for your specific audience",
-      "Use transitions to smoothly move between steps",
-      "Time each section to maintain proper pacing"
+      "Use facts and examples",
+      "Appeal to emotions (stories, tone)",
+      "Show credibility and confidence",
     ],
     quiz: [
       {
         id: 1,
-        question: "Which step asks the audience to imagine outcomes if your solution is adopted?",
-        options: ["Attention", "Satisfaction", "Visualization", "Action"],
-        correct: 2,
-      },
-      {
-        id: 2,
-        question: "Which part presents the actual fix to the problem?",
-        options: ["Need", "Satisfaction", "Attention", "Action"],
-        correct: 1,
-      },
-    ],
-    taskTitle: "Monroe's Sequence Practice",
-    taskBody: "Record a 90-second persuasive pitch using Monroe's sequence. Include a clear Action step at the end.",
-    rubric: [
-      { label: "Clear sequence (A-N-S-V-A)", weight: 30 },
-      { label: "Evidence & reasoning", weight: 25 },
-      { label: "Delivery & pacing", weight: 25 },
-      { label: "Call-to-action clarity", weight: 20 },
-    ],
-    references: [
-      { title: "Monroe's Motivated Sequence (Overview)", url: "https://en.wikipedia.org/wiki/Monroe%27s_motivated_sequence" },
-      { title: "Advanced Persuasion Techniques", url: "https://example.com/advanced-persuasion" }
-    ],
-  },
-  {
-    id: 2,
-    title: "Handling Q&A Like a Pro",
-    subtitle: "Advanced • Lesson 2",
-    intro: "Maintain control, clarify questions, and bridge to key messages. Use the Acknowledge → Answer → Advance framework.",
-    bullets: [
-      "Builds credibility under pressure",
-      "Prevents derailing & time sinks",
-      "Turns tough questions into clarity opportunities"
-    ],
-    importance: [
-      "Repeat or reframe the question briefly",
-      "If you don't know, say what you'll do to find out",
-      "Answer concisely—then advance to your core point",
-      "Set boundaries for multi-part or off-topic questions"
-    ],
-    tips: [
-      "Prepare answers for likely difficult questions in advance",
-      "Use bridging phrases to return to your key messages",
-      "Maintain eye contact and confident body language",
-      "Practice with a colleague asking challenging questions"
-    ],
-    quiz: [
-      {
-        id: 1,
-        question: "What is the best response if you don't know an answer?",
-        options: [
-          "Guess confidently",
-          "Admit you don't know and state your follow-up plan",
-          "Ignore the question",
-          "Change the topic immediately"
-        ],
+        question: "What is persuasive speaking?",
+        options: ["Reading a story", "Convincing an audience", "Memorizing a poem", "Asking questions"],
         correct: 1,
       },
       {
         id: 2,
-        question: "Which step helps keep Q&A on track with your messaging?",
-        options: ["Acknowledge", "Apologize", "Argue", "Advance"],
-        correct: 3,
-      },
-    ],
-    taskTitle: "Advanced Q&A Simulation",
-    taskBody: "Record a 60-second mock Q&A clip responding to two challenging questions. Use Acknowledge → Answer → Advance.",
-    rubric: [
-      { label: "Clarity & honesty", weight: 30 },
-      { label: "Bridging to key message", weight: 30 },
-      { label: "Tone under pressure", weight: 20 },
-      { label: "Time control", weight: 20 },
-    ],
-    references: [
-      { title: "Crisis Communication Handbook", url: "https://example.com/crisis-comm" },
-      { title: "Executive Presence in Q&A", url: "https://example.com/executive-qa" }
-    ],
-  },
-  {
-    id: 3,
-    title: "Storytelling for Impact",
-    subtitle: "Advanced • Lesson 3",
-    intro: "Use character, conflict, and change. Anchor your talk with a Core Message and a simple three-act arc.",
-    bullets: [
-      "Increases memorability and emotional pull",
-      "Clarifies complex topics through narrative",
-      "Builds trust and relatability with audience"
-    ],
-    importance: [
-      "One main character + one main conflict",
-      "Show transformation (before → after)",
-      "Tie the story to your message in the conclusion",
-      "Use sensory details to create vivid imagery"
-    ],
-    tips: [
-      "Identify the core emotional journey of your story",
-      "Use pauses for dramatic effect at key moments",
-      "Practice varying your vocal tone to match the narrative",
-      "Keep stories concise and focused on the key message"
-    ],
-    quiz: [
-      {
-        id: 1,
-        question: "Which element is essential to drive a story forward?",
-        options: ["Conflict", "Statistics", "Quotes", "Background music"],
+        question: "Which of these helps persuasive speaking?",
+        options: ["Emotions", "Random jokes", "Ignoring facts", "Speaking fast"],
         correct: 0,
       },
-      {
-        id: 2,
-        question: "Where should you explicitly tie the story to your message?",
-        options: ["Opening", "Middle", "Final 10%", "Never"],
-        correct: 2,
-      },
     ],
-    taskTitle: "Strategic Storytelling",
-    taskBody: "Record a 60-90s story that illustrates your core message. Highlight the transformation or change.",
+    taskBody:
+      "Task: Prepare a 2–3 minute persuasive speech (sample:“Why students should limit social media use”). The goal is to convince the audience.",
     rubric: [
-      { label: "Clear arc (setup-conflict-resolution)", weight: 35 },
-      { label: "Relevance to message", weight: 25 },
-      { label: "Delivery & imagery", weight: 25 },
-      { label: "Timing", weight: 15 },
+      { 
+        label: "Argument Strength", 
+        descriptions: {
+          high: "Clear, logical, convincing points",
+          medium: "Mostly convincing with small gaps",
+          low: "Weak or inconsistent reasoning"
+        }
+      },
+      { 
+        label: "Emotional Appeal", 
+        descriptions: {
+          high: "Strong use of tone, passion, and examples",
+          medium: "Some emotional impact",
+          low: "Minimal emotional effect"
+        }
+      },
+      { 
+        label: "Audience Engagement", 
+        descriptions: {
+          high: "Connects well, uses eye contact and gestures",
+          medium: "Some engagement, minor lapses",
+          low: "Limited engagement"
+        }
+      },
+      { 
+        label: "Call to Action", 
+        descriptions: {
+          high: "Strong, memorable, and clear",
+          medium: "Present but not very strong",
+          low: "Weak or vague"
+        }
+      }
     ],
     references: [
-      { title: "The Science of Storytelling", url: "https://example.com/story-science" },
-      { title: "Business Narrative Techniques", url: "https://example.com/business-narrative" }
-    ],
-  },
+      { url: "https://owl.purdue.edu/owl/general_writing/speeches/persuasive_speeches.html"},
+      { url: "https://plato.stanford.edu/entries/aristotle-rhetoric/"}
+    ]
+  }
 ];
 
 // Animated Progress Bar Component
@@ -327,34 +268,20 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
             <Text className="text-white text-2xl font-bold">Lesson Content</Text>
             <View className="w-10" />
           </View>
-          <Text className="text-white/90 leading-6 text-base mb-6">{data.intro}</Text>
+          <Text className="text-white leading-6 text-lg mb-6">{data.intro}</Text>
+
 
           <View className="mb-6">
-            <View className="flex-row items-center mb-3">
-              <Ionicons name="list-outline" size={20} color="#ffffff" />
-              <Text className="text-white text-lg font-semibold ml-2">Key Points</Text>
-            </View>
-            {data.bullets.map((b, i) => (
-              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
-                <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Text className="text-white font-bold">{i+1}</Text>
-                </View>
-                <Text className="text-white/90 text-base flex-1">{b}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View className="mb-6">
-            <View className="flex-row items-center mb-3">
+            <View className="flex-row items-center mb-1">
               <Ionicons name="alert-circle-outline" size={20} color="#ffffff" />
               <Text className="text-white text-lg font-semibold ml-2">Importance</Text>
             </View>
             {data.importance.map((imp, i) => (
-              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
-                <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Ionicons name="star" size={14} color="#ffffff" />
+              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-1 rounded-lg">
+                <View className="w-5 h-5 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.1">
+                  <Ionicons name="star" size={10} color="#ffffff" />
                 </View>
-                <Text className="text-white/90 text-base flex-1">{imp}</Text>
+                <Text className="text-white/90 text-xs top-0.5 flex-1">{imp}</Text>
               </View>
             ))}
           </View>
@@ -365,11 +292,11 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
               <Text className="text-white text-lg font-semibold ml-2">Tips & Strategies</Text>
             </View>
             {data.tips.map((t, i) => (
-              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-3 rounded-lg">
-                <View className="w-6 h-6 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.5">
-                  <Ionicons name="bulb" size={14} color="#ffffff" />
+              <View key={i} className="flex-row items-start mt-3 bg-white/10 p-1 rounded-lg">
+                <View className="w-5 h-5 bg-white/5 rounded-full items-center justify-center mr-3 mt-0.1">
+                  <Ionicons name="bulb" size={10} color="#ffffff" />
                 </View>
-                <Text className="text-white/90 text-base flex-1">{t}</Text>
+                <Text className="text-white/90 text-xs top-0.5 flex-1">{t}</Text>
               </View>
             ))}
           </View>
@@ -387,9 +314,9 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
                   className="flex-row items-center py-2"
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="document-text-outline" size={18} color="#ffffff" className="mr-3" />
-                  <Text className="text-violet-300 text-base underline">
-                    {ref.title}
+                  <Ionicons name="link" size={18} color="#a78bfa" className="mr-3" />
+                  <Text className="text-violet-300 text-xs left-2 underline">
+                    {ref.title || ref.url}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -398,7 +325,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
 
           <View className="flex-row justify-between mt mb-4 px-4">
             <TouchableOpacity 
-              onPress={onBack}
+              onPress={() => onBack()}
               className="py-3 px-8 rounded-xl bg-white/20 border border-white/20 flex-1 mr-3 items-center"
               activeOpacity={0.7}
             >
@@ -597,26 +524,66 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
     >
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mt-10 mb-4 mx-4">
-          <View className="items-center mb-6">
+          <View className="items-center">
             <Text className="text-white text-2xl font-bold">Recording Task</Text>
           </View>
 
-          <View className="mb-4">
-            <Text className="text-white text-lg font-semibold mb-2">{data.taskTitle}</Text>
-            <Text className="text-white/80 text-sm leading-5">{data.taskBody}</Text>
+          <View className="mb-10">
+            <Text className="text-white text-sm top-4 leading-5">{data.taskBody}</Text>
           </View>
 
-          <View className="mb-4">
-            <View className="flex-row items-center mb-2">
+          <View className="mb-5">
+            <View className="flex-row items-center mb-3">
               <Ionicons name="list-outline" size={18} color="#ffffff" />
               <Text className="text-white text-base font-semibold ml-2">Evaluation Rubric</Text>
             </View>
-            {data.rubric.map((item, i) => (
-              <View key={i} className="flex-row justify-between items-center py-2 border-b border-white/10 last:border-b-0">
-                <Text className="text-white text-sm flex-1">{item.label}</Text>
-                <Text className="text-white font-semibold text-sm">{item.weight}%</Text>
+            <View className="border-2 border-white/20 rounded-lg overflow-hidden">
+              {/* Table Header */}
+              <View className="flex-row bg-white/10">
+                <View className="w-1/4 p-2 border-r-2 border-white/20">
+                  <Text className="text-white font-medium text-xs">Criteria</Text>
+                </View>
+                <View className="w-1/4 p-2 border-r-2 border-white/20 items-center justify-center">
+                  <Text className="text-white font-bold text-sm">5</Text>
+                </View>
+                <View className="w-1/4 p-2 border-r-2 border-white/20 items-center justify-center">
+                  <Text className="text-white font-bold text-sm">3</Text>
+                </View>
+                <View className="w-1/4 p-2 items-center justify-center">
+                  <Text className="text-white font-bold text-sm">1</Text>
+                </View>
               </View>
-            ))}
+              
+              {/* Table Rows - Only first 4 criteria */}
+              {data.rubric.slice(0, 4).map((item, i) => (
+                <View key={i} className="border-t-2 border-white/10">
+                  <View className="flex-row min-h-[100px]">
+                    <View className="w-1/4 p-2 border-r-2 border-white/10">
+                      <Text className="text-white text-xs font-medium">{item.label}</Text>
+                    </View>
+                    <View className="w-1/4 p-2 border-r-2 border-white/10">
+                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.high}</Text>
+                    </View>
+                    <View className="w-1/4 p-2 border-r-2 border-white/10">
+                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.medium}</Text>
+                    </View>
+                    <View className="w-1/4 p-2">
+                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.low}</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+            {/* Score Guide */}
+            <View className="mt-4 bg-white/5 p-3 rounded-lg">
+              <Text className="text-white font-medium mb-2">Score Guide:</Text>
+              <View className="space-y-2">
+                <Text className="text-white/90 text-xs">16–20 = <Text className="text-green-400">Excellent</Text></Text>
+                <Text className="text-white/90 text-xs mt-2">11–15 = <Text className="text-blue-400">Good</Text></Text>
+                <Text className="text-white/90 text-xs mt-2">6–10 = <Text className="text-yellow-400">Needs Work</Text></Text>
+                <Text className="text-white/90 text-xs mt-2">1–5 = <Text className="text-red-400">Poor</Text></Text>
+              </View>
+            </View>
           </View>
 
           <View className="flex-row justify-between mt-2 space-x-3">
@@ -660,7 +627,7 @@ export default function LessonScreen() {
       key="lesson" 
       data={lesson} 
       onNext={() => setCurrentSection(1)}
-      onBack={() => router.push('/StudentScreen/SpeakingExercise/advanced-contents')}
+      onBack={() => router.push('/StudentScreen/SpeakingExercise/basic-contents')}
     />,
     <QuizSection 
       key="quiz" 
@@ -683,7 +650,7 @@ export default function LessonScreen() {
       <ScrollView 
         ref={scrollViewRef}
         className="flex-1 z-10"
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
         showsVerticalScrollIndicator={false}
       >
         <View className="pt-10 px-4 pb-4">

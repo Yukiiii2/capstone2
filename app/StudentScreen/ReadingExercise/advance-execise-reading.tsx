@@ -35,31 +35,31 @@ type ModuleType = {
 // Progress set to ZERO as requested
 const MODULES: ModuleType[] = [
   {
-    key: "CriticalAnalysis",
+    key: "Informative Reading",
     label: "ADVANCE",
-    title: "Critical Analysis & Interpretation",
-    desc: "Develop advanced analytical skills for complex texts, literary criticism, and argumentative analysis.",
+    title: "Informative Reading",
+    desc: "Demonstrate clear and fluent reading of informational or academic passages while maintaining understanding of key details.",
     progress: 0,
     color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+    navigateTo: "StudentScreen/ReadingExercise/ReadingAdvance/advancereading-1",
   },
   {
-    key: "AcademicResearch",
+    key: "Literary Reading (Narrative and Emotion)",
     label: "ADVANCE",
-    title: "Academic Research Reading",
-    desc: "Navigate complex academic papers, research methodologies, and scholarly discourse effectively.",
+    title: "Literary Reading (Narrative and Emotion)",
+    desc: " Show expression, tone variation, and emotional delivery when reading literary passages.",
     progress: 0,
     color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+    navigateTo: "StudentScreen/ReadingExercise/ReadingAdvance/advancereading-2",
   },
   {
-    key: "LiteraryAnalysis",
+    key: "Critical Reading (Persuasive or Reflective Texts)",
     label: "ADVANCE",
-    title: "Literary Analysis Deep Dive",
-    desc: "Explore advanced literary techniques, symbolism, and thematic analysis across genres.",
+    title: "Critical Reading (Persuasive or Reflective Texts)",
+    desc: "Read complex and persuasive texts fluently, with tone and emphasis that reflect understanding and interpretation of meaning.",
     progress: 0,
     color: "#a78bfa",
-    navigateTo: "StudentScreen/ReadingExercise/student-voice-reading-recording",
+    navigateTo: "StudentScreen/ReadingExercise/ReadingAdvance/advancereading-3",
   },
 ];
 

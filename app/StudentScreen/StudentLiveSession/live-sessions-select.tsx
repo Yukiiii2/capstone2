@@ -112,19 +112,6 @@ const LiveSessions = () => {
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<"Everyone" | "Classmate">("Everyone");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  /* header avatar like Home */
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
-  const [fullName, setFullName] = useState<string>("Student");
-  const [email, setEmail] = useState<string>("");
-
-  /* dynamic sessions coming from Supabase + the static one */
-  const [sessions, setSessions] = useState<Session[]>([STATIC_SESSION]);
-
-  /* In your previous logic, this Set held teacher IDs.
-     Here we reuse the boolean to drive the "Classmate" filter UI without changing structure. */
-  const [classmateIds, setClassmateIds] = useState<Set<string>>(new Set());
 
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
@@ -373,48 +360,14 @@ const LiveSessions = () => {
               <Text className="text-white text-xl font-bold mb-4">
                 People live now
               </Text>
-              <View className="flex-row items-center space-x-3">
-                {/* Search Bar */}
-                <View className="relative flex-1">
-                  <TextInput
-                    className="bg-white/10 text-white rounded-xl pl-10 pr-8 py-2.5 text-sm"
-                    placeholder="Search by name or title..."
-                    placeholderTextColor="#94a3b8"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                  />
-                  <Ionicons
-                    name="search"
-                    size={16}
-                    color="#94a3b8"
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: 12,
-                    }}
-                  />
-                  {searchQuery.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => setSearchQuery("")}
-                      style={{
-                        position: "absolute",
-                        right: 12,
-                        top: 12,
-                      }}
-                    >
-                      <Ionicons name="close-circle" size={16} color="#94a3b8" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                {/* Filter Dropdown */}
-                <View className="relative">
-                  <TouchableOpacity
-                    className="flex-row items-center bg-white/15 px-4 py-2.5 rounded-xl"
-                    onPress={() => setShowFilterDropdown(!showFilterDropdown)}
-                  >
-                    <Text className="text-white mr-2 text-sm">{selectedFilter}</Text>
-                    <Ionicons name="chevron-down" size={14} color="white" />
-                  </TouchableOpacity>
+              <View className="relative">
+                <TouchableOpacity
+                  className="flex-row items-center bg-white/10 px-3 py-1.5 rounded-lg"
+                  onPress={() => setShowFilterDropdown(!showFilterDropdown)}
+                >
+                  <Text className="text-white mr-2">{selectedFilter}</Text>
+                  <Ionicons name="chevron-down" size={16} color="white" />
+                </TouchableOpacity>
 
                   {showFilterDropdown && (
                     <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
@@ -443,18 +396,15 @@ const LiveSessions = () => {
             </View>
 
             {sessions
-              .filter(session => {
-                const matchesFilter =
+              .filter(
+                (session) =>
                   selectedFilter === "Everyone" ||
-                  (selectedFilter === "Classmate" && session.isMyTeacher);
-                const q = searchQuery.trim().toLowerCase();
-                const matchesSearch =
-                  q === "" ||
-                  session.name.toLowerCase().includes(q) ||
-                  session.title.toLowerCase().includes(q);
-                return matchesFilter && matchesSearch;
-              })
-              .slice(0, selectedFilter === "Classmate" ? 3 : sessions.length)
+                  (selectedFilter === "My Teachers" && session.isMyTeacher)
+              )
+              .slice(
+                0,
+                selectedFilter === "My Teachers" ? 3 : sessions.length
+              )
               .map((session) => (
                 <View
                   key={session.id}

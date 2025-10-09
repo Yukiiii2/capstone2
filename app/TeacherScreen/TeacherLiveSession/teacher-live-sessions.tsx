@@ -305,7 +305,7 @@ const LiveSessions = () => {
   const toggleFilter = (filter: 'Everyone' | 'My Students') => {
     if (selectedFilter !== filter) {
       setSelectedFilter(filter);
-      setSearchQuery('');
+      setQuery(''); // Clear search when changing filters
     }
     setShowFilterDropdown(false);
   };
@@ -332,10 +332,11 @@ const LiveSessions = () => {
     if (selectedFilter === 'My Students') {
       result = result.filter(session => session.isMyStudent === true);
     }
-
-    if (searchQuery.trim() !== '') {
-      const searchTerm = searchQuery.trim().toLowerCase();
-      result = result.filter(session =>
+    
+    // Then apply the search query if there is one
+    if (query.trim() !== '') {
+      const searchTerm = query.trim().toLowerCase();
+      result = result.filter(session => 
         session.name.toLowerCase().includes(searchTerm) ||
         session.title.toLowerCase().includes(searchTerm)
       );
@@ -357,7 +358,7 @@ const LiveSessions = () => {
     }
 
     return result;
-  }, [allSessions, searchQuery, selectedFilter]);
+  }, [sessions, query, selectedFilter]);
 
   return (
     <View className="flex-1 bg-[#0F172A]">
@@ -381,32 +382,34 @@ const LiveSessions = () => {
                   <Text className="text-white font-bold text-2xl">Voclaria</Text>
                 </View>
 
-                <View className="flex-row items-center right-2">
-                  <TouchableOpacity
-                    onPress={() => handleIconPress("/ButtonIcon/add-student")}
-                    activeOpacity={0.7}
-                    className="p-2 bg-white/10 rounded-full mr-4"
-                  >
-                    <Image
-                      source={require("../../../assets/add-student.png")}
-                      className="w-5 h-5"
-                      resizeMode="contain"
-                      tintColor="white"
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setIsProfileMenuVisible(true)}
-                    activeOpacity={0.7}
-                  >
-                    <Image
-                      source={{ uri: avatarUri || TRANSPARENT_PNG }}
-                      className="w-9 h-9 rounded-full border-2 border-white/80"
-                    />
-                  </TouchableOpacity>
-                </View>
+              <View className="flex-row items-center right-2">
+                          <TouchableOpacity
+                            onPress={() => handleIconPress("/ButtonIcon/add-student")}
+                            activeOpacity={0.7}
+                            className="p-2 bg-white/10 rounded-full mr-4"
+                          >
+                              <Image
+                                source={require("../../../assets/add-student.png")}
+                                className="w-5 h-5"
+                                resizeMode="contain"
+                                tintColor="white"
+                              />
+                          </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setIsProfileMenuVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <Image
+                    source={{
+                      uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                    }}
+                    className="w-9 h-9 rounded-full border-2 border-white/80"
+                  />
+                </TouchableOpacity>
               </View>
-            </SafeAreaView>
-          </View>
+            </View>
+          </SafeAreaView>
+        </View>
 
           {/* Main Content */}
           <View className="px-4">

@@ -56,68 +56,33 @@ const BackgroundDecor = () => (
   </View>
 );
 
-const getStrandColor = (strand: string) => {
-  switch (strand) {
-    case 'ABM': return 'bg-yellow-500/20 border-yellow-500/30';
-    case 'STEM': return 'bg-green-500/20 border-green-500/30';
-    case 'HUMSS':
-    case 'HUMMS': return 'bg-red-500/20 border-red-500/30';
-    case 'TVL': return 'bg-blue-500/20 border-blue-500/30';
-    case 'GAS': return 'bg-orange-500/20 border-orange-500/30';
-    default: return 'bg-white/10 border-white/20';
-  }
-};
-
-const initialsFrom = (s?: string | null) => {
-  const src = (s || '').trim();
-  if (!src) return '??';
-  const parts = src.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return src.slice(0, 2).toUpperCase();
-};
-
-const safeStrand = (s: string | null | undefined) => (s === 'HUMMS' ? 'HUMSS' : (s || ''));
-
-/* ──────────────────────────────────────────────────────────────────────────
-   Student card (unchanged UI)
-   ────────────────────────────────────────────────────────────────────────── */
-const StudentCard = ({
-  student,
-  onSelect,
-  isSelected = false
-}: {
-  student: Student;
-  onSelect: (id: string) => void;
-  isSelected: boolean;
+// Student Card Component
+const StudentCard = ({ 
+  student, 
+  onApprove, 
+  onDecline 
+}: { 
+  student: Student; 
+  onApprove: (id: string) => void; 
+  onDecline: (id: string) => void; 
 }) => {
+  // No background or border for grade level
   return (
-    <TouchableOpacity
-      onPress={() => onSelect(student.id)}
-      activeOpacity={0.8}
-      className={`bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-3 border ${isSelected ? 'border-purple-400' : 'border-white/10'} shadow-sm`}
-    >
-      <View className="flex-row items-center">
-        {/* checkbox */}
-        <TouchableOpacity
-          onPress={(e) => {
-            e.stopPropagation();
-            onSelect(student.id);
-          }}
-          className={`w-5 h-5 rounded-full border-2 ${isSelected ? 'bg-purple-500 border-purple-500' : 'border-white/40'} items-center justify-center mr-3`}
-        >
-          {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
-        </TouchableOpacity>
-
-        {/* name + meta */}
+    <View className="bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-3 border border-white/10 shadow-sm">
+      <View className="flex-row items-center justify-between">
+        {/* Profile Section */}
         <View className="flex-row items-center flex-1">
           <View className="w-12 h-12 rounded-full flex items-center justify-center mr-3 bg-white/10 border border-white/20">
             <Text className="text-white font-bold text-base">{student.initials}</Text>
           </View>
-          <View className="flex-1 flex-row items-center">
-            <Text className="text-white font-medium text-base flex-1">{student.name}</Text>
-            <View className="items-end space-y-1">
-              <Text className="text-white text-sm font-medium mb-0.5">Grade {student.grade}</Text>
-              <View className={`${getStrandColor(student.strand)} px-2.5 py-0.5 rounded-md border`}>
+          
+          <View className="flex-1">
+            <Text className="text-white font-medium text-sm mb-1">{student.name}</Text>
+            <View className="flex-row items-center">
+              <View className="bg-white/10 px-2 py-1 rounded-sm mr-2">
+                <Text className="text-white text-xs font-medium">Grade {student.grade}</Text>
+              </View>
+              <View className="bg-white/10 px-2 py-1 rounded-sm">
                 <Text className="text-white text-xs font-medium">{student.strand}</Text>
               </View>
             </View>
@@ -132,253 +97,306 @@ const StudentCard = ({
    Main screen
    ────────────────────────────────────────────────────────────────────────── */
 export default function StudentApprovalScreen() {
+  const [students, setStudents] = useState<Student[]>([
+    {
+      id: "1",
+      name: "Juan Dela Cruz",
+      grade: "11",
+      strand: "ABM",
+      status: "pending",
+      progress: 85,
+      satisfaction: 4,
+      initials: "JC",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "2",
+      name: "Maria Santos",
+      grade: "11",
+      strand: "STEM",
+      status: "pending",
+      progress: 92,
+      satisfaction: 5,
+      initials: "MS",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "3",
+      name: "Jose Reyes",
+      grade: "12",
+      strand: "HUMSS",
+      status: "pending",
+      progress: 78,
+      satisfaction: 3,
+      initials: "JR",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "4",
+      name: "Ana Mercado",
+      grade: "11",
+      strand: "GAS",
+      status: "pending",
+      progress: 88,
+      satisfaction: 4,
+      initials: "AM",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "5",
+      name: "Pedro Bautista",
+      grade: "12",
+      strand: "TVL",
+      status: "pending",
+      progress: 91,
+      satisfaction: 5,
+      initials: "PB",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "6",
+      name: "Miguel Lopez",
+      grade: "11",
+      strand: "ABM",
+      status: "pending",
+      progress: 95,
+      satisfaction: 5,
+      initials: "ML",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "7",
+      name: "Sofia Reyes",
+      grade: "12",
+      strand: "STEM",
+      status: "pending",
+      progress: 89,
+      satisfaction: 4,
+      initials: "SR",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "8",
+      name: "Gabriel Cruz",
+      grade: "11",
+      strand: "HUMSS",
+      status: "pending",
+      progress: 93,
+      satisfaction: 5,
+      initials: "GC",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "9",
+      name: "Isabella Santos",
+      grade: "12",
+      strand: "GAS",
+      status: "pending",
+      progress: 79,
+      satisfaction: 3,
+      initials: "IS",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "10",
+      name: "Luis Mendoza",
+      grade: "11",
+      strand: "TVL",
+      status: "pending",
+      progress: 87,
+      satisfaction: 4,
+      initials: "LM",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "11",
+      name: "Andres Garcia",
+      grade: "12",
+      strand: "ABM",
+      status: "pending",
+      progress: 84,
+      satisfaction: 4,
+      initials: "AG",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "12",
+      name: "Camila Reyes",
+      grade: "11",
+      strand: "STEM",
+      status: "pending",
+      progress: 76,
+      satisfaction: 3,
+      initials: "CR",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "13",
+      name: "Diego Santos",
+      grade: "12",
+      strand: "HUMSS",
+      status: "pending",
+      progress: 88,
+      satisfaction: 4,
+      initials: "DS",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "14",
+      name: "Valeria Cruz",
+      grade: "11",
+      strand: "GAS",
+      status: "pending",
+      progress: 92,
+      satisfaction: 5,
+      initials: "VC",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "15",
+      name: "Santiago Lopez",
+      grade: "12",
+      strand: "TVL",
+      status: "pending",
+      progress: 85,
+      satisfaction: 4,
+      initials: "SL",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "16",
+      name: "Mateo Santos",
+      grade: "11",
+      strand: "ABM",
+      status: "pending",
+      progress: 89,
+      satisfaction: 4,
+      initials: "MS",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "17",
+      name: "Renata Garcia",
+      grade: "12",
+      strand: "STEM",
+      status: "pending",
+      progress: 93,
+      satisfaction: 5,
+      initials: "RG",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "18",
+      name: "Lucas Reyes",
+      grade: "11",
+      strand: "HUMSS",
+      status: "pending",
+      progress: 77,
+      satisfaction: 3,
+      initials: "LR",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "19",
+      name: "Ximena Lopez",
+      grade: "12",
+      strand: "GAS",
+      status: "pending",
+      progress: 86,
+      satisfaction: 4,
+      initials: "XL",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+    {
+      id: "20",
+      name: "Emiliano Cruz",
+      grade: "11",
+      strand: "TVL",
+      status: "pending",
+      progress: 90,
+      satisfaction: 5,
+      initials: "EC",
+      color: "#4F46E5",
+      statusColor: "text-yellow-600",
+    },
+  ]);
+
+  const handleApprove = (id: string) => {
+    setStudents(students.map(student => 
+      student.id === id ? { ...student, status: "approved" } : student
+    ));
+  };
+
+  const handleDecline = (id: string) => {
+    setStudents(students.map(student => 
+      student.id === id ? { ...student, status: "declined" } : student
+    ));
+  };
+
   const navigation = useNavigation();
-
-  // UI state
-  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-
-  // caches
-  const [teacherId, setTeacherId] = useState<string | null>(null);
-  const requestByIdRef = useRef<Record<string, JoinRequestRow>>({});
-
-  // IMPORTANT: your real table name + columns
-  const JOIN_TABLE = 'class_join_requests';
-
-  /* get current user id (teacher) */
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data?.user?.id ?? null;
-      if (mounted) setTeacherId(uid);
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  /* map rows => Student UI */
-  const mapToStudentUI = useCallback((rows: JoinRequestRow[], profiles: ProfileRow[]): Student[] => {
-    const byId = new Map(profiles.map(p => [p.id, p]));
-    return rows
-      .filter(r => r.status === 'pending')
-      .map((r) => {
-        const prof = byId.get(r.student_id);
-        const displayName = (prof?.name || 'Unknown Student').trim();
-        return {
-          id: r.id,
-          name: displayName,
-          grade: r.grade_level || '',
-          strand: safeStrand(r.strand),
-          status: r.status,
-          progress: 0,
-          satisfaction: 0,
-          initials: initialsFrom(displayName),
-          color: '#4F46E5',
-          statusColor: 'text-yellow-600',
-        };
-      });
-  }, []);
-
-  /* fetch pending requests for this teacher */
-  const fetchPending = useCallback(async () => {
-    if (!teacherId) return;
-    setLoading(true);
-    try {
-      // 1) join requests for this teacher
-      const { data: reqs, error: reqErr } = await supabase
-        .from(JOIN_TABLE)
-        .select('id, teacher_id, student_id, grade_level, strand, code_entered, status, requested_at')
-        .eq('teacher_id', teacherId)
-        .eq('status', 'pending')
-        .order('requested_at', { ascending: true });
-
-      if (reqErr) throw reqErr;
-
-      const rows = (reqs || []) as JoinRequestRow[];
-      requestByIdRef.current = Object.fromEntries(rows.map(r => [r.id, r]));
-
-      if (rows.length === 0) {
-        setStudents([]);
-        setSelectedStudents(new Set());
-        setLoading(false);
-        return;
-      }
-
-      // 2) fetch minimal profiles (no email column in your table)
-      const studentIds = Array.from(new Set(rows.map(r => r.student_id))).filter(Boolean);
-      const { data: profs, error: profErr } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .in('id', studentIds);
-
-      if (profErr) throw profErr;
-
-      const ui = mapToStudentUI(rows, (profs || []) as ProfileRow[]);
-      setStudents(ui);
-      setSelectedStudents(new Set());
-    } catch (e: any) {
-      console.warn('[add-student] fetchPending error:', e);
-      setStudents([]);
-      setSelectedStudents(new Set());
-    } finally {
-      setLoading(false);
-    }
-  }, [teacherId, mapToStudentUI]);
-
-  /* realtime subscription to class_join_requests */
-  useEffect(() => {
-    if (!teacherId) return;
-    fetchPending();
-
-    const channel = supabase
-      .channel(`class_join_requests:teacher:${teacherId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: JOIN_TABLE, filter: `teacher_id=eq.${teacherId}` },
-        () => fetchPending()
-      )
-      .subscribe();
-
-    return () => {
-      try { supabase.removeChannel(channel); } catch {}
-    };
-  }, [teacherId, fetchPending]);
-
-  /* selection */
-  const toggleStudentSelection = (studentId: string) => {
-    setSelectedStudents((prev) => {
-      const ns = new Set(prev);
-      if (ns.has(studentId)) ns.delete(studentId);
-      else ns.add(studentId);
-      return ns;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedStudents.size === students.length) setSelectedStudents(new Set());
-    else setSelectedStudents(new Set(students.map((s) => s.id)));
-  };
-
-  /* approve / decline */
-  const approveBatch = useCallback(async (ids: string[]) => {
-    if (!teacherId || ids.length === 0) return;
-
-    for (const reqId of ids) {
-      const req = requestByIdRef.current[reqId];
-      if (!req) continue;
-
-      // 1) add to teacher_students (active)
-      try {
-        await supabase
-          .from('teacher_students')
-          .upsert(
-            {
-              teacher_id: teacherId,
-              student_id: req.student_id,
-              grade_level: req.grade_level,
-              strand: req.strand,
-              status: 'active',
-            },
-            { onConflict: 'teacher_id,student_id' } as any
-          );
-      } catch {}
-
-      // 2) mark request as approved
-      try {
-        await supabase
-          .from(JOIN_TABLE)
-          .update({ status: 'approved' })
-          .eq('id', reqId);
-      } catch {}
-    }
-
-    await fetchPending();
-  }, [teacherId, fetchPending]);
-
-  const declineBatch = useCallback(async (ids: string[]) => {
-    if (!teacherId || ids.length === 0) return;
-
-    try {
-      await supabase
-        .from(JOIN_TABLE)
-        .update({ status: 'rejected' })
-        .in('id', ids);
-    } catch {}
-    await fetchPending();
-  }, [teacherId, fetchPending]);
-
-  const handleApproveSelected = () => {
-    const ids = Array.from(selectedStudents);
-    approveBatch(ids);
-    setSelectedStudents(new Set());
-  };
-
-  const handleApprove = (id: string) => approveBatch([id]);
-  const handleDecline = (id: string) => declineBatch([id]);
-
-  /* derived */
-  const pendingStudents = useMemo(
-    () => students.filter((s) => s.status === 'pending'),
-    [students]
-  );
+  const pendingStudents = students.filter(student => student.status === "pending");
 
   /* render */
   return (
     <View className="flex-1 bg-[#0F172A]">
       <BackgroundDecor />
-
-      {/* Header */}
-      <View className="pt-10 pb-4 px-6">
-        <View className="flex-row items-center justify-between mb-1">
-          <TouchableOpacity onPress={() => navigation.goBack()} className="p-2 -ml-2">
-            <Ionicons name="arrow-back" size={24} color="#E2E8F0" />
-          </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Add Students</Text>
-          <View className="w-8" />
+      
+      <ScrollView 
+        className="flex-1 z-10 bottom-3 p-5" 
+        contentContainerStyle={{ 
+          flexGrow: 1,
+          paddingBottom: 5 // Add extra padding at the bottom
+        }}
+      >
+        {/* Header with Back Button and Title */}
+        <View className="mb-2">
+          <View className="flex-row items-center top-6 mb-6">
+            <TouchableOpacity 
+              className="p-1 left-1.5 -ml-2 mr-3"
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="arrow-back" size={30} color="white" />
+            </TouchableOpacity>
+            <Text className="text-white text-2xl font-semibold">Approval for the Class</Text>
+          </View>
         </View>
 
-        <Text className="text-white/60 text-sm mb-3 text-center">
-          {loading ? 'Loading…' : `${pendingStudents.length} pending student${pendingStudents.length === 1 ? '' : 's'}`}
+        {/* Description */}
+        <Text className="text-white top text-xs mb-5">
+          Approve students to monitor their progress and performance
         </Text>
 
-        {/* Selection Actions */}
-        <View className="flex-row justify-between items-center mb-4">
-          <TouchableOpacity onPress={toggleSelectAll} className="flex-row items-center">
-            <View
-              className={`w-5 h-5 rounded border-2 ${
-                selectedStudents.size === students.length && students.length > 0
-                  ? 'bg-purple-500 border-purple-500'
-                  : 'border-white/40'
-              } items-center justify-center mr-2`}
-            >
-              {selectedStudents.size === students.length && students.length > 0 && (
-                <Ionicons name="checkmark" size={14} color="white" />
-              )}
-            </View>
-            <Text className="text-white/80 text-sm">Select All</Text>
-          </TouchableOpacity>
-
-          {selectedStudents.size > 0 && (
-            <TouchableOpacity
-              onPress={handleApproveSelected}
-              className="bg-purple-600 px-4 py-2 rounded-lg flex-row items-center"
-            >
-              <Ionicons name="person-add" size={16} color="white" />
-              <Text className="text-white font-medium ml-2">
-                Add Selected ({selectedStudents.size})
+        {/* Stats Card */}
+        <View className="bg-white/5 backdrop-blur-xl rounded-xl p-4 mb-5 border border-white/10">
+          <View className="flex-row justify-between items-center">
+            <View className="flex-1">
+              <Text className="text-white font-medium text-sm mb-1">Pending Approvals</Text>
+              <Text className="text-gray-400 text-xs">
+                {pendingStudents.length} students awaiting confirmation
               </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {/* List */}
-      <ScrollView className="flex-1 px-4" testID="student-list" indicatorStyle="black">
-        {(!loading && pendingStudents.length === 0) ? (
-          <View className="bg-white/5 rounded-lg p-4 my-4 items-center justify-center">
-            <Ionicons name="people-outline" size={32} color="#64748B" />
-            <Text className="text-white/60 text-center mt-2">No pending students to display</Text>
+            </View>
+            <View className="px-3 py-2 rounded-lg">
+              <Text className="text-white font-semibold text-2xl">{pendingStudents.length}</Text>
+            </View>
           </View>
         ) : (
           pendingStudents.map((student) => (

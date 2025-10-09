@@ -139,9 +139,12 @@ export default function CreateAccountStudent() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+        exif: false,
+        base64: false,
+        videoMaxDuration: 0,
+        selectionLimit: 1,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setVerificationFile(result.assets[0].uri);
@@ -460,22 +463,20 @@ export default function CreateAccountStudent() {
       case 0:
         return (
           <Animated.View
-            style={[
-              {
-                opacity: fadeAnim,
-                backgroundColor: "rgba(30, 41, 59, 0.7)",
-                borderRadius: 20,
-                padding: 14,
-                marginBottom: 30,
-                marginTop: -25,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 10,
-                borderWidth: 1,
-                borderColor: "rgba(255, 255, 255, 0.1)",
-              },
-            ]}
+            style={[{
+              opacity: fadeAnim,
+              backgroundColor: 'rgba(30, 41, 59, 0.7)',
+              borderRadius: 20,
+              padding: 14,
+              marginBottom: 30,
+              marginTop: -25,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+            }]}
             className="space-y-4"
           >
             <View className="items-center mb-2">
@@ -1025,19 +1026,9 @@ export default function CreateAccountStudent() {
         >
           {/* Header */}
           <View className="flex-row justify-between bottom-0.1 items-center mb-7 w-full">
-            <TouchableOpacity
-              className="flex-row items-center"
-              onPress={() => router.push("/")}
-              activeOpacity={0.7}
-            >
-              <Image
-                source={require("../../assets/Speaksy.png")}
-                className="w-11 h-11 rounded-full right-2"
-                resizeMode="contain"
-              />
-              <Text className="text-white font-bold text-2xl ml-2 -left-5">
-                Voclaria
-              </Text>
+            <TouchableOpacity className="flex-row items-center" onPress={() => router.push('/')} activeOpacity={0.7}>
+              <Image source={require('../../assets/Speaksy.png')} className="w-11 h-11 rounded-full right-2" resizeMode="contain" />
+              <Text className="text-white font-bold text-2xl ml-2 -left-5">Voclaria</Text>
             </TouchableOpacity>
           </View>
 
@@ -1062,24 +1053,17 @@ export default function CreateAccountStudent() {
               <View className="mt-6">
                 <View className="flex-row items-center my-4">
                   <View className="flex-1 h-px bottom-16 bg-white/20" />
-                  <Text className="text-gray-400 text-xs bottom-16 font-medium px-3">
-                    or continue with
-                  </Text>
+                  <Text className="text-gray-400 text-xs bottom-16 font-medium px-3">or continue with</Text>
                   <View className="flex-1 h-px bottom-16 bg-white/20" />
                 </View>
 
                 <View className="items-center">
                   <TouchableOpacity
                     className="flex-row items-center justify-center w-full max-w-[320px] bg-white/10 bottom-16 border border-white/20 rounded-lg py-3 mb-3"
-                    onPress={() => console.log("Google Sign In")}
+                    onPress={() => console.log('Google Sign In')}
                   >
-                    <Image
-                      source={require("../../assets/Google.png")}
-                      className="w-5 h-5 mr-3"
-                    />
-                    <Text className="text-white font-medium">
-                      Continue with Google
-                    </Text>
+                    <Image source={require('../../assets/Google.png')} className="w-5 h-5 mr-3" />
+                    <Text className="text-white font-medium">Continue with Google</Text>
                   </TouchableOpacity>
                 </View>
                 <Text className="text-gray-400 text-xs text-center mt-2">
@@ -1134,24 +1118,17 @@ export default function CreateAccountStudent() {
             <View className="mt-6">
               <View className="flex-row bottom-16 items-center my-4">
                 <View className="flex-1  h-px bg-white/20" />
-                <Text className="text-gray-400 text-xs font-medium px-3">
-                  Continue with
-                </Text>
+                <Text className="text-gray-400 text-xs font-medium px-3">Continue with</Text>
                 <View className="flex-1 h-px bg-white/20" />
               </View>
 
               <View className="items-center">
                 <TouchableOpacity
                   className="flex-row items-center justify-center w-full bg-white/10 border border-white/20 bottom-16 rounded-lg py-3 mb-3"
-                  onPress={() => console.log("Google Sign In")}
+                  onPress={() => console.log('Google Sign In')}
                 >
-                  <Image
-                    source={require("../../assets/Google.png")}
-                    className="w-5 h-5 mr-3"
-                  />
-                  <Text className="text-white font-medium">
-                    Continue with Google
-                  </Text>
+                  <Image source={require('../../assets/Google.png')} className="w-5 h-5 mr-3" />
+                  <Text className="text-white font-medium">Continue with Google</Text>
                 </TouchableOpacity>
               </View>
               <Text className="text-gray-400 text-xs text-center mt-2">

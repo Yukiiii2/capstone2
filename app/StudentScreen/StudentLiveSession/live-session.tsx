@@ -7,6 +7,7 @@ import {
   Image,
   Animated,
   Dimensions,
+  SafeAreaView,
 } from "react-native";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import { Ionicons } from "@expo/vector-icons";
@@ -520,44 +521,64 @@ export default function LiveSession() {
           showsVerticalScrollIndicator={false}
         >
           <View className="px-6 pt-4">
-            {/* Header */}
-            <View className="flex-row top-5 justify-between items-center px-4 py-3">
-              <TouchableOpacity className="flex-row items-center" onPress={() => router.back()} activeOpacity={0.7}>
+{/* Header */}
+        <View className="flex-row top-5 justify-between items-center px-4 py-3">
+          <TouchableOpacity
+            className="flex-row items-center"
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Image
+              source={require("../../../assets/Speaksy.png")}
+              className="w-12 h-12 rounded-full right-2"
+              resizeMode="contain"
+            />
+            <Text className="text-white font-bold text-2xl ml-2 -left-5">
+              Voclaria
+            </Text>
+          </TouchableOpacity>
+  
+          <View className="flex-row items-center -right-1 space-x-3">
+            <TouchableOpacity
+              className="p-2 bg-white/10 rounded-full"
+              onPress={() => handleIconPress("chatbot")}
+              activeOpacity={0.7}
+            >
+              <View className="w-6 h-6 items-center justify-center">
                 <Image
-                  source={require("../../../assets/Speaksy.png")}
-                  className="w-12 h-12 rounded-full right-2"
+                  source={require("../../../assets/chatbot.png")}
+                  className="w-5 h-5"
                   resizeMode="contain"
+                  tintColor="white"
                 />
-                <Text className="text-white font-bold text-2xl ml-2 -left-5">Voclaria</Text>
-              </TouchableOpacity>
-
-              <View className="flex-row items-center -right-1 space-x-3">
-                <TouchableOpacity className="p-2 bg-white/10 rounded-full" onPress={() => handleIconPress("chatbot")} activeOpacity={0.7}>
-                  <View className="w-6 h-6 items-center justify-center">
-                    <Image
-                      source={require("../../../assets/chatbot.png")}
-                      className="w-5 h-5"
-                      resizeMode="contain"
-                      tintColor="white"
-                    />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity className="p-2 bg-white/10 rounded-full" onPress={() => handleIconPress("notifications")} activeOpacity={0.7}>
-                  <View className="w-6 h-6 items-center justify-center">
-                    <Ionicons name="notifications-outline" size={20} color="white" />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity className="p-1" onPress={() => setIsProfileMenuVisible(true)} activeOpacity={0.7}>
-                  <View className="p-0.5 bg-white/10 rounded-full">
-                    <Image
-                      source={{ uri: avatarUri || "https://randomuser.me/api/portraits/women/44.jpg" }}
-                      className="w-8 h-8 rounded-full"
-                    />
-                  </View>
-                </TouchableOpacity>
               </View>
-            </View>
-
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="p-2 bg-white/10 rounded-full"
+              onPress={() => handleIconPress("notifications")}
+              activeOpacity={0.7}
+            >
+              <View className="w-6 h-6 items-center justify-center">
+                <Ionicons name="notifications-outline" size={20} color="white" />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="p-1"
+              onPress={() => setIsProfileMenuVisible(true)}
+              activeOpacity={0.7}
+            >
+              <View className="p-0.5 bg-white/10 rounded-full">
+                <Image
+                  source={{
+                    uri: "https://randomuser.me/api/portraits/women/44.jpg"
+                  }}
+                  className="w-8 h-8 rounded-full"
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
             {/* Main Content */}
             <View className="mt-2 mb-4">
               {/* Host Card */}

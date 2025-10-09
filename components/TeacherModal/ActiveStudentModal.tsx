@@ -115,6 +115,7 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       }).start();
     }
   }, [visible, pan, slideAnim]);
+<<<<<<< HEAD
 
   /* ====== Auth bootstrap (logic only) ====== */
   useEffect(() => {
@@ -250,6 +251,8 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       try { if (chB) supabase.removeChannel(chB); } catch {}
     };
   }, [teacherId, visible, fetchLiveRaw]);
+=======
+>>>>>>> origin/Reading-Modules-Done-October09
 
   return (
     <Modal
