@@ -137,11 +137,18 @@ export default function Layout() {
   // Initialize app and set up UI
   useEffect(() => {
     // Set up UI for Android
-    if (Platform.OS === 'android') {
+    const setupAndroidUI = () => {
+      if (Platform.OS !== 'android') return;
+      
+      // Only set the status bar style, let the system handle navigation bar
       StatusBar.setBarStyle('light-content');
-      NavigationBar.setBackgroundColorAsync('#1A1F2E');
-      NavigationBar.setButtonStyleAsync('light');
-    }
+      
+      // Note: Removed navigation bar styling to prevent warnings in edge-to-edge mode
+      // The system will handle the navigation bar appearance in edge-to-edge mode
+    };
+    
+    setupAndroidUI();
+    
     let mounted = true;
     
     async function prepare() {
@@ -196,7 +203,7 @@ export default function Layout() {
             <Stack.Screen name="CreateAccount/create-account-student" />
             <Stack.Screen name="CreateAccount/create-account-teacher" />
             <Stack.Screen name="StudentScreen/SpeakingExercise/advanced-contents" />
-            <Stack.Screen name="StudentScreen/SpeakingExercise/lessons-basic" />
+            <Stack.Screen name="StudentScreen/SpeakingExercise/basic-contents" />
             <Stack.Screen name="StudentScreen/SpeakingExercise/lessons-advanced" />
             <Stack.Screen name="TeacherScreen/TeacherDashboard/teacher-dashboard" />
             <Stack.Screen name="TeacherScreen/TeacherLiveSession/teacher-live-session" />
