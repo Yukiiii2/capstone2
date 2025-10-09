@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from backend.iot_workspace.feedback_analyzer import FeedbackAnalyzer
 from supabase import create_client, Client
+from fastapi import Request
 
 import whisper
 import spacy
@@ -13,6 +14,7 @@ import wave
 import difflib
 from textblob import TextBlob  # Import TextBlob for sentiment analysis
 import textstat  # Import textstat for readability analysis
+import subprocess
 
 
 
@@ -107,85 +109,72 @@ class SpeechFeedbackRequest(BaseModel):
 # =========================
 # API Endpoints
 # =========================
+@app.get("/user-info")
+async def get_current_user(request: Request):
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing token")
+    
+    token = auth_header.split(" ")[1]  # "Bearer <token>"
+    user = supabase.auth.get_user(token)
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    return {"user": user}
+    
 @app.post("/analyze-feedback")
-async def analyze_feedback(request: SpeechFeedbackRequest):
+async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
     """
-    Analyze speech feedback, validate student/attempt IDs,
+    Analyze speech feedback, validate student ID,
     generate evaluation using Ollama AI, and store it in Supabase.
     """
-    global global_feedback
-
-    print("START: /analyze-feedback endpoint")  # Log start of endpoint
-
     try:
-        # --- Validate Student ID ---
-        print(f"Validating Student ID: {request.student_id}")
-        student_check = supabase.table("profiles").select("id").eq("id", request.student_id).execute()
-        if not student_check.data:
+        print(f"Request Headers: {req.headers}")  # Log all headers for debugging
+
+        # --- Fetch Authorization Token ---
+        auth_header = req.headers.get("Authorization")
+        if not auth_header:
+            print("Authorization header is missing.")
             raise HTTPException(
-                status_code=400,
-                detail=f"Student ID {request.student_id} does not exist in the profiles table",
+                status_code=401,
+                detail="Unauthorized: Missing Authorization header."
             )
 
-        # --- Validate Attempt ID ---
-        print(f"Validating Attempt ID: {request.attempt_id}")
-        attempt_check = supabase.table("attempts").select("id").eq("id", request.attempt_id).execute()
-        if not attempt_check.data:
+        if not auth_header.startswith("Bearer "):
+            print("Authorization header is invalid.")
             raise HTTPException(
-                status_code=400,
-                detail=f"Attempt ID {request.attempt_id} does not exist in the attempts table",
+                status_code=401,
+                detail="Unauthorized: Invalid Authorization header format."
             )
 
-        # --- Generate Feedback Using Ollama AI ---
-        print("Generating feedback using Ollama AI")
-        feedback_result = analyzer.analyze_feedback(request.speech_text, request.spacy_stats)
+        token = auth_header.split("Bearer ")[1]
+        print(f"Authorization Token: {token}")
 
-        if "error" in feedback_result:
-            raise HTTPException(status_code=500, detail=feedback_result["error"])
+        # --- Fetch Current User Info ---
+        user_response = supabase.auth.get_user(token)  # Fetch user info from Supabase
+        if not user_response or not user_response.get("user"):
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Unable to fetch user information from Supabase token."
+            )
 
-        # --- Format Feedback for Readability ---
-        formatted_feedback = {
-            "summary": "Your speech was analyzed successfully.",
-            "details": feedback_result["feedback"],  # Assuming the AI returns structured feedback
-            "recommendations": [
-                "Focus on improving pronunciation for specific words.",
-                "Practice with tongue twisters to enhance clarity.",
-                "Review the discrepancies highlighted in the analysis."
-            ]
-        }
+        user = user_response["user"]
+        student_id = user["id"]  # Extract the student ID from the user object
+        print(f"Student ID: {student_id}")
 
-        # --- Prepare Feedback Data ---
-        feedback_data = {
-            "id": str(uuid.uuid4()),
-            "student_id": request.student_id,
-            "attempt_id": request.attempt_id,
-            "evaluation": {
-                "spacy_stats": request.spacy_stats,
-                "feedback": formatted_feedback,
-            },
-            "transcription": request.speech_text,
-        }
+        # --- Process Feedback ---
+        # Use the student_id for further processing
+        print("Processing feedback...")
+        print(f"Speech Text: {request.speech_text}")
+        print(f"spaCy Stats: {request.spacy_stats}")
 
-        print("Feedback Data to Insert:", feedback_data)
-
-        # --- Store in Supabase ---
-        print("Storing feedback in Supabase")
-        response = supabase.table("feedback_ai").insert(feedback_data).execute()
-        print("Supabase Response:", response)
-
-        if not response.data:
-            raise HTTPException(status_code=500, detail="Failed to store feedback in the database")
-
-        # Save in global variable (temporary cache)
-        global_feedback = feedback_data
-
-        print("COMPLETED: /analyze-feedback endpoint")  # Log completion of endpoint
-
+        # Example response
         return {
-            "id": feedback_data["id"],
+            "student_id": student_id,
             "speech_text": request.speech_text,
             "spacy_stats": request.spacy_stats,
-            "feedback": formatted_feedback,
+            "message": "Feedback analyzed successfully."
         }
 
     except HTTPException as e:
@@ -195,31 +184,49 @@ async def analyze_feedback(request: SpeechFeedbackRequest):
         print(f"ERROR: /analyze-feedback - {e}")
         raise HTTPException(status_code=500, detail="An error occurred while processing the feedback")
 
-
 @app.post("/process-audio")
 async def process_audio(file: UploadFile = File(...), expected_text: str = None):
     """
-    Process uploaded audio file → Transcribe speech using Whisper → Compare with expected text → Extract enhanced statistics for /analyze-feedback.
+    Process uploaded audio file → Convert to WAV → Transcribe speech using Whisper → Compare with expected text → Extract enhanced statistics for /analyze-feedback.
     """
     print("START: /process-audio endpoint")  # Log start of endpoint
 
     temp_audio_path = None
+    temp_wav_path = None
     try:
         # --- Validate File Type ---
         print(f"Uploaded file: {file.filename}")
-        if not file.filename.endswith((".wav", ".mp3", ".m4a")):
+        if not file.filename.endswith((".wav", ".mp3", ".m4a", ".aac", ".ogg")):
             raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid audio file.")
 
         # --- Save Uploaded File ---
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
             temp_audio_path = tmp.name
             tmp.write(await file.read())
 
         print(f"Temporary audio file path: {temp_audio_path}")
 
+        # --- Convert to WAV Format ---
+        temp_wav_path = tempfile.mktemp(suffix=".wav")
+        try:
+            command = [
+                "ffmpeg",
+                "-i", temp_audio_path,  # Input file
+                "-acodec", "pcm_s16le",  # Audio codec: PCM signed 16-bit little-endian
+                "-ar", "44100",  # Audio sample rate: 44.1 kHz
+                "-ac", "2",  # Number of audio channels: 2 (stereo)
+                temp_wav_path,  # Output file
+            ]
+            print(f"Running ffmpeg command: {' '.join(command)}")
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to convert audio to WAV format: {str(e)}")
+
+        print(f"Converted WAV file path: {temp_wav_path}")
+
         # --- Calculate Audio Duration ---
         try:
-            with wave.open(temp_audio_path, "rb") as wav_file:
+            with wave.open(temp_wav_path, "rb") as wav_file:
                 frame_rate = wav_file.getframerate()
                 num_frames = wav_file.getnframes()
                 duration = num_frames / float(frame_rate)
@@ -230,7 +237,7 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
 
         # --- Transcribe Audio ---
         print("Transcribing audio using Whisper")
-        transcription_result = whisper_model.transcribe(temp_audio_path)
+        transcription_result = whisper_model.transcribe(temp_wav_path)
         transcription = transcription_result.get("text", "").strip()
         if not transcription:
             raise ValueError("Whisper failed to generate a transcription.")
@@ -267,5 +274,8 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
         print(f"ERROR: /process-audio - {e}")
         raise HTTPException(status_code=500, detail="Failed to process audio file")
     finally:
+        # Clean up temporary files
         if temp_audio_path and os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
+        if temp_wav_path and os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
