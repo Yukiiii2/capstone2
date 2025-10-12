@@ -3,10 +3,8 @@ module.exports = {
   content: [
     "./app/**/*.{js,jsx,ts,tsx}",
     "./components/**/*.{js,jsx,ts,tsx}",
-    "./screens/**/*.{js,jsx,ts,tsx}", // if you have screens folder
+    "./screens/**/*.{js,jsx,ts,tsx}"
   ],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
+  theme: { extend: {} },
+  plugins: []
 };

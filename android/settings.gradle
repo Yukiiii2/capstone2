@@ -1,4 +1,11 @@
 pluginManagement {
+  repositories {
+    google()
+    mavenCentral()
+    gradlePluginPortal()
+  }
+
+  // React Native plugin includeBuild
   def reactNativeGradlePlugin = new File(
     providers.exec {
       workingDir(rootDir)
@@ -6,7 +13,8 @@ pluginManagement {
     }.standardOutput.asText.get().trim()
   ).getParentFile().absolutePath
   includeBuild(reactNativeGradlePlugin)
-  
+
+  // Expo autolinking plugin includeBuild
   def expoPluginsPath = new File(
     providers.exec {
       workingDir(rootDir)
@@ -31,9 +39,19 @@ extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
 }
 expoAutolinking.useExpoModules()
 
-rootProject.name = 'capstone2'
+// ✅ Make all dependency repos explicit here so *all* modules resolve the same way.
+dependencyResolutionManagement {
+  repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+  repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://www.jitpack.io' }          // optional
+    maven { url 'https://maven.arthenica.com' }     // ✅ required for ffmpeg-kit
+  }
+}
 
+rootProject.name = 'capstone2'
 expoAutolinking.useExpoVersionCatalog()
 
-include ':app'
+include(":app")
 includeBuild(expoAutolinking.reactNativeGradlePlugin)

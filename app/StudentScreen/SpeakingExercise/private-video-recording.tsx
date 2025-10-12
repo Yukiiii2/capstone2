@@ -28,8 +28,17 @@ import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
 // 🎯 NEW: completion modal (keeps your existing UI style)
 import CompletionModal from "@/components/StudentModal/CompletionModal";
-import { RNFFmpeg } from "react-native-ffmpeg";
 
+// ⛳️ REPLACED: use ffmpeg-kit-react-native instead of react-native-ffmpeg
+// (lazy require so the route doesn't crash if the native module isn't in the build)
+let FFmpegKit: any = null;
+let ReturnCode: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ffmpeg = require("ffmpeg-kit-react-native");
+  FFmpegKit = ffmpeg.FFmpegKit;
+  ReturnCode = ffmpeg.ReturnCode;
+} catch { /* module not available (e.g., Expo Go) */ }
 
 // 🎙️ audio-only (no expo-camera)
 import { Audio } from "expo-av";
@@ -399,68 +408,70 @@ export default function PrivateVideoRecording() {
       return false;
     }
   };
+
   const handleRecordingComplete = async (audioFilePath: string, text: string) => {
-  try {
-    // Directly use the audio file path (URI) without converting to Blob
-    const audioFile = {
-      uri: audioFilePath,
-      name: `recording-${Date.now()}.wav`,
-      type: "audio/wav",
-    };
-
-    // Set the audio file and expected text
-    setSelectedAudioFile(audioFile as any); // TypeScript may require a cast here
-    setExpectedText(text);
-
-    // Show the CompletionModal
-    setShowCompletionModal(true);
-  } catch (error) {
-    console.error("Error handling recording completion:", error);
-    Alert.alert("Error", "Failed to process the recording. Please try again.");
-  }
-};
-
- const stopAudioRecording = async () => {
-  try {
-    const rec = audioRecordingRef.current;
-    if (!rec) return null;
-
-    await rec.stopAndUnloadAsync();
-    const uri = rec.getURI();
-    audioRecordingRef.current = null;
-
-    stopTimer();
-    setIsRecording(false);
-
-    if (uri) {
-      setRecordedUri(uri);
-      setShowContinueButton(true);
-
-      // Convert to WAV format
-      const wavUri = `${FileSystem.documentDirectory}recording-${Date.now()}.wav`;
-      const result = await RNFFmpeg.execute(
-        `-i ${uri} -acodec pcm_s16le -ar 44100 -ac 2 ${wavUri}`
-      );
-
-      if (result === 0) {
-        console.log("File converted to WAV:", wavUri);
-        handleRecordingComplete(wavUri, "This is the expected text for comparison.");
-      } else {
-        console.error("Failed to convert file to WAV");
-        Alert.alert("Error", "Failed to convert recording to WAV format.");
-      }
+    try {
+      const audioFile = {
+        uri: audioFilePath,
+        name: `recording-${Date.now()}.wav`,
+        type: "audio/wav",
+      };
+      setSelectedAudioFile(audioFile as any);
+      setExpectedText(text);
+      setShowCompletionModal(true);
+    } catch (error) {
+      console.error("Error handling recording completion:", error);
+      Alert.alert("Error", "Failed to process the recording. Please try again.");
     }
+  };
 
-    await setAudioModeCompatIdle();
+  const stopAudioRecording = async () => {
+    try {
+      const rec = audioRecordingRef.current;
+      if (!rec) return null;
 
-    return uri;
-  } catch (e) {
-    stopTimer();
-    setIsRecording(false);
-    console.error("Error stopping audio recording:", e);
-    return null;
-  }
-};
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      audioRecordingRef.current = null;
+
+      stopTimer();
+      setIsRecording(false);
+
+      if (uri) {
+        setRecordedUri(uri);
+        setShowContinueButton(true);
+
+        // === CONVERSION (same logic, new engine) ===
+        // Use ffmpeg-kit-react-native. Quote paths in case of spaces.
+        const wavUri = `${FileSystem.documentDirectory}recording-${Date.now()}.wav`;
+        if (!FFmpegKit) {
+          console.warn("FFmpegKit not available in this build.");
+          Alert.alert("Missing FFmpeg", "This build does not include FFmpeg support.");
+        } else {
+          const cmd = `-y -i "${uri}" -acodec pcm_s16le -ar 44100 -ac 2 "${wavUri}"`;
+          const session = await FFmpegKit.execute(cmd);
+          const code = await session.getReturnCode();
+
+          if (ReturnCode?.isSuccess?.(code)) {
+            console.log("File converted to WAV:", wavUri);
+            await handleRecordingComplete(wavUri, "This is the expected text for comparison.");
+          } else {
+            console.error("Failed to convert file to WAV, code:", String(code));
+            Alert.alert("Error", "Failed to convert recording to WAV format.");
+          }
+        }
+      }
+
+      await setAudioModeCompatIdle();
+
+      return uri;
+    } catch (e) {
+      stopTimer();
+      setIsRecording(false);
+      console.error("Error stopping audio recording:", e);
+      return null;
+    }
+  };
 
   // ---------- Upload (same as live; m4a into 'recordings') ----------
   const uploadRecording = async () => {
@@ -477,7 +488,6 @@ export default function PrivateVideoRecording() {
       const bytes = base64ToUint8Array(base64);
       const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 
-      // try with audio/mp4 (m4a), fallback to octet-stream if your storage validation is strict
       let res = await supabase.storage
         .from("recordings")
         .upload(objectPath, buf as ArrayBuffer, {
@@ -625,7 +635,6 @@ export default function PrivateVideoRecording() {
     </View>
   );
 
-  // ===== Fullscreen "recording" view (audio overlays to match live) =====
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
       {hasPerms ? null : (
@@ -677,7 +686,6 @@ export default function PrivateVideoRecording() {
     </View>
   );
 
-  // ===== Actions =====
   const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
     if (option === "Live Session") pushWithCtx("/live-sessions-select");
@@ -690,101 +698,81 @@ export default function PrivateVideoRecording() {
     else if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
-  // 🔁 OPEN COMPLETION MODAL (process → results)
   const fetchStudentId = async () => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      console.error("User is not logged in.");
-      Alert.alert("Error", "You must be logged in to access this feature.");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.error("User is not logged in.");
+        Alert.alert("Error", "You must be logged in to access this feature.");
+        return null;
+      }
+      const token = session.access_token;
+      const response = await axios.get("http://192.168.1.113:8000/user-info", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log("Fetched student ID:", response.data.id);
+      return response.data.id;
+    } catch (error) {
+      console.error("Error fetching student ID:", error);
+      Alert.alert("Error", "Failed to fetch user information. Please try again.");
       return null;
     }
+  };
 
-    const token = session.access_token;
-
-    const response = await axios.get("http://192.168.1.113:8000/user-info", {
-      headers: {
-        Authorization: `Bearer ${token}`, // Include the token in the Authorization header
-      },
-    });
-
-    console.log("Fetched student ID:", response.data.id);
-    return response.data.id; // Return the student_id
-  } catch (error) {
-    console.error("Error fetching student ID:", error);
-    Alert.alert("Error", "Failed to fetch user information. Please try again.");
-    return null;
-  }
-};
-
-const handleViewAIAnalysis = async () => {
-  if (!selectedAudioFile) {
-    Alert.alert("Error", "No audio file found. Please record a session first.");
-    return;
-  }
-
-  setShowEndSessionModal(false);
-  setShowCompletionModal(true);
-  setIsProcessing(true);
-
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      throw new Error("User is not logged in.");
+  const handleViewAIAnalysis = async () => {
+    if (!selectedAudioFile) {
+      Alert.alert("Error", "No audio file found. Please record a session first.");
+      return;
     }
 
-    const token = session.access_token;
+    setShowEndSessionModal(false);
+    setShowCompletionModal(true);
+    setIsProcessing(true);
 
-    console.log("Sending audio file to /process-audio endpoint...");
-    const formData = new FormData();
-    formData.append("file", selectedAudioFile);
-    if (expectedText) formData.append("expected_text", expectedText);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("User is not logged in.");
+      const token = session.access_token;
 
-    const processAudioResponse = await axios.post(
-      "http://192.168.1.113:8000/process-audio",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}`, // Include the token in the Authorization header
-        },
-      }
-    );
+      console.log("Sending audio file to /process-audio endpoint...");
+      const formData = new FormData();
+      formData.append("file", selectedAudioFile as any);
+      if (expectedText) formData.append("expected_text", expectedText);
 
-    console.log("Received response from /process-audio:", processAudioResponse.data);
+      const processAudioResponse = await axios.post(
+        "http://192.168.1.113:8000/process-audio",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
-    const { transcription, spacy_stats } = processAudioResponse.data;
+      console.log("Received response from /process-audio:", processAudioResponse.data);
+      const { transcription, spacy_stats } = processAudioResponse.data;
 
-    console.log("Sending transcription to /analyze-feedback endpoint...");
-    const analyzeFeedbackResponse = await axios.post(
-      "http://192.168.1.113:8000/analyze-feedback",
-      {
-        speech_text: transcription,
-        spacy_stats,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`, // Include the token in the Authorization header
-        },
-      }
-    );
+      console.log("Sending transcription to /analyze-feedback endpoint...");
+      const analyzeFeedbackResponse = await axios.post(
+        "http://192.168.1.113:8000/analyze-feedback",
+        { speech_text: transcription, spacy_stats },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-    console.log("Received response from /analyze-feedback:", analyzeFeedbackResponse.data);
-
-    setFeedback(analyzeFeedbackResponse.data);
-    setShowResultsPrompt(true);
-  } catch (error) {
-    console.error("Error processing audio or analyzing feedback:", error);
-    Alert.alert(
-      "Error",
-      "An error occurred while processing the audio or analyzing feedback. Please try again."
-    );
-  } finally {
-    setIsProcessing(false);
-  }
-};
+      console.log("Received response from /analyze-feedback:", analyzeFeedbackResponse.data);
+      setFeedback(analyzeFeedbackResponse.data);
+      setShowResultsPrompt(true);
+    } catch (error) {
+      console.error("Error processing audio or analyzing feedback:", error);
+      Alert.alert(
+        "Error",
+        "An error occurred while processing the audio or analyzing feedback. Please try again."
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // Save to gallery (works with audio files too)
   const downloadVideo = async () => {
@@ -797,21 +785,8 @@ const handleViewAIAnalysis = async () => {
             "Permission Required",
             "Storage permission is required to save. Enable it in Settings.",
             [
-              {
-                text: "OK",
-                onPress: () => {
-                  setIsDownloading(false);
-                  setShowEndSessionModal(false);
-                },
-              },
-              {
-                text: "Open Settings",
-                onPress: () => {
-                  setIsDownloading(false);
-                  setShowEndSessionModal(false);
-                  Linking.openSettings();
-                },
-              },
+              { text: "OK", onPress: () => { setIsDownloading(false); setShowEndSessionModal(false); } },
+              { text: "Open Settings", onPress: () => { setIsDownloading(false); setShowEndSessionModal(false); Linking.openSettings(); } },
             ]
           );
         } else {
@@ -879,7 +854,7 @@ const handleViewAIAnalysis = async () => {
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis}   // 🔁 opens completion flow
+        onViewAIAnalysis={handleViewAIAnalysis}
         onDownloadVideo={downloadVideo}
       />
 
@@ -892,7 +867,6 @@ const handleViewAIAnalysis = async () => {
         onLater={() => setShowCompletionModal(false)}
         onSeeResults={() => {
           setShowCompletionModal(false);
-          // ✅ ABSOLUTE route; pass context + local/cloud URIs
           router.push({
             pathname: "/StudentsScreen/SpeakingExercise/full-results-speaking",
             params: {
@@ -901,7 +875,10 @@ const handleViewAIAnalysis = async () => {
               media_url: uploadUrl ?? "",
             },
           });
-        } } audioFile={null} expectedText={null}      />
+        }}
+        audioFile={null}
+        expectedText={null}
+      />
 
       <LivesessionCommunityModal
         visible={showCommunityModal}
