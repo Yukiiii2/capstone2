@@ -86,7 +86,7 @@ const lessons: Lesson[] = [
   },
   {
     id: 6,
-    title: "Basic Self-Introduction",
+    title: "Persuasive Speaking Basics",
     subtitle: "Lesson 6",
     desc: "Present yourself clearly with purpose, background, and goals.",
     type: "Start",

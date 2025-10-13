@@ -1,5 +1,5 @@
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Linking,
   StatusBar,
   Dimensions,
+  StyleSheet,
 } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
@@ -24,12 +25,21 @@ import LivesessionCommunityModal from "../../../components/StudentModal/Livesess
 import CompletionModal from "@/components/StudentModal/CompletionModal";
 import axios from "axios";
 
-// ⬇️ Added: Supabase client (logic only; UI unchanged)
+// ⬇️ Vision Camera
+import {
+  Camera,
+  useCameraDevice,
+  useCameraPermission,
+  useMicrophonePermission,
+  VideoFile,
+  useCameraFormat,
+} from "react-native-vision-camera";
+
+// ⬇️ Supabase (logic only; UI unchanged)
 import { supabase } from "@/lib/supabaseClient";
 
 // Constants
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
-// Removed unused tab logic/types
 
 const tips = [
   "Speak clearly and steadily",
@@ -49,7 +59,7 @@ const feedbackMessages = [
   "Excellent confidence!",
   "Use more hand gestures",
   "Maintain eye contact with camera",
-  "Great energy in your delivery"
+  "Great energy in your delivery",
 ];
 
 const BackgroundDecor = () => (
@@ -73,16 +83,70 @@ const BackgroundDecor = () => (
 export default function PrivateVideoRecording() {
   const router = useRouter();
   const pathname = usePathname();
+
+  // ===== Recording / Camera state =====
   const [isRecording, setIsRecording] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [recordedVideoPath, setRecordedVideoPath] = useState<string | null>(null);
+  const cameraRef = useRef<Camera>(null);
+
+  // readiness + event-driven start
+  const [cameraReady, setCameraReady] = useState(false);
+  const [pendingStart, setPendingStart] = useState(false);
+
+  // ⏱️ timer
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const timerRef = useRef<any>(null);
+  const formatTime = (ms: number) => {
+    const total = Math.floor(ms / 1000);
+    const m = Math.floor(total / 60).toString().padStart(2, "0");
+    const s = (total % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  const startTimer = () => {
+    if (timerRef.current) return;
+    const started = Date.now();
+    setElapsedMs(0);
+    timerRef.current = setInterval(() => {
+      setElapsedMs(Date.now() - started);
+    }, 200);
+  };
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  // Use FRONT camera
+  const device = useCameraDevice("front");
+
+  // ✅ Pick a safe format for Android front cams (720p @ 30fps)
+  const TARGET_FPS = 30;
+  const format = useCameraFormat(
+    device,
+    [
+      { videoResolution: { width: 1280, height: 720 } },
+      { fps: TARGET_FPS },
+      { videoHdr: false },
+      { videoStabilizationMode: "off" },
+    ]
+  );
+// Add this line for debugging
+console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
+  // Permissions
+  const { hasPermission: hasCamPerm, requestPermission: reqCam } = useCameraPermission();
+  const { hasPermission: hasMicPerm, requestPermission: reqMic } = useMicrophonePermission();
+
+  // ===== Existing UI states =====
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
   const [expectedText, setExpectedText] = useState<string | null>(null);
-  
-  // State for CompletionModal
+
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
@@ -92,7 +156,6 @@ export default function PrivateVideoRecording() {
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [feedback, setFeedback] = useState<any>(null);
 
-  // Pass necessary props to EndSessionModal
   const endSessionModalProps = {
     showEndSessionModal,
     setShowEndSessionModal,
@@ -107,31 +170,31 @@ export default function PrivateVideoRecording() {
     isDownloading,
     setIsDownloading,
   };
-  // 🔧 Added: dynamic profile (no UI changes)
+
+  // 🔧 dynamic profile
   const [fullName, setFullName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
-  // Animation refs
+  // Animations
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const feedbackAnim = useRef(new Animated.Value(0)).current;
 
-  // Screen dimensions
-  const screenWidth = Dimensions.get('window').width;
-  const screenHeight = Dimensions.get('window').height;
+  const screenWidth = Dimensions.get("window").width;
+  const screenHeight = Dimensions.get("window").height;
 
-  // Set status bar style on component mount
+  // Status bar
   useEffect(() => {
-    StatusBar.setBarStyle('light-content');
-    if (Platform.OS === 'android') {
-      StatusBar.setBackgroundColor('transparent');
+    StatusBar.setBarStyle("light-content");
+    if (Platform.OS === "android") {
+      StatusBar.setBackgroundColor("transparent");
       StatusBar.setTranslucent(true);
     }
   }, []);
 
-  // 🔧 Load Supabase user + signed avatar (logic only)
+  // Load user + avatar
   useEffect(() => {
     let mounted = true;
 
@@ -194,169 +257,182 @@ export default function PrivateVideoRecording() {
     };
   }, []);
 
-  // Rotate through tips every 5 seconds
+  // Rotate tips
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTipIndex((prevIndex) => (prevIndex + 1) % tips.length);
     }, 5000);
-
     return () => clearInterval(timer);
   }, []);
 
-  // Handle recording state changes
+  // AI feedback pulse while recording
   useEffect(() => {
     if (isRecording) {
-      // Start recording and go full screen
-      setIsFullScreen(true);
-      
-      // Start pulse animation
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
+          Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
         ])
       ).start();
 
-      // Start cycling through feedback messages
       const feedbackInterval = setInterval(() => {
         const randomIndex = Math.floor(Math.random() * feedbackMessages.length);
         setCurrentFeedback(feedbackMessages[randomIndex]);
-        
-        // Animate feedback in
         Animated.sequence([
-          Animated.timing(feedbackAnim, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true,
-          }),
+          Animated.timing(feedbackAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
           Animated.delay(3000),
-          Animated.timing(feedbackAnim, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true,
-          }),
+          Animated.timing(feedbackAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
         ]).start();
       }, 4000);
 
       return () => clearInterval(feedbackInterval);
     } else {
-      // Stop recording and exit full screen
-      setIsFullScreen(false);
       pulseAnim.setValue(1);
       setCurrentFeedback("");
-      
-      // Hide AI feedback
-      Animated.timing(feedbackAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      Animated.timing(feedbackAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
     }
-  }, [isRecording]);
+  }, [isRecording, pulseAnim, feedbackAnim]);
 
-  // Animation effects for profile menu
+  // Profile menu animation
   useEffect(() => {
     const animations = isProfileMenuVisible
       ? [
-          Animated.timing(slideAnim, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacityAnim, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
+          Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+          Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
         ]
       : [
-          Animated.timing(slideAnim, {
-            toValue: -50,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacityAnim, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
+          Animated.timing(slideAnim, { toValue: -50, duration: 200, useNativeDriver: true }),
+          Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
         ];
     Animated.parallel(animations).start();
-  }, [isProfileMenuVisible]);
+  }, [isProfileMenuVisible, slideAnim, opacityAnim]);
 
-  // Get active tab based on current path
-  const getActiveTab = (): string => {
-  if (pathname.includes("StudentScreen/HomePage/home-page")) return "Home";
-    if (
-      pathname.includes("exercise-speaking") ||
-      pathname.includes("basic-contents") ||
-      pathname.includes("advanced-contents") ||
-      pathname.includes("private-video-recording")
-    )
-      return "Speaking";
-    if (
-      pathname.includes("basic-exercise-reading") ||
-      pathname.includes("advance-execise-reading")
-    )
-      return "Reading";
-    if (pathname.includes("community-selection") || pathname.includes("community"))
-      return "Community";
-    return "Speaking"; // Default to Speaking tab
+  // Reset flags when leaving fullscreen
+  useEffect(() => {
+    if (!isFullScreen) {
+      setCameraReady(false);
+      setPendingStart(false);
+      stopTimer();
+      setElapsedMs(0);
+    }
+  }, [isFullScreen]);
+
+  // ======== CAMERA HELPERS ========
+
+  const ensurePermissions = async () => {
+    let cam = hasCamPerm;
+    let mic = hasMicPerm;
+
+    if (!cam) cam = await reqCam();
+    if (!mic) mic = await reqMic();
+
+    if (!cam || !mic) {
+      Alert.alert(
+        "Permissions required",
+        "Camera and microphone permissions are needed to record.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: () => Linking.openSettings?.() },
+        ]
+      );
+      return false;
+    }
+    return true;
   };
 
-  const activeTab = getActiveTab();
+  const startFullScreenRecording = async () => {
+    const ok = await ensurePermissions();
+    if (!ok) return;
+    if (!device) {
+      Alert.alert("Error", "No camera device available.");
+      return;
+    }
+    setCameraReady(false);
+    setPendingStart(true);       // try to auto-start when initialized
+    setIsFullScreen(true);
+  };
 
-  // Navigation handler
-
-
-  const handleCommunitySelect = (option: 'Live Session' | 'Community Post') => {
-    setShowCommunityModal(false);
-    if (option === 'Live Session') {
-      router.push('/live-sessions-select');
-    } else if (option === 'Community Post') {
-      router.push('/community-selection');
+  const startRecordingNow = async () => {
+    if (!cameraRef.current || !cameraReady || isRecording) return;
+    try {
+      setIsRecording(true);
+      startTimer();
+      await cameraRef.current.startRecording({
+        flash: "off",
+        onRecordingFinished: (video: VideoFile) => {
+          stopTimer();
+          setRecordedVideoPath(video.path ?? null);
+          setIsRecording(false);
+          setIsFullScreen(false);
+          setShowContinueButton(true);
+        },
+        onRecordingError: (err) => {
+          console.error("Recording error:", err);
+          stopTimer();
+          setIsRecording(false);
+          setIsFullScreen(false);
+          setShowContinueButton(false);
+          Alert.alert("Recording failed", "Please try again.");
+        },
+      });
+    } catch (err) {
+      console.error("startRecording error:", err);
+      stopTimer();
+      setIsRecording(false);
+      setIsFullScreen(false);
+      setShowContinueButton(false);
+      Alert.alert("Camera not ready", "Please try again.");
     }
   };
-  
-  const handleLevelSelect = (level: 'Basic' | 'Advanced') => {
+
+  const stopRecording = async () => {
+    if (!isRecording) return;
+    try {
+      await cameraRef.current?.stopRecording();
+    } catch (e: any) {
+      const msg = String(e?.toString?.() ?? e);
+      if (!msg.includes("no-recording-in-progress")) {
+        console.error("stopRecording error:", e);
+      }
+    } finally {
+      stopTimer();
+      setIsRecording(false);
+    }
+  };
+
+  // ===== Your existing handlers (kept) =====
+
+  const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
+    setShowCommunityModal(false);
+    if (option === "Live Session") {
+      router.push("/live-sessions-select");
+    } else if (option === "Community Post") {
+      router.push("/community-selection");
+    }
+  };
+
+  const handleLevelSelect = (level: "Basic" | "Advanced") => {
     setShowLevelModal(false);
-    const route = level === 'Basic' 
-      ? '/basic-exercise-reading' 
-      : '/advance-execise-reading';
+    const route = level === "Basic" ? "/basic-exercise-reading" : "/advance-execise-reading";
     router.push(route);
   };
-    const handleRecordingComplete = async (audioFilePath: string, text: string) => {
-      try {
-        // Fetch the audio file from the file system
-        const response = await fetch(audioFilePath);
-        const blob = await response.blob();
 
-        // Create a File object
-        const audioFile = new File([blob], `recording-${Date.now()}.wav`, {
-          type: "audio/wav",
-        });
+  const handleRecordingComplete = async (audioFilePath: string, text: string) => {
+    try {
+      const response = await fetch(audioFilePath);
+      const blob = await response.blob();
+      const audioFile = new File([blob], `recording-${Date.now()}.wav`, {
+        type: "audio/wav",
+      });
+      setSelectedAudioFile(audioFile);
+      setExpectedText(text);
+      setShowCompletionModal(true);
+    } catch (error) {
+      console.error("Error handling recording completion:", error);
+      Alert.alert("Error", "Failed to process the recording. Please try again.");
+    }
+  };
 
-        // Set the audio file and expected text
-        setSelectedAudioFile(audioFile);
-        setExpectedText(text);
-
-        // Show the CompletionModal
-        setShowCompletionModal(true);
-      } catch (error) {
-        console.error("Error handling recording completion:", error);
-        Alert.alert("Error", "Failed to process the recording. Please try again.");
-      }
-    };
-
-  // Handle icon press
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
       router.replace("/login-page");
@@ -367,124 +443,77 @@ export default function PrivateVideoRecording() {
     }
   };
 
-  // Handle AI analysis view
-        const handleViewAIAnalysis = async () => {
-        if (!selectedAudioFile) {
-          Alert.alert("Error", "No audio file found. Please record a session first.");
-          return;
-        }
+  const handleViewAIAnalysis = async () => {
+    if (!selectedAudioFile) {
+      Alert.alert("Error", "No audio file found. Please record a session first.");
+      return;
+    }
 
-        setShowEndSessionModal(false);
-        setShowCompletionModal(true);
-        setIsProcessing(true);
+    setShowEndSessionModal(false);
+    setShowCompletionModal(true);
+    setIsProcessing(true);
 
-        try {
-          console.log("Sending audio file to /process-audio endpoint...");
-          const formData = new FormData();
-          formData.append("file", selectedAudioFile);
-          if (expectedText) formData.append("expected_text", expectedText);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedAudioFile);
+      if (expectedText) formData.append("expected_text", expectedText);
 
-          const processAudioResponse = await axios.post(
-            "http://192.168.1.113:8000/process-audio",
-            formData,
-            {
-              headers: {
-                "Content-Type": "multipart/form-data",
-              },
-            }
-          );
+      const processAudioResponse = await axios.post(
+        "http://192.168.1.113:8000/process-audio",
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } }
+      );
 
-          console.log("Received response from /process-audio:", processAudioResponse.data);
+      const { transcription, spacy_stats } = processAudioResponse.data;
 
-          const { transcription, spacy_stats } = processAudioResponse.data;
+      const analyzeFeedbackResponse = await axios.post(
+        "http://192.168.1.113:8000/analyze-feedback",
+        { speech_text: transcription, spacy_stats }
+      );
 
-          console.log("Sending transcription to /analyze-feedback endpoint...");
-          const analyzeFeedbackResponse = await axios.post(
-            "http://192.168.1.113:8000/analyze-feedback",
-            {
-              speech_text: transcription,
-              spacy_stats,
-            }
-          );
+      setFeedback(analyzeFeedbackResponse.data);
+      setShowResultsPrompt(true);
+    } catch (error) {
+      console.error("Error processing audio or analyzing feedback:", error);
+      Alert.alert("Error", "An error occurred while processing. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
-          console.log("Received response from /analyze-feedback:", analyzeFeedbackResponse.data);
-
-          setFeedback(analyzeFeedbackResponse.data);
-          setShowResultsPrompt(true);
-        } catch (error) {
-          console.error("Error processing audio or analyzing feedback:", error);
-          Alert.alert(
-            "Error",
-            "An error occurred while processing the audio or analyzing feedback. Please try again."
-          );
-        } finally {
-          setIsProcessing(false);
-        }
-      };
-
-  // Download video function
+  // Save the actually recorded local video to Photos
   const downloadVideo = async () => {
     try {
       setIsDownloading(true);
 
+      if (!recordedVideoPath) {
+        Alert.alert("Nothing to save", "Please record a video first.");
+        return;
+      }
+
       if (Platform.OS === "android") {
-        const { status, canAskAgain } =
-          await MediaLibrary.requestPermissionsAsync();
+        const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
         if (status !== "granted") {
           if (!canAskAgain) {
             Alert.alert(
               "Permission Required",
-              "Storage permission is required to save videos. You can enable it in app settings if you change your mind.",
+              "Storage permission is required to save videos.",
               [
-                {
-                  text: "OK",
-                  onPress: () => {
-                    setIsDownloading(false);
-                    setShowEndSessionModal(false);
-                  },
-                },
-                {
-                  text: "Open Settings",
-                  onPress: () => {
-                    setIsDownloading(false);
-                    setShowEndSessionModal(false);
-                    Linking.openSettings();
-                  },
-                },
+                { text: "OK", onPress: () => {} },
+                { text: "Open Settings", onPress: () => Linking.openSettings() },
               ]
             );
-          } else {
-            setIsDownloading(false);
-            setShowEndSessionModal(false);
           }
           return;
         }
       }
 
-      try {
-        const videoUrl = "https://example.com/path/to/recorded-video.mp4";
-        const fileName = `recording-${new Date().getTime()}.mp4`;
-
-        const downloadResult = await FileSystem.downloadAsync(
-          videoUrl,
-          FileSystem.documentDirectory + fileName
-        );
-
-        const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
-        await MediaLibrary.createAlbumAsync("Recordings", asset, false);
-
-        Alert.alert("Success", "Video saved to gallery!");
-      } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        if (
-          !errorMessage.includes("permission") &&
-          !errorMessage.includes("denied")
-        ) {
-          console.error("Error saving video:", error);
-          Alert.alert("Error", "Failed to save video. Please try again.");
-        }
-      }
+      const asset = await MediaLibrary.createAssetAsync(recordedVideoPath);
+      await MediaLibrary.createAlbumAsync("Recordings", asset, false);
+      Alert.alert("Success", "Video saved to gallery!");
+    } catch (error) {
+      console.error("Error saving video:", error);
+      Alert.alert("Error", "Failed to save video. Please try again.");
     } finally {
       setIsDownloading(false);
       setShowEndSessionModal(false);
@@ -493,52 +522,43 @@ export default function PrivateVideoRecording() {
 
   // ===== SUB-COMPONENTS =====
 
-  // Header component
   const Header = () => (
     <View className="mt-2">
       <View className="flex-row justify-between items-center mt-4 mb-3 w-full">
-        <TouchableOpacity 
+        <TouchableOpacity
           className="flex-row items-center px-3 py-2 -ml-3"
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <Image 
-            source={require("../../../assets/Speaksy.png")} 
-            className="w-10 right-3 h-10 rounded-full" 
+          <Image
+            source={require("../../../assets/Speaksy.png")}
+            className="w-10 right-3 h-10 rounded-full"
             resizeMode="contain"
           />
           <Text className="text-white font-bold text-2xl right-5 ml-2">Voclaria</Text>
         </TouchableOpacity>
 
         <View className="flex-row items-center right-4 space-x-2">
-          <TouchableOpacity 
+          <TouchableOpacity
             className="p-2 rounded-full bg-white/10 active:bg-white/20"
             onPress={() => handleIconPress("chatbot")}
             activeOpacity={0.7}
           >
-            <Image 
-              source={require("../../../assets/chatbot.png")} 
+            <Image
+              source={require("../../../assets/chatbot.png")}
               className="w-5 h-5"
               resizeMode="contain"
               tintColor="white"
             />
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             className="p-2 rounded-full bg-white/10 active:bg-white/20 ml-1"
             onPress={() => handleIconPress("notifications")}
             activeOpacity={0.7}
           >
-            <Ionicons 
-              name="notifications-outline" 
-              size={20} 
-              color="white"
-            />
+            <Ionicons name="notifications-outline" size={20} color="white" />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setIsProfileMenuVisible(true)}
-            activeOpacity={0.7}
-          >
-            {/* 👇 Avatar now dynamic (fallback preserved) */}
+          <TouchableOpacity onPress={() => setIsProfileMenuVisible(true)} activeOpacity={0.7}>
             <Image
               source={avatarUri ? { uri: avatarUri } : PROFILE_PIC}
               className="w-9 h-9 rounded-full border-2 left-3 border-white/80"
@@ -549,20 +569,19 @@ export default function PrivateVideoRecording() {
     </View>
   );
 
-  // AI Feedback Component (Centered text only)
   const AIFeedback = () => (
-    <Animated.View 
+    <Animated.View
       className="absolute top-[40%] left-5 right-5 z-10 items-center justify-center"
-      style={{ 
+      style={{
         opacity: feedbackAnim,
         transform: [
           {
             translateY: feedbackAnim.interpolate({
               inputRange: [0, 1],
-              outputRange: [20, 0]
-            })
-          }
-        ]
+              outputRange: [20, 0],
+            }),
+          },
+        ],
       }}
     >
       <Text className="text-white text-lg font-medium text-center bg-black/60 px-4 py-3 rounded-xl">
@@ -571,7 +590,6 @@ export default function PrivateVideoRecording() {
     </Animated.View>
   );
 
-  // Status Row Component
   const StatusRow = () => (
     <View className="flex-row justify-between items-center bg-white/10 rounded-xl p-3 mt-3">
       {[
@@ -590,7 +608,6 @@ export default function PrivateVideoRecording() {
               name={item.trend === "up" ? "trending-up" : "trending-down"}
               size={12}
               color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-              className="mr-1"
             />
             <Text className="text-xs text-gray-400">
               {item.trend === "up" ? "Improving" : "Needs work"}
@@ -601,70 +618,126 @@ export default function PrivateVideoRecording() {
     </View>
   );
 
-  // Full Screen Recording View
+  // ===== Full Screen Recording View with VisionCamera =====
   const FullScreenRecording = () => (
-    <View className="flex-1 bg-black justify-center items-center">
-      {/* Camera-like background */}
-      <View className="absolute inset-0 bg-black" />
-      
-      {/* Camera type indicator (Front camera only) */}
+    <View style={StyleSheet.absoluteFill} className="bg-black">
+      {/* Camera feed – only render when device + permissions + format exist */}
+      {device && hasCamPerm && hasMicPerm && format ? (
+        <Camera
+  ref={cameraRef}
+  style={StyleSheet.absoluteFill}
+  device={device}
+  isActive={isFullScreen}
+  video
+  audio
+  format={format}
+  // The 'fps' and 'videoStabilizationMode' values are derived from the 'format' object.
+  // Do not pass them as separate props when a format is specified.
+  onInitialized={async () => {
+    setCameraReady(true);
+    if (pendingStart && !isRecording) {
+      setPendingStart(false);
+      await startRecordingNow();
+    }
+  }}
+  onError={(e) => {
+    console.warn("Camera error:", e);
+    setCameraReady(false);
+  }}
+/>
+      ) : (
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-white">
+            {(!device || !hasCamPerm || !hasMicPerm) ? "Requesting camera…" : "Choosing camera format…"}
+          </Text>
+        </View>
+      )}
+
+      {/* Right badge: camera type */}
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="camera" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
         <Text className="text-white text-sm">Front Camera</Text>
       </View>
-      
-      {/* AI Feedback (centered) */}
-      <AIFeedback />
-      
-      {/* Recording timer and status */}
+
+      {/* Left badge: status + timer */}
       <View className="absolute top-[60px] left-[24px] bg-black/50 px-3 py-1.5 rounded-full z-10">
         <View className="flex-row items-center">
-          <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
-          <Text className="text-white text-sm">Recording</Text>
-          <Text className="text-white/70 text-sm ml-2">02:45</Text>
+          <View
+            style={{ opacity: isRecording ? (Math.floor(elapsedMs / 500) % 2 ? 1 : 0.3) : 1 }}
+            className="w-2 h-2 bg-red-500 rounded-full mr-2"
+          />
+          {isRecording ? (
+            <>
+              <Text className="text-white text-sm">REC</Text>
+              <Text className="text-white/90 text-sm ml-6 font-semibold">
+                {formatTime(elapsedMs)}
+              </Text>
+            </>
+          ) : (
+            <Text className="text-white text-sm">{cameraReady ? "Ready" : "Initializing…"}</Text>
+          )}
         </View>
       </View>
-      
-      {/* Stop button */}
+
+      {/* AI Feedback */}
+      <AIFeedback />
+
+      {/* Bottom control: Start or Stop */}
+      {!isRecording ? (
         <TouchableOpacity
-          className="absolute bottom-10 w-[70px] h-[70px] rounded-full bg-white justify-center items-center z-10"
-          onPress={() => {
-            setIsRecording(false);
-            setShowContinueButton(true);
-
-            // Simulate the audio file path and expected text
-            const simulatedAudioFilePath = FileSystem.documentDirectory + `recording-${Date.now()}.wav`;
-            const simulatedExpectedText = "This is the expected text for comparison.";
-
-            // Call handleRecordingComplete
-            handleRecordingComplete(simulatedAudioFilePath, simulatedExpectedText);
-          }}
-          activeOpacity={0.7}
+          className="absolute bottom-10 w-[80px] h-[80px] rounded-full bg-white/90 justify-center items-center z-10 self-center"
+          onPress={startRecordingNow}
+          activeOpacity={0.8}
+          disabled={!cameraReady}
+        >
+          <View
+            className="w-[34px] h-[34px] rounded-full"
+            style={{ backgroundColor: cameraReady ? "#ef4444" : "#6b7280" }}
+          />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          className="absolute bottom-10 w-[80px] h-[80px] rounded-full bg-white justify-center items-center z-10 self-center"
+          onPress={stopRecording}
+          activeOpacity={0.8}
         >
           <View className="w-[30px] h-[30px] bg-red-500 rounded" />
-  </TouchableOpacity>
-      
+        </TouchableOpacity>
+      )}
+
       {/* Tip indicator */}
-      <View className="absolute bottom-[120px] flex-row items-center bg-black/50 px-3 py-2 rounded-full z-10">
-        <View className="flex-row items-center">
-          <Image 
-            source={require('../../../assets/tips.png')} 
-            className="w-4 h-4 bottom-0.5 mr-1"
-            resizeMode="contain"
-          />
-          <Text className="text-white text-xs">{tips[currentTipIndex]}</Text>
-        </View>
+      <View className="absolute bottom-[120px] self-center flex-row items-center bg-black/50 px-3 py-2 rounded-full z-10">
+        <Image
+          source={require("../../../assets/tips.png")}
+          className="w-4 h-4 bottom-0.5 mr-1"
+          resizeMode="contain"
+        />
+        <Text className="text-white text-xs">{tips[currentTipIndex]}</Text>
       </View>
     </View>
   );
 
+  // ===== Page content =====
+  const getActiveTab = (): string => {
+    if (pathname.includes("StudentScreen/HomePage/home-page")) return "Home";
+    if (
+      pathname.includes("exercise-speaking") ||
+      pathname.includes("basic-contents") ||
+      pathname.includes("advanced-contents") ||
+      pathname.includes("private-video-recording")
+    )
+      return "Speaking";
+    if (pathname.includes("basic-exercise-reading") || pathname.includes("advance-execise-reading"))
+      return "Reading";
+    if (pathname.includes("community-selection") || pathname.includes("community"))
+      return "Community";
+    return "Speaking";
+  };
+  const activeTab = getActiveTab();
+
   return (
     <View className="flex-1 bg-[#0F172A] relative">
-      <StatusBar 
-        barStyle="light-content" 
-        backgroundColor="transparent"
-        translucent={true}
-      />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
       {/* Profile Menu */}
@@ -672,7 +745,6 @@ export default function PrivateVideoRecording() {
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
         user={{
-          // 👇 dynamic user (fallback preserved)
           name: fullName || "Student",
           email: userEmail || "",
           image: avatarUri ? { uri: avatarUri } : PROFILE_PIC,
@@ -688,134 +760,130 @@ export default function PrivateVideoRecording() {
         onViewAIAnalysis={handleViewAIAnalysis}
         onDownloadVideo={downloadVideo}
       />
-      
-      {/* Completion Modal */}
-              <CompletionModal
-              visible={showCompletionModal}
-              showResultsPrompt={showResultsPrompt}
-              isProcessing={isProcessing}
-              audioFile={selectedAudioFile} // Pass the audio file here
-              expectedText={expectedText} // Pass the expected text here
-              onClose={() => setShowCompletionModal(false)}
-              onLater={() => setShowCompletionModal(false)}
-              onSeeResults={() => {
-                setShowCompletionModal(false);
-                router.push("StudentScreen/SpeakingExercise/full-results-speaking");
-              }}
-            />
-      
+
+      {/* Completion Modal (kept) */}
+      <CompletionModal
+        visible={showCompletionModal}
+        showResultsPrompt={showResultsPrompt}
+        isProcessing={isProcessing}
+        audioFile={selectedAudioFile}
+        expectedText={expectedText}
+        onClose={() => setShowCompletionModal(false)}
+        onLater={() => setShowCompletionModal(false)}
+        onSeeResults={() => {
+          setShowCompletionModal(false);
+          router.push("StudentScreen/SpeakingExercise/full-results-speaking");
+        }}
+      />
+
       <LivesessionCommunityModal
         visible={showCommunityModal}
         onDismiss={() => setShowCommunityModal(false)}
         onSelectOption={handleCommunitySelect}
       />
 
-      {/* Level Selection Modal */}
-
-
+      {/* Fullscreen recorder */}
       {isFullScreen ? (
         <FullScreenRecording />
       ) : (
         <>
-            {/* Make the entire screen scrollable */}
-                    <ScrollView
-                      className="flex-1"
-                      contentContainerClassName="pb-20"
-                      showsVerticalScrollIndicator={false}
-                      keyboardShouldPersistTaps="handled"
-                    >
-                      {/* Header - Fixed at the top */}
-                      <View className="pt-2 px-5 z-10">
-                        <Header />
-                      </View>
-          
-                      {/* Main content */}
-                      <View className="flex-1 px-5 w-full max-w-[500px] mx-auto">
-                        <View className="w-full mb-4">
-                          <View className="mb-4">
-                            <Text className="text-white text-2xl font-bold mb-1">
-                            Live Video Recording
-                            </Text>
-                            <Text className="text-gray-300 text-sm text-justify">
-                            Record your Live presentation and receive real-time AI Powered
-                            feedback and analysis.
-                            </Text>
-                          </View>
-                        </View>
-          
-                        <View className="w-full bg-white/5 rounded-2xl shadow-xl mb-1 overflow-hidden border border-gray-700/30">
-                          <View className="flex-row items-center justify-between px-4 py-2 bg-gray-800/50">
-                            <View className="flex-row items-center space-x-4">
-                              <View className="flex-row items-center">
-                                <Ionicons name="people" size={14} color="#FFFFFF" />
-                                <Text className="text-gray-300 text-xs ml-1">25</Text>
-                              </View>
-                              <View className="flex-row items-center">
-                                <Ionicons name="mic" size={14} color="#FFFFFF" />
-                                <Text className="text-gray-300 text-xs ml-1">Active</Text>
-                              </View>
-                            </View>
-                            <View className="flex-row items-center space-x-1">
-                              <View className="flex-row items-center space-x-1">
-                                <View className="w-2 h-2 bg-red-500 rounded-full" />
-                                <Text className="text-gray-300 text-xs">LIVE</Text>
-                              </View>
-                            </View>
-                          </View>
-                          
-                          {/* Video Container */}
-                          <View className="w-full aspect-[4/3] bg-gray-900 border border-white/30 relative items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-black/30">
-                            {!isRecording && (
-                              <View className="absolute">
-                                <Animated.View
-                                  style={{ transform: [{ scale: pulseAnim }] }}
-                                >
-                                  <TouchableOpacity
-                                    onPress={() => setIsRecording(true)}
-                                    className="w-16 h-16 rounded-full items-center justify-center bg-gradient-to-br from-red-600 to-indigo-700 border-2 border-red-500"
-                                    activeOpacity={0.8}
-                                  >
-                                    <Ionicons name="videocam" size={24} color="#FF0000" />
-                                  </TouchableOpacity>
-                                </Animated.View>
-                              </View>
-                            )}
-          
-                            <Text className={`absolute ${isRecording ? 'bottom-4' : 'bottom-8'} self-center text-white text-xs bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-sm`}>
-                              {isRecording ? "Recording in progress" : "Tap to start recording"}
-                            </Text>
-                          </View>
-          
-                          {showContinueButton && (
-                            <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
-                              <TouchableOpacity
-                                onPress={() => setShowEndSessionModal(true)}
-                                className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
-                              >
-                                <Text className="text-white font-semibold">Continue</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => setShowContinueButton(false)}
-                                className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
-                              >
-                                <Text className="text-white">Cancel</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-                        </View>
-          
-                        {/* Status Row */}
-                        <StatusRow />
-                      </View>
-                    </ScrollView>
-          
-                    {/* Shared NavigationBar added with defaultActiveTab="Speaking" */}
-                    <NavigationBar defaultActiveTab="Speaking" />
-                  </>
-                )}
-          
-                {/* Level Selection Modal */}
+          <ScrollView
+            className="flex-1"
+            contentContainerClassName="pb-20"
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header */}
+            <View className="pt-2 px-5 z-10">
+              <Header />
+            </View>
 
+            {/* Main content */}
+            <View className="flex-1 px-5 w-full max-w-[500px] mx-auto">
+              <View className="w-full mb-4">
+                <View className="mb-4">
+                  <Text className="text-white text-2xl font-bold mb-1">Live Video Recording</Text>
+                  <Text className="text-gray-300 text-sm text-justify">
+                    Record your Live presentation and receive real-time AI Powered feedback and analysis.
+                  </Text>
+                </View>
               </View>
-            );
-          }
+
+              <View className="w-full bg-white/5 rounded-2xl shadow-xl mb-1 overflow-hidden border border-gray-700/30">
+                <View className="flex-row items-center justify-between px-4 py-2 bg-gray-800/50">
+                  <View className="flex-row items-center space-x-4">
+                    <View className="flex-row items-center">
+                      <Ionicons name="people" size={14} color="#FFFFFF" />
+                      <Text className="text-gray-300 text-xs ml-1">25</Text>
+                    </View>
+                    <View className="flex-row items-center">
+                      <Ionicons name="mic" size={14} color="#FFFFFF" />
+                      <Text className="text-gray-300 text-xs ml-1">Active</Text>
+                    </View>
+                  </View>
+                  <View className="flex-row items-center space-x-1">
+                    <View className="flex-row items-center space-x-1">
+                      <View className="w-2 h-2 bg-red-500 rounded-full" />
+                      <Text className="text-gray-300 text-xs">LIVE</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Video Container / Start Button that opens fullscreen */}
+                <View className="w-full aspect-[4/3] bg-gray-900 border border-white/30 relative items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-black/30">
+                  {!isRecording && (
+                    <View className="absolute">
+                      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                        <TouchableOpacity
+                          onPress={startFullScreenRecording}
+                          className="w-16 h-16 rounded-full items-center justify-center bg-gradient-to-br from-red-600 to-indigo-700 border-2 border-red-500"
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="videocam" size={24} color="#FF0000" />
+                        </TouchableOpacity>
+                      </Animated.View>
+                    </View>
+                  )}
+
+                  <Text
+                    className={`absolute ${isRecording ? "bottom-4" : "bottom-8"} self-center text-white text-xs bg-black/60 px-4 py-1.5 rounded-full backdrop-blur-sm`}
+                  >
+                    {isRecording ? "Recording in progress" : "Tap to start recording"}
+                  </Text>
+                </View>
+
+                {/* After stop -> Continue / Cancel */}
+                {showContinueButton && (
+                  <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
+                    <TouchableOpacity
+                      onPress={() => setShowEndSessionModal(true)}
+                      className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
+                    >
+                      <Text className="text-white font-semibold">Continue</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowContinueButton(false);
+                        setRecordedVideoPath(null);
+                      }}
+                      className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
+                    >
+                      <Text className="text-white">Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* Status Row */}
+              <StatusRow />
+            </View>
+          </ScrollView>
+
+          <NavigationBar defaultActiveTab="Speaking" />
+        </>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({});

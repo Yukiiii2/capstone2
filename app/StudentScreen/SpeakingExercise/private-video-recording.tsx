@@ -26,14 +26,9 @@ import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
-// 🎯 NEW: completion modal (keeps your existing UI style)
-import CompletionModal from "@/components/StudentModal/CompletionModal";
-import { RNFFmpeg } from "react-native-ffmpeg";
-
 
 // 🎙️ audio-only (no expo-camera)
 import { Audio } from "expo-av";
-import axios from "axios";
 
 /* ---------- Version-safe Audio Mode helpers ---------- */
 async function setAudioModeCompatRecording() {
@@ -131,9 +126,7 @@ export default function PrivateVideoRecording() {
   const module_title_raw = normalizeParam(params.module_title);
   const level = normalizeParam(params.level);
   const display = normalizeParam(params.display);
-  const [feedback, setFeedback] = useState<any>(null);
-  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
-  const [expectedText, setExpectedText] = useState<string | null>(null);
+
   const module_title = module_title_raw
     ? (() => {
         try {
@@ -167,11 +160,6 @@ export default function PrivateVideoRecording() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
-
-  // 🔥 NEW: completion modal state
-  const [showCompletionModal, setShowCompletionModal] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
 
   // avatar
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -399,68 +387,33 @@ export default function PrivateVideoRecording() {
       return false;
     }
   };
-  const handleRecordingComplete = async (audioFilePath: string, text: string) => {
-  try {
-    // Directly use the audio file path (URI) without converting to Blob
-    const audioFile = {
-      uri: audioFilePath,
-      name: `recording-${Date.now()}.wav`,
-      type: "audio/wav",
-    };
 
-    // Set the audio file and expected text
-    setSelectedAudioFile(audioFile as any); // TypeScript may require a cast here
-    setExpectedText(text);
+  const stopAudioRecording = async () => {
+    try {
+      const rec = audioRecordingRef.current;
+      if (!rec) return null;
 
-    // Show the CompletionModal
-    setShowCompletionModal(true);
-  } catch (error) {
-    console.error("Error handling recording completion:", error);
-    Alert.alert("Error", "Failed to process the recording. Please try again.");
-  }
-};
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      audioRecordingRef.current = null;
 
- const stopAudioRecording = async () => {
-  try {
-    const rec = audioRecordingRef.current;
-    if (!rec) return null;
+      stopTimer();
+      setIsRecording(false);
 
-    await rec.stopAndUnloadAsync();
-    const uri = rec.getURI();
-    audioRecordingRef.current = null;
-
-    stopTimer();
-    setIsRecording(false);
-
-    if (uri) {
-      setRecordedUri(uri);
-      setShowContinueButton(true);
-
-      // Convert to WAV format
-      const wavUri = `${FileSystem.documentDirectory}recording-${Date.now()}.wav`;
-      const result = await RNFFmpeg.execute(
-        `-i ${uri} -acodec pcm_s16le -ar 44100 -ac 2 ${wavUri}`
-      );
-
-      if (result === 0) {
-        console.log("File converted to WAV:", wavUri);
-        handleRecordingComplete(wavUri, "This is the expected text for comparison.");
-      } else {
-        console.error("Failed to convert file to WAV");
-        Alert.alert("Error", "Failed to convert recording to WAV format.");
+      if (uri) {
+        setRecordedUri(uri);
+        setShowContinueButton(true);
       }
+
+      await setAudioModeCompatIdle();
+
+      return uri;
+    } catch (e) {
+      stopTimer();
+      setIsRecording(false);
+      return null;
     }
-
-    await setAudioModeCompatIdle();
-
-    return uri;
-  } catch (e) {
-    stopTimer();
-    setIsRecording(false);
-    console.error("Error stopping audio recording:", e);
-    return null;
-  }
-};
+  };
 
   // ---------- Upload (same as live; m4a into 'recordings') ----------
   const uploadRecording = async () => {
@@ -628,6 +581,7 @@ export default function PrivateVideoRecording() {
   // ===== Fullscreen "recording" view (audio overlays to match live) =====
   const FullScreenRecording = () => (
     <View className="flex-1 bg-black justify-center items-center">
+      {/* No camera preview; we keep the same HUD feel */}
       {hasPerms ? null : (
         <View
           style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}
@@ -638,6 +592,7 @@ export default function PrivateVideoRecording() {
         </View>
       )}
 
+      {/* Indicator */}
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="mic" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
         <Text className="text-white text-sm">Microphone Active</Text>
@@ -645,6 +600,7 @@ export default function PrivateVideoRecording() {
 
       <AIFeedback />
 
+      {/* Timer */}
       <View className="absolute top-[60px] left-[24px] bg-black/50 px-3 py-1.5 rounded-full z-10">
         <View className="flex-row items-center">
           <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
@@ -653,6 +609,7 @@ export default function PrivateVideoRecording() {
         </View>
       </View>
 
+      {/* Stop */}
       <TouchableOpacity
         className="absolute bottom-10 w-[70px] h-[70px] rounded-full bg-white justify-center items-center z-10"
         onPress={async () => {
@@ -664,6 +621,7 @@ export default function PrivateVideoRecording() {
         <View className="w-[30px] h-[30px] bg-red-500 rounded" />
       </TouchableOpacity>
 
+      {/* Tip pill */}
       <View className="absolute bottom-[120px] flex-row items-center bg-black/50 px-3 py-2 rounded-full z-10">
         <View className="flex-row items-center">
           <Image
@@ -690,101 +648,10 @@ export default function PrivateVideoRecording() {
     else if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
-  // 🔁 OPEN COMPLETION MODAL (process → results)
-  const fetchStudentId = async () => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      console.error("User is not logged in.");
-      Alert.alert("Error", "You must be logged in to access this feature.");
-      return null;
-    }
-
-    const token = session.access_token;
-
-    const response = await axios.get("http://192.168.1.113:8000/user-info", {
-      headers: {
-        Authorization: `Bearer ${token}`, // Include the token in the Authorization header
-      },
-    });
-
-    console.log("Fetched student ID:", response.data.id);
-    return response.data.id; // Return the student_id
-  } catch (error) {
-    console.error("Error fetching student ID:", error);
-    Alert.alert("Error", "Failed to fetch user information. Please try again.");
-    return null;
-  }
-};
-
-const handleViewAIAnalysis = async () => {
-  if (!selectedAudioFile) {
-    Alert.alert("Error", "No audio file found. Please record a session first.");
-    return;
-  }
-
-  setShowEndSessionModal(false);
-  setShowCompletionModal(true);
-  setIsProcessing(true);
-
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      throw new Error("User is not logged in.");
-    }
-
-    const token = session.access_token;
-
-    console.log("Sending audio file to /process-audio endpoint...");
-    const formData = new FormData();
-    formData.append("file", selectedAudioFile);
-    if (expectedText) formData.append("expected_text", expectedText);
-
-    const processAudioResponse = await axios.post(
-      "http://192.168.1.113:8000/process-audio",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}`, // Include the token in the Authorization header
-        },
-      }
-    );
-
-    console.log("Received response from /process-audio:", processAudioResponse.data);
-
-    const { transcription, spacy_stats } = processAudioResponse.data;
-
-    console.log("Sending transcription to /analyze-feedback endpoint...");
-    const analyzeFeedbackResponse = await axios.post(
-      "http://192.168.1.113:8000/analyze-feedback",
-      {
-        speech_text: transcription,
-        spacy_stats,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`, // Include the token in the Authorization header
-        },
-      }
-    );
-
-    console.log("Received response from /analyze-feedback:", analyzeFeedbackResponse.data);
-
-    setFeedback(analyzeFeedbackResponse.data);
-    setShowResultsPrompt(true);
-  } catch (error) {
-    console.error("Error processing audio or analyzing feedback:", error);
-    Alert.alert(
-      "Error",
-      "An error occurred while processing the audio or analyzing feedback. Please try again."
-    );
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  const handleViewAIAnalysis = () => {
+    setShowEndSessionModal(false);
+    pushWithCtx("/full-results-speaking", uploadUrl ? { media_url: uploadUrl } : {});
+  };
 
   // Save to gallery (works with audio files too)
   const downloadVideo = async () => {
@@ -873,35 +740,14 @@ const handleViewAIAnalysis = async () => {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
-      {/* End Session actions (unchanged UI) */}
       <EndSessionModal
         visible={showEndSessionModal}
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis}   // 🔁 opens completion flow
+        onViewAIAnalysis={handleViewAIAnalysis}
         onDownloadVideo={downloadVideo}
       />
-
-      {/* Completion: analyze → see results */}
-      <CompletionModal
-        visible={showCompletionModal}
-        isProcessing={isProcessing}
-        showResultsPrompt={showResultsPrompt}
-        onClose={() => setShowCompletionModal(false)}
-        onLater={() => setShowCompletionModal(false)}
-        onSeeResults={() => {
-          setShowCompletionModal(false);
-          // ✅ ABSOLUTE route; pass context + local/cloud URIs
-          router.push({
-            pathname: "/StudentsScreen/SpeakingExercise/full-results-speaking",
-            params: {
-              ...moduleCtx,
-              local_uri: recordedUri ?? "",
-              media_url: uploadUrl ?? "",
-            },
-          });
-        } } audioFile={null} expectedText={null}      />
 
       <LivesessionCommunityModal
         visible={showCommunityModal}
