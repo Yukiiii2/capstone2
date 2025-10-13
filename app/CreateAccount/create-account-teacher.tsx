@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,6 @@ import {
   Dimensions,
   Modal,
   TouchableWithoutFeedback,
-  ImageSourcePropType,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -25,28 +24,20 @@ import {
 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import * as FileSystem from "expo-file-system"; // ⬅️ added
-import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
+import * as FileSystem from "expo-file-system";
+import { supabase } from "@/lib/supabaseClient";
 
-// Custom alert implementation that matches the design
+// ---------- helpers ----------
 const showCustomAlert = (title: string, message: string) => {
-  Alert.alert(
-    title,
-    message,
-    [
-      {
-        text: "OK",
-        style: "cancel",
-      },
-    ],
-    {
-      cancelable: true,
-      userInterfaceStyle: "dark",
-    }
-  );
+  Alert.alert(title, message, [{ text: "OK", style: "cancel" }], {
+    cancelable: true,
+    userInterfaceStyle: "dark",
+  });
 };
 
 const { width } = Dimensions.get("window");
+
+// Teacher-specific verification options
 const VERIFICATION_OPTIONS = [
   {
     id: "teacherId",
@@ -80,10 +71,22 @@ const VERIFICATION_OPTIONS = [
   },
 ];
 
-// ⬅️ added
+// Use your storage bucket
 const BUCKET = "verify-docs";
 
+// Types
+type FormData = {
+  firstName: string;
+  lastName: string;
+  mobileNumber: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  schoolUniversity: string;
+};
+
 export default function CreateAccountTeacher() {
+  // ---------- state ----------
   const [formData, setFormData] = useState<FormData>({
     firstName: "",
     lastName: "",
@@ -94,33 +97,25 @@ export default function CreateAccountTeacher() {
     schoolUniversity: "",
   });
 
-  const [selectedVerificationType, setSelectedVerificationType] =
-    useState<string>("");
+  // Form state
+  const [selectedVerificationType, setSelectedVerificationType] = useState<string>("");
   const [verificationFile, setVerificationFile] = useState<string | null>(null);
-  const [showVerificationDropdown, setShowVerificationDropdown] =
-    useState(false);
+  const [showVerificationDropdown, setShowVerificationDropdown] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  
+  // UI state
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  // State for password visibility - true means password is hidden (secure)
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
+  
+  // Refs and other hooks
   const scrollViewRef = useRef<ScrollView>(null);
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const [hasSubmitted, setHasSubmitted] = useState(false);
-
-  type FormData = {
-    firstName: string;
-    lastName: string;
-    mobileNumber: string;
-    email: string;
-    password: string;
-    confirmPassword: string;
-    schoolUniversity: string;
-  };
-
+  // Form field type for rendering form inputs
   type FormField = {
     icon: string;
     label: string;
@@ -128,6 +123,8 @@ export default function CreateAccountTeacher() {
     key: keyof FormData;
     type: "text" | "email" | "password";
     secure: boolean;
+    maxLength?: number;
+    format?: (text: string) => string;
   };
 
   React.useEffect(() => {
@@ -137,6 +134,27 @@ export default function CreateAccountTeacher() {
       useNativeDriver: true,
     }).start();
   }, [fadeAnim, activeStep]);
+
+  const pickVerificationDocument = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: false,
+        quality: 0.8,
+        exif: false,
+        base64: false,
+        videoMaxDuration: 0,
+        selectionLimit: 1,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setVerificationFile(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      showCustomAlert("Error", "Failed to pick image. Please try again.");
+    }
+  };
 
   const pickImage = async () => {
     try {
@@ -237,6 +255,16 @@ export default function CreateAccountTeacher() {
     );
   };
 
+  // Handle back navigation
+  const handleBack = () => {
+    if (activeStep > 0) {
+      setActiveStep(activeStep - 1);
+      scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
+    } else {
+      router.back();
+    }
+  };
+
   const handleNext = () => {
     if (activeStep === 0 && !validateStep(0)) {
       return; // Don't proceed if validation fails
@@ -255,12 +283,6 @@ export default function CreateAccountTeacher() {
     }
   };
 
-  const handleBack = () => {
-    if (activeStep > 0) {
-      setActiveStep(activeStep - 1);
-      scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
-    }
-  };
 
   // Check if all required fields are filled
   const isFormComplete = () => {
@@ -335,46 +357,6 @@ export default function CreateAccountTeacher() {
       return objectPath;
     } catch (e: any) {
       console.log("Upload verification error:", e?.message || e);
-      return null;
-    }
-  };
-
-  // ⬅️ added — ensure a permanent class code exists and mirror it on profiles.class_code
-  const ensureClassCodeForTeacher = async (userId: string): Promise<string | null> => {
-    try {
-      // 1) call RPC to ensure a permanent code exists (returns the class_codes row)
-      const { data: codeRow, error: rpcErr } = await supabase.rpc(
-        "ensure_permanent_class_code",
-        { p_teacher: userId }
-      );
-      if (rpcErr) {
-        console.log("RPC ensure_permanent_class_code error:", rpcErr.message);
-        // even if RPC failed, try to read from profiles if trigger already set it
-      }
-
-      // 2) read the code from profiles (trigger should have copied it)
-      const { data: prof, error: profErr } = await supabase
-        .from("profiles")
-        .select("class_code, name")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (profErr) {
-        console.log("profiles read error:", profErr.message);
-      }
-
-      const code =
-        prof?.class_code ||
-        (codeRow && typeof codeRow.code === "string" ? codeRow.code : null);
-
-      // 3) if we got one from RPC but profiles.class_code is empty (old rows), mirror it
-      if (code && !prof?.class_code) {
-        await supabase.from("profiles").update({ class_code: code }).eq("id", userId);
-      }
-
-      return code || null;
-    } catch (e: any) {
-      console.log("ensureClassCodeForTeacher error:", e?.message || e);
       return null;
     }
   };
@@ -465,25 +447,6 @@ export default function CreateAccountTeacher() {
         return;
       }
 
-      // 6) ⬅️ NEW: ensure a permanent class code now (for immediate use when email confirmations are OFF)
-      const code = await ensureClassCodeForTeacher(userId);
-
-      // 7) ⬅️ OPTIONAL: attempt to email the code via an Edge Function (ignore errors if not deployed)
-      if (code) {
-        try {
-          await supabase.functions.invoke("send-class-code", {
-            body: { user_id: userId },
-          });
-        } catch {
-          // ignore if function isn't deployed yet
-        }
-        // also show it to the teacher right away (non-UI-blocking)
-        showCustomAlert(
-          "Your Class Code",
-          `Share this code with your students:\n\n${code}`
-        );
-      }
-
       setActiveStep(2);
     } catch (error: any) {
       showCustomAlert(
@@ -555,22 +518,20 @@ export default function CreateAccountTeacher() {
       case 0:
         return (
           <Animated.View
-            style={[
-              {
-                opacity: fadeAnim,
-                backgroundColor: "rgba(30, 41, 59, 0.7)",
-                borderRadius: 20,
-                padding: 14,
-                marginBottom: 30,
-                marginTop: -25,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 10,
-                borderWidth: 1,
-                borderColor: "rgba(255, 255, 255, 0.1)",
-              },
-            ]}
+            style={{
+              opacity: fadeAnim,
+              backgroundColor: "rgba(30, 41, 59, 0.7)",
+              borderRadius: 20,
+              padding: 14,
+              marginBottom: 30,
+              marginTop: 10,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.1)",
+            }}
             className="space-y-4"
           >
             <View className="items-center mb-2">
@@ -793,7 +754,6 @@ export default function CreateAccountTeacher() {
             ))}
           </Animated.View>
         );
-
       case 1:
         return (
           <Animated.View
@@ -820,7 +780,7 @@ export default function CreateAccountTeacher() {
                 Teacher Verification
               </Text>
               <Text className="text-gray-400 text-center text-sm mb-4">
-                Step 2 of 2: Verify your teaching credentials
+                Step 2 of 2: Verify your teacher status
               </Text>
               {renderProgressBar()}
             </View>
@@ -856,7 +816,7 @@ export default function CreateAccountTeacher() {
 
                 <Modal
                   visible={showVerificationDropdown}
-                  transparent={true}
+                  transparent
                   animationType="fade"
                   onRequestClose={() => setShowVerificationDropdown(false)}
                 >
@@ -882,11 +842,9 @@ export default function CreateAccountTeacher() {
                               }}
                             >
                               <MaterialCommunityIcons
-                                name={
-                                  option.icon as keyof typeof MaterialCommunityIcons.glyphMap
-                                }
+                                name={option.icon as any}
                                 size={20}
-                                color="#FFFFFF"
+                                color="#A78BFA"
                               />
                               <Text className="text-white text-sm">
                                 {option.label}
@@ -901,7 +859,7 @@ export default function CreateAccountTeacher() {
               </View>
 
               {selectedVerificationType && (
-                <View className="space-y-4">
+                <View className="space-y-4 mt-4">
                   <View className="space-y-2">
                     <View>
                       <Text className="text-white text-xs mb-1">
@@ -955,7 +913,7 @@ export default function CreateAccountTeacher() {
                             </TouchableOpacity>
                             <TouchableOpacity
                               className="bg-white/20 p-1 rounded"
-                              onPress={pickImage}
+                              onPress={pickVerificationDocument}
                             >
                               <Ionicons
                                 name="refresh"
@@ -969,7 +927,7 @@ export default function CreateAccountTeacher() {
                     ) : (
                       <TouchableOpacity
                         className="bg-violet-600/20 border border-dashed border-violet-400/30 rounded-lg p-6 items-center active:bg-violet-600/30"
-                        onPress={pickImage}
+                        onPress={pickVerificationDocument}
                       >
                         <View className="flex-row items-center">
                           <Ionicons
@@ -982,7 +940,7 @@ export default function CreateAccountTeacher() {
                           </Text>
                         </View>
                         <Text className="text-gray-400 text-[12px] mt-2">
-                          JPG, PNG, PDF (Max 5MB)
+                          JPG, PNG (Max 5MB)
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -1015,13 +973,14 @@ export default function CreateAccountTeacher() {
                         </Text>
                       </View>
                     </View>
+
+                    {/* Buttons removed as per request */}
                   </View>
                 </View>
               )}
             </View>
           </Animated.View>
         );
-
       case 2:
         return (
           <Animated.View
@@ -1150,15 +1109,7 @@ export default function CreateAccountTeacher() {
   };
 
   const BackgroundDecor = () => (
-    <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
-      <View className="absolute left-0 right-0 top-0 bottom-0">
-        <LinearGradient
-          colors={["#0F172A", "#1E293B", "#0F172A"]}
-          className="flex-1"
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-      </View>
+    <View className="absolute top-0 left-0 right-0 bottom-0">
       <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
       <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
       <View className="absolute bottom-[100px] left-[50px] w-9 h-9 bg-[#a78bfa]/10 rounded-full" />
@@ -1181,11 +1132,11 @@ export default function CreateAccountTeacher() {
           className="flex-1 px-5 pt-6 pb-2"
           contentContainerStyle={{ paddingBottom: 16 }}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={false}
+          keyboardShouldPersistTaps="handled"
           style={{ zIndex: 1 }}
         >
-          {/* Header with logo and app name */}
-          <View className="flex-row justify-between bottom-0.1 items-center mb-7 w-full">
+          {/* Header */}
+          <View className="flex-row justify-between top-3 items-center mb-7 w-full">
             <TouchableOpacity
               className="flex-row items-center"
               onPress={() => router.push("/")}
@@ -1220,50 +1171,7 @@ export default function CreateAccountTeacher() {
                 )}
               </TouchableOpacity>
 
-              <View className="mt-6">
-                <View className="flex-row items-center my-4">
-                  <View className="flex-1 h-px bottom-16 bg-white/20" />
-                  <Text className="text-gray-400 text-xs bottom-16 font-medium px-3">
-                    or continue with
-                  </Text>
-                  <View className="flex-1 h-px bottom-16 bg-white/20" />
-                </View>
-
-                <View className="items-center">
-                  <TouchableOpacity
-                    className="flex-row items-center justify-center w-full max-w-[320px] bg-white/10 bottom-16 border border-white/20 rounded-lg py-3 mb-3"
-                    onPress={() => console.log("Google Sign In")}
-                  >
-                    <Image
-                      source={require("../../assets/Google.png")}
-                      className="w-5 h-5 mr-3"
-                    />
-                    <Text className="text-white font-medium">
-                      Continue with Google
-                    </Text>
-                  </TouchableOpacity>
-                  {showVerificationDropdown && (
-                    <View className="absolute top-full left-0 right-0 mt-1 bg-[#1e293b] border border-white/20 rounded-lg overflow-hidden">
-                      {VERIFICATION_OPTIONS.map((option) => (
-                        <TouchableOpacity
-                          key={option.id}
-                          className="flex-row items-center px-4 py-3 space-x-3 hover:bg-white/5"
-                          onPress={() => {
-                            setSelectedVerificationType(option.id);
-                            setShowVerificationDropdown(false);
-                          }}
-                        >
-                          <MaterialCommunityIcons
-                            name={option.icon as any}
-                            size={20}
-                            color="#94a3b8"
-                          />
-                          <Text className="text-gray-200">{option.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
+              <View className="bottom-6">
                 <Text className="text-gray-400 text-xs text-center mt-2">
                   Already have an account?{" "}
                   <Text
@@ -1279,7 +1187,7 @@ export default function CreateAccountTeacher() {
 
           {activeStep === 1 && (
             <View
-              className="mt-6 top-2.5 space-y-3"
+              className="mt-6 top-4 space-y-3"
               style={{ position: "relative", zIndex: 1 }}
             >
               <TouchableOpacity
@@ -1302,49 +1210,11 @@ export default function CreateAccountTeacher() {
               </TouchableOpacity>
               <TouchableOpacity
                 className="py-3 rounded-lg items-center justify-center -top-10 w-full max-w-[320px] mx-auto bg-white/10 border border-white/20 active:bg-white/20"
-                style={{ zIndex: 1 }}
                 onPress={handleBack}
+                disabled={loading}
               >
-                <Text className="text-white font-medium text-base">
-                  Previous
-                </Text>
+                <Text className="text-white font-semibold text-base">Back</Text>
               </TouchableOpacity>
-            </View>
-          )}
-
-          {activeStep === 0 && (
-            <View className="mt-6">
-              <View className="flex-row bottom-16 items-center my-4">
-                <View className="flex-1  h-px bg-white/20" />
-                <Text className="text-gray-400 text-xs font-medium px-3">
-                  Continue with
-                </Text>
-                <View className="flex-1 h-px bg-white/20" />
-              </View>
-
-              <View className="items-center">
-                <TouchableOpacity
-                  className="flex-row items-center justify-center w-full bg-white/10 border border-white/20 bottom-16 rounded-lg py-3 mb-3"
-                  onPress={() => console.log("Google Sign In")}
-                >
-                  <Image
-                    source={require("../../assets/Google.png")}
-                    className="w-5 h-5 mr-3"
-                  />
-                  <Text className="text-white font-medium">
-                    Continue with Google
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <Text className="text-gray-400 text-xs text-center mt-2">
-                Already have an account?{" "}
-                <Text
-                  className="text-violet-300 font-medium"
-                  onPress={() => router.push("/login")}
-                >
-                  Sign in
-                </Text>
-              </Text>
             </View>
           )}
         </ScrollView>
