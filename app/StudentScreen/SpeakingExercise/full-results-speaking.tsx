@@ -34,22 +34,25 @@ type MetricBlock = {
 export default function FullResultsSpeaking() {
   const router = useRouter();
 
-  const { session_id, level, module_id, module_title, score } =
+  const { session_id, attempt_id, level, module_id, module_title, score } =
     useLocalSearchParams<{
       session_id?: string;
+      attempt_id?: string;
       level?: string;
       module_id?: string;
       module_title?: string;
       score?: string;
     }>();
 
-  // ---------- UI values you already render ----------
-  const uiScore = useMemo(() => {
+  // ---------- score (prop) with live override from feedback_ai ----------
+  const initialScore = useMemo(() => {
     const n = Number(score);
-    return Number.isFinite(n) ? clampPct(n) : 78; // default to your 78%
+    return Number.isFinite(n) ? clampPct(n) : 78;
   }, [score]);
+  const [liveScore, setLiveScore] = useState<number | null>(null);
+  const uiScore = liveScore ?? initialScore;
 
-  // we’ll resolve the current module (id/title/level/order) for saving and for “next module” calc
+  // current module (for saving progress + computing next module)
   const [currentModule, setCurrentModule] = useState<{
     id: string | null;
     title: string | null;
@@ -62,34 +65,114 @@ export default function FullResultsSpeaking() {
     order_index: null,
   });
 
-  const [nextModule, setNextModule] = useState<{
-    id: string | null;
-    title: string | null;
-  } | null>(null);
+  const [nextModule, setNextModule] = useState<{ id: string | null; title: string | null } | null>(
+    null
+  );
 
-  // optional: AI feedback list (same session)
+  // AI feedback (from feedback_ai.evaluation jsonb)
   const [loadingTips, setLoadingTips] = useState(false);
   const [tips, setTips] = useState<string[]>([]);
 
-  async function loadTips() {
-    if (!session_id) return;
+  // ---------- load tips & score from feedback_ai ----------
+  async function loadFeedbackFromAI() {
+    const keyId = attempt_id || session_id;
+    if (!keyId) return;
     try {
       setLoadingTips(true);
-      const { data } = await supabase
-        .from("ai_feedback")
-        .select("message")
-        .eq("session_id", session_id)
+      const col = attempt_id ? "attempt_id" : "session_id";
+      const { data, error } = await supabase
+        .from("feedback_ai")
+        .select("evaluation")
+        .eq(col, keyId)
         .order("created_at", { ascending: false })
         .limit(10);
-      setTips((data ?? []).map((r: any) => r.message));
+      if (error) throw error;
+
+      const newTips: string[] = [];
+      let latestScore: number | null = null;
+
+      (data ?? []).forEach((row: any) => {
+        const ev = row?.evaluation;
+        if (!ev) return;
+        const s =
+          typeof ev?.final_score === "number"
+            ? ev.final_score
+            : typeof ev?.score === "number"
+            ? ev.score
+            : null;
+        if (s != null && latestScore == null) latestScore = clampPct(s);
+
+        if (typeof ev?.summary === "string" && ev.summary.trim()) newTips.push(ev.summary.trim());
+        if (Array.isArray(ev?.tips)) {
+          ev.tips.forEach((t: any) => {
+            if (typeof t === "string" && t.trim()) newTips.push(t.trim());
+          });
+        }
+      });
+
+      if (latestScore != null) setLiveScore(latestScore);
+      if (newTips.length) setTips(newTips.slice(0, 10));
     } finally {
       setLoadingTips(false);
     }
   }
 
-  // ---------- helpers ----------
+  // ---------- realtime updates from feedback_ai ----------
+  useEffect(() => {
+    const keyId = attempt_id || session_id;
+    if (!keyId) return;
+    const filter = attempt_id ? `attempt_id=eq.${keyId}` : `session_id=eq.${keyId}`;
+
+    const channel = supabase
+      .channel(`feedback_ai:${keyId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "feedback_ai", filter },
+        (payload: any) => {
+          const ev = payload?.new?.evaluation;
+          if (!ev) return;
+
+          const s =
+            typeof ev?.final_score === "number"
+              ? ev.final_score
+              : typeof ev?.score === "number"
+              ? ev.score
+              : null;
+          if (s != null) setLiveScore(clampPct(s));
+
+          const collected: string[] = [];
+          if (typeof ev?.summary === "string" && ev.summary.trim()) collected.push(ev.summary.trim());
+          if (Array.isArray(ev?.tips)) {
+            ev.tips.forEach((t: any) => {
+              if (typeof t === "string" && t.trim()) collected.push(t.trim());
+            });
+          }
+          if (collected.length) {
+            setTips((prev) => {
+              const merged = [...collected, ...prev];
+              const seen = new Set<string>();
+              const unique = merged.filter((x) => {
+                const k = x.trim();
+                if (seen.has(k)) return false;
+                seen.add(k);
+                return true;
+              });
+              return unique.slice(0, 12);
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }, [attempt_id, session_id]);
+
+  // ---------- modules helpers ----------
   async function resolveModule() {
-    // If id/title not given, pick the first active speaking module for this level
     try {
       if (!currentModule.id || !currentModule.title) {
         const { data } = await supabase
@@ -100,7 +183,6 @@ export default function FullResultsSpeaking() {
           .eq("active", true)
           .order("order_index", { ascending: true })
           .limit(1);
-
         if (data && data.length) {
           const m = data[0];
           setCurrentModule({
@@ -111,7 +193,6 @@ export default function FullResultsSpeaking() {
           });
         }
       } else {
-        // fetch its order_index so we can compute "next"
         const { data } = await supabase
           .from("modules")
           .select("id, title, order_index")
@@ -126,7 +207,7 @@ export default function FullResultsSpeaking() {
         }
       }
     } catch {
-      // non-fatal
+      // no-op
     }
   }
 
@@ -143,51 +224,45 @@ export default function FullResultsSpeaking() {
         .order("order_index", { ascending: true })
         .limit(1);
 
-      if (data && data.length) {
-        setNextModule({ id: data[0].id, title: data[0].title });
-      } else {
-        setNextModule(null);
-      }
+      if (data && data.length) setNextModule({ id: data[0].id, title: data[0].title });
+      else setNextModule(null);
     } catch {
       setNextModule(null);
     }
   }
 
-  // Try to insert attempt (ignore if table/columns differ)
+  // ---------- attempts + progress ----------
   async function logAttempt(userId: string) {
     try {
-      await supabase
-        .from("attempts")
-        .insert([
-          {
-            user_id: userId,
-            module_id: currentModule.id,
-            score: clampPct(uiScore),
-            category: "speaking",
-            level: currentModule.level,
-          } as any,
-        ]);
+      await supabase.from("attempts").insert([
+        {
+          user_id: userId,
+          module_id: currentModule.id,
+          score: clampPct(uiScore),
+          category: "speaking",
+          level: currentModule.level,
+          session_id: session_id ?? null,
+          attempt_ref: attempt_id ?? null,
+        } as any,
+      ]);
     } catch (e) {
       console.log("[full-results] attempts insert skipped:", (e as any)?.message);
     }
   }
 
-  // Upsert per-module completion row in student_progress (tolerant to schema)
   async function upsertStudentProgress(userId: string) {
-    // 1) Mark this module completed (progress=1 for this module row)
     try {
       const payload: any = {
         user_id: userId,
         category: "speaking",
         level: currentModule.level,
         completed: true,
-        progress: 1, // per module row
+        progress: 1,
         updated_at: new Date().toISOString(),
       };
       if (currentModule.id) payload.module_id = currentModule.id;
       if (currentModule.title) payload.module = currentModule.title;
 
-      // Try upsert with common composite keys
       const { error } = await supabase
         .from("student_progress")
         .upsert(payload, {
@@ -195,7 +270,6 @@ export default function FullResultsSpeaking() {
         });
 
       if (error) {
-        // fallback: try simple insert then update
         const { data: existing } = await supabase
           .from("student_progress")
           .select("id")
@@ -215,7 +289,7 @@ export default function FullResultsSpeaking() {
       console.log("[full-results] student_progress upsert skipped:", (e as any)?.message);
     }
 
-    // 2) Optional aggregate: store “overall speaking progress” (0–1)
+    // aggregate overall % for this level
     try {
       const { data: allMods } = await supabase
         .from("modules")
@@ -273,7 +347,7 @@ export default function FullResultsSpeaking() {
     }
   }
 
-  // derived metrics (0..100)
+  // ---------- metrics derived from uiScore ----------
   const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
 
   function deriveMetricsFromScore(s: number): MetricBlock[] {
@@ -288,17 +362,20 @@ export default function FullResultsSpeaking() {
       { label: "Speaking Rate (WPM)", value: wpm, icon: "pulse", trend: "up", change: 0.6 },
     ];
   }
+  const recalcMetrics = (n: number) => setMetrics(deriveMetricsFromScore(n));
 
-  async function loadMetrics() {
-    setMetrics(deriveMetricsFromScore(uiScore));
-  }
+  // react to live score changes
+  useEffect(() => {
+    recalcMetrics(uiScore);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiScore]);
 
-  // Save results once per visit + load data
+  // initial load
   useEffect(() => {
     (async () => {
       await resolveModule();
-      await loadTips();
-      await loadMetrics();
+      await loadFeedbackFromAI();
+      recalcMetrics(initialScore);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -310,16 +387,15 @@ export default function FullResultsSpeaking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentModule.order_index, currentModule.id, currentModule.title]);
 
+  // save once
   const savedOnceRef = useRef(false);
   useEffect(() => {
     (async () => {
       if (savedOnceRef.current) return;
-      savedOnceRef.current = true;
-
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (!user) return;
-
+      savedOnceRef.current = true;
       await logAttempt(user.id);
       await upsertStudentProgress(user.id);
     })();
@@ -350,20 +426,11 @@ export default function FullResultsSpeaking() {
     router.replace("StudentScreen/HomePage/home-page");
   };
 
-  /**
-   * Background decoration component
-   */
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
-      {/* Gradient Background */}
       <View className="absolute inset-0">
-        <LinearGradient
-          colors={["#0F172A", "#1E293B", "#0F172A"]}
-          style={{ flex: 1 }}
-        />
+        <LinearGradient colors={["#0F172A", "#1E293B", "#0F172A"]} style={{ flex: 1 }} />
       </View>
-
-      {/* Decorative Circles */}
       <View className="absolute w-40 h-40 bg-[#a78bfa]/10 rounded-full -top-20 -left-20" />
       <View className="absolute w-24 h-24 bg-[#a78bfa]/10 rounded-full top-1/4 -right-12" />
       <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full top-1/3 -left-16" />
@@ -374,14 +441,21 @@ export default function FullResultsSpeaking() {
     </View>
   );
 
-  /* strengths & improvements — typed to fix trend comparisons */
   const strengths: StrengthItem[] = useMemo(() => {
     const arr = metrics ?? deriveMetricsFromScore(uiScore);
     return [
-      { skill: "Gestures",   level: clampPct(Math.max(70, arr[0].value)), trend: "up" },
-      { skill: "Pacing",     level: clampPct(Math.max(65, arr[3].value)), trend: "up" },
-      { skill: "Grammar",    level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))), trend: "up" },
-      { skill: "Engagement", level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))), trend: "up" },
+      { skill: "Gestures", level: clampPct(Math.max(70, arr[0].value)), trend: "up" },
+      { skill: "Pacing", level: clampPct(Math.max(65, arr[3].value)), trend: "up" },
+      {
+        skill: "Grammar",
+        level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))),
+        trend: "up",
+      },
+      {
+        skill: "Engagement",
+        level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))),
+        trend: "up",
+      },
     ];
   }, [metrics, uiScore]);
 
@@ -389,15 +463,22 @@ export default function FullResultsSpeaking() {
     const arr = metrics ?? deriveMetricsFromScore(uiScore);
     const sorted = [...arr].sort((a, b) => a.value - b.value).slice(0, 2);
     return [
-      { skill: sorted[0]?.label?.replace(" Score", "") || "Clarity",    level: clampPct(sorted[0]?.value ?? 60), trend: "down" },
-      { skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone", level: clampPct(sorted[1]?.value ?? 62), trend: "down" },
-      { skill: "Pronunciation",                                         level: clampPct(Math.round(uiScore * 0.7)), trend: "down" },
+      {
+        skill: sorted[0]?.label?.replace(" Score", "") || "Clarity",
+        level: clampPct(sorted[0]?.value ?? 60),
+        trend: "down",
+      },
+      {
+        skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone",
+        level: clampPct(sorted[1]?.value ?? 62),
+        trend: "down",
+      },
+      { skill: "Pronunciation", level: clampPct(Math.round(uiScore * 0.7)), trend: "down" },
     ];
   }, [metrics, uiScore]);
 
   return (
     <View className="flex-1 bg-gray-900">
-      {/* Full screen background with status bar cover */}
       <View className="absolute top-0 left-0 right-0 bottom-0 bg-gray-900">
         <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
         <View className="flex-1 bg-gray-900 pt-12">
@@ -407,29 +488,19 @@ export default function FullResultsSpeaking() {
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         <View className="w-full max-w-[1000px] self-center px-4">
-          {/* Header with back button only */}
           <View className="flex-row items-start w-full left-0.1 top-1 mt-4">
-            <TouchableOpacity
-              className="p-3 -ml-1"
-              onPress={() => router.back()}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity className="p-3 -ml-1" onPress={() => router.back()} activeOpacity={0.7}>
               <Ionicons name="arrow-back" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* AI Detailed Analysis Heading */}
         <View className="mx-4 mb-5 -mt-3">
-          <Text className="text-white font-bold text-xl text-center">
-            AI DETAILED ANALYSIS
-          </Text>
+          <Text className="text-white font-bold text-xl text-center">AI DETAILED ANALYSIS</Text>
         </View>
 
-        {/* Confidence Card */}
         <View className="mx-4 mb-6 p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20 shadow-2xl">
           <View className="flex-row items-start">
-            {/* Left side - Confidence Circle */}
             <View className="relative w-24 h-24 items-center justify-center top-5">
               <View className="w-20 h-20 items-center justify-center">
                 <View className="w-20 h-20 rounded-full border-4 border-[#8A5CFF] items-center justify-center">
@@ -447,31 +518,23 @@ export default function FullResultsSpeaking() {
               </View>
             </View>
 
-            {/* Right side - Details */}
             <View className="flex-1 ml-6">
-              <Text className="text-white font-semibold text-lg mb-2">
-                Speaking Proficiency
-              </Text>
+              <Text className="text-white font-semibold text-lg mb-2">Speaking Proficiency</Text>
               <Text className="text-sm text-gray-300 leading-relaxed">
-                Your speaking skills demonstrate strong command of language and
-                clear articulation. Focus on varying your tone for greater
-                impact.
+                Your speaking skills demonstrate strong command of language and clear articulation.
+                Focus on varying your tone for greater impact.
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Strengths & Improvements */}
         <View className="mx-4 flex-row space-x-4 mb-6">
-          {/* Strengths Card */}
           <View className="flex-1 p-4 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20">
             <View className="flex-row items-center mb-3">
               <View className="right-2.5 w-8 h-8 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
                 <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
               </View>
-              <Text className="right-3 text-white font-medium text-lg">
-                Key Strengths
-              </Text>
+              <Text className="right-3 text-white font-medium text-lg">Key Strengths</Text>
             </View>
             <View className="bottom-1 space-y-4 top-4">
               {strengths.map((item, i) => (
@@ -485,9 +548,7 @@ export default function FullResultsSpeaking() {
                         color={item.trend === "up" ? "#00FF00" : "#FF0000"}
                       />
                     </View>
-                    <Text className="text-xs text-[#FFFFFF]">
-                      {fmtPct(item.level)}
-                    </Text>
+                    <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <View
@@ -500,15 +561,12 @@ export default function FullResultsSpeaking() {
             </View>
           </View>
 
-          {/* Improvements Card */}
           <View className="flex-1 p-4 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20">
             <View className="flex-row items-center mb-3">
               <View className="bottom-2.5 right-2.5 w-8 h-8 rounded-lg bg-[#FFFFFF]/10 items-center justify-center mr-2">
                 <Ionicons name="trending-up" size={16} color="#FFFFFF" />
               </View>
-              <Text className="right-2 text-white font-medium text-base bottom-2">
-                Improvement Areas
-              </Text>
+              <Text className="right-2 text-white font-medium text-base bottom-2">Improvement Areas</Text>
             </View>
             <View className="bottom-1 space-y-4">
               {improvements.map((item, i) => (
@@ -522,10 +580,7 @@ export default function FullResultsSpeaking() {
                         color={item.trend === "up" ? "#00FF00" : "#FF0000"}
                       />
                     </View>
-                    {/* show "gap" as 100 - level for variety */}
-                    <Text className="text-xs text-[#FFFFFF]">
-                      {fmtPct(100 - item.level)}
-                    </Text>
+                    <Text className="text-xs text-[#FFFFFF]">{fmtPct(100 - item.level)}</Text>
                   </View>
                   <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <View
@@ -539,22 +594,16 @@ export default function FullResultsSpeaking() {
           </View>
         </View>
 
-        {/* Performance Breakdown */}
         <View className="mx-4 p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20 mb-6">
           <View className="mb-6">
-            <Text className="text-white font-semibold text-lg">
-              Performance Metrics
-            </Text>
-            <Text className="text-gray-400 text-sm">
-              Detailed analysis of your speaking performance
-            </Text>
+            <Text className="text-white font-semibold text-lg">Performance Metrics</Text>
+            <Text className="text-gray-400 text-sm">Detailed analysis of your speaking performance</Text>
           </View>
 
           <View className="space-y-6">
             {(metrics ?? []).map((item, i) => {
               const isPositive = item.trend === "up";
               const trendColor = isPositive ? "#10B981" : "#EF4444";
-
               return (
                 <View key={i} className="space-y-2">
                   <View className="flex-row justify-between items-center">
@@ -562,9 +611,7 @@ export default function FullResultsSpeaking() {
                       <View className="w-8 h-8 rounded-lg bg-white/10 items-center justify-center mr-3">
                         <Ionicons name={item.icon as any} size={16} color="#FFFFFF" />
                       </View>
-                      <Text className="text-gray-300 text-sm font-medium">
-                        {item.label}
-                      </Text>
+                      <Text className="text-gray-300 text-sm font-medium">{item.label}</Text>
                     </View>
                     <View className="flex-row items-center">
                       <Ionicons
@@ -599,8 +646,7 @@ export default function FullResultsSpeaking() {
           </View>
         </View>
 
-        {/* AI Feedback (session) */}
-        {!!session_id && (
+        {!!(attempt_id || session_id) && (
           <View className="mx-4 p-4 bg-white/5 rounded-2xl border border-white/20 mb-6">
             <View className="flex-row items-center mb-2">
               <Ionicons name="sparkles-outline" size={16} color="#FFFFFF" />
@@ -620,18 +666,15 @@ export default function FullResultsSpeaking() {
           </View>
         )}
 
-        {/* Call to Action */}
         <View className="mx-4 p-6 bg-white/5 rounded-3xl border border-white/20 mb-10 overflow-hidden">
           <View className="relative z-10">
             <View className="flex-row items-center justify-center mb-4">
-              <Text className="text-white font-semibold text-2xl">
-                Next Steps
-              </Text>
+              <Text className="text-white font-semibold text-2xl">Next Steps</Text>
             </View>
 
             <Text className="text-gray-200 text-center text-sm leading-relaxed mb-6">
-              Your speaking assessment is complete. Based on your performance,
-              we've identified key areas to focus on in your learning journey.
+              Your speaking assessment is complete. Based on your performance, we've identified key
+              areas to focus on in your learning journey.
             </Text>
 
             <View className="space-y-3 mb-6 top-2">
@@ -675,9 +718,7 @@ export default function FullResultsSpeaking() {
                 activeOpacity={0.9}
                 onPress={goRetake}
               >
-                <Text className="text-white font-semibold text-base">
-                  Retake
-                </Text>
+                <Text className="text-white font-semibold text-base">Retake</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -689,7 +730,6 @@ export default function FullResultsSpeaking() {
               </TouchableOpacity>
             </View>
 
-            {/* (Optional) you can show where the user goes next */}
             {nextModule?.title && (
               <View className="items-center mt-4">
                 <Text className="text-gray-300 text-xs">

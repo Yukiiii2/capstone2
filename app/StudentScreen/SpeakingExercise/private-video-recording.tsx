@@ -24,6 +24,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
+import CompletionModal from "@/components/StudentModal/CompletionModal"; // ✅ add the completion modal
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -160,6 +161,13 @@ export default function PrivateVideoRecording() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
+
+  // ✅ completion modal state (same pattern as live-video-recording)
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showResultsPrompt, setShowResultsPrompt] = useState(false);
+  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+  const [expectedText, setExpectedText] = useState<string | null>(null);
 
   // avatar
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -648,9 +656,45 @@ export default function PrivateVideoRecording() {
     else if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
-  const handleViewAIAnalysis = () => {
-    setShowEndSessionModal(false);
-    pushWithCtx("/full-results-speaking", uploadUrl ? { media_url: uploadUrl } : {});
+  // ✅ OPEN COMPLETION MODAL (do NOT navigate to results yet)
+  const handleViewAIAnalysis = async () => {
+    if (!recordedUri && !uploadUrl) {
+      Alert.alert("No recording", "Please record first.");
+      return;
+    }
+
+    try {
+      setShowEndSessionModal(false);
+
+      // build a File from the local URI (same approach as in live-video-recording)
+      let file: File | null = null;
+
+      if (recordedUri) {
+        // local file existed (best case)
+        const resp = await fetch(recordedUri);
+        const blob = await resp.blob();
+        file = new File([blob], `recording-${Date.now()}.m4a`, { type: "audio/mp4" });
+      } else if (uploadUrl) {
+        // fallback: we have a signed URL; fetch and wrap it
+        const resp = await fetch(uploadUrl);
+        const blob = await resp.blob();
+        file = new File([blob], `recording-${Date.now()}.m4a`, { type: "audio/mp4" });
+      }
+
+      if (!file) {
+        Alert.alert("Error", "Could not load recording for analysis.");
+        return;
+      }
+
+      setSelectedAudioFile(file);
+      setExpectedText(null); // or set your prompt text if you have one
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+      setShowCompletionModal(true);
+    } catch (e) {
+      console.error("open completion modal error:", e);
+      Alert.alert("Error", "Failed to prepare the recording for analysis.");
+    }
   };
 
   // Save to gallery (works with audio files too)
@@ -745,8 +789,28 @@ export default function PrivateVideoRecording() {
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis}
+        onViewAIAnalysis={handleViewAIAnalysis}   // ✅ opens CompletionModal
         onDownloadVideo={downloadVideo}
+      />
+
+      {/* ✅ Completion modal that runs the FastAPI analysis, then navigates */}
+      <CompletionModal
+        visible={showCompletionModal}
+        showResultsPrompt={showResultsPrompt}
+        isProcessing={isProcessing}
+        audioFile={selectedAudioFile}
+        expectedText={expectedText}
+        onClose={() => setShowCompletionModal(false)}
+        onLater={() => setShowCompletionModal(false)}
+        onSeeResults={() => {
+          setShowCompletionModal(false);
+          // when analysis is done, this modal already knows to navigate;
+          // to keep parity with your live screen, we still send users over:
+          router.push({
+            pathname: "StudentScreen/SpeakingExercise/full-results-speaking",
+            params: { ...moduleCtx },
+          });
+        }}
       />
 
       <LivesessionCommunityModal
@@ -852,3 +916,5 @@ export default function PrivateVideoRecording() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({});
