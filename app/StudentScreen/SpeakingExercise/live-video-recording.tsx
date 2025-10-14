@@ -1,5 +1,6 @@
+// app/StudentsScreen/SpeakingExercise/live-video-recording.tsx
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -80,21 +81,21 @@ const BackgroundDecor = () => (
   </View>
 );
 
-export default function PrivateVideoRecording() {
+export default function LiveVideoRecording() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // ===== Recording / Camera state =====
+  // opening camera: state holders for recording and fullscreen UI
   const [isRecording, setIsRecording] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [recordedVideoPath, setRecordedVideoPath] = useState<string | null>(null);
   const cameraRef = useRef<Camera>(null);
 
-  // readiness + event-driven start
+  // opening camera: readiness flags used to auto-start when <Camera/> finishes init
   const [cameraReady, setCameraReady] = useState(false);
   const [pendingStart, setPendingStart] = useState(false);
 
-  // ⏱️ timer
+  // output: simple on-screen timer during capture
   const [elapsedMs, setElapsedMs] = useState(0);
   const timerRef = useRef<any>(null);
   const formatTime = (ms: number) => {
@@ -103,7 +104,6 @@ export default function PrivateVideoRecording() {
     const s = (total % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
-
   const startTimer = () => {
     if (timerRef.current) return;
     const started = Date.now();
@@ -119,33 +119,29 @@ export default function PrivateVideoRecording() {
     }
   };
 
-  // Use FRONT camera
+  // opening camera: pick the front camera device for selfie-style speaking
   const device = useCameraDevice("front");
 
-  // ✅ Pick a safe format for Android front cams (720p @ 30fps)
+  // camera configuration: choose a stable 720p@30 preset, HDR off, stabilization off
   const TARGET_FPS = 30;
-  const format = useCameraFormat(
-    device,
-    [
-      { videoResolution: { width: 1280, height: 720 } },
-      { fps: TARGET_FPS },
-      { videoHdr: false },
-      { videoStabilizationMode: "off" },
-    ]
-  );
-// Add this line for debugging
-console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
-  // Permissions
+  const format = useCameraFormat(device, [
+    { videoResolution: { width: 1280, height: 720 } },
+    { fps: TARGET_FPS },
+    { videoHdr: false },
+    { videoStabilizationMode: "off" },
+  ]);
+
+  // opening camera: permissions hooks for camera + microphone
   const { hasPermission: hasCamPerm, requestPermission: reqCam } = useCameraPermission();
   const { hasPermission: hasMicPerm, requestPermission: reqMic } = useMicrophonePermission();
 
-  // ===== Existing UI states =====
+  // ui: other modals and state unchanged
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
-  const [expectedText, setExpectedText] = useState<string | null>(null);
+  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null); // kept for modal prop parity
+  const [expectedText, setExpectedText] = useState<string | null>(null); // kept for modal prop parity
 
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -176,7 +172,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
   const [userEmail, setUserEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
-  // Animations
+  // animations
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -185,7 +181,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
 
-  // Status bar
+  // ui: status bar styling for immersive recorder
   useEffect(() => {
     StatusBar.setBarStyle("light-content");
     if (Platform.OS === "android") {
@@ -194,10 +190,9 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     }
   }, []);
 
-  // Load user + avatar
+  // ui: load user profile + get a signed avatar URL from Supabase
   useEffect(() => {
     let mounted = true;
-
     const load = async () => {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
@@ -226,13 +221,9 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
         } else {
           const { data: list } = await supabase.storage
             .from("avatars")
-            .list(normalized, {
-              limit: 1,
-              sortBy: { column: "created_at", order: "desc" },
-            });
+            .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
           if (list && list.length > 0) objectPath = `${normalized}/${list[0].name}`;
         }
-
         if (!objectPath) return null;
 
         const { data: signed } = await supabase.storage
@@ -257,7 +248,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     };
   }, []);
 
-  // Rotate tips
+  // ui: rotate fallback tips every 5s when no live feedback is present
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTipIndex((prevIndex) => (prevIndex + 1) % tips.length);
@@ -265,7 +256,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     return () => clearInterval(timer);
   }, []);
 
-  // AI feedback pulse while recording
+  // recording: pulse animation + rotating feedback messages during capture
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
@@ -293,7 +284,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     }
   }, [isRecording, pulseAnim, feedbackAnim]);
 
-  // Profile menu animation
+  // ui: slide/fade animation for the profile menu
   useEffect(() => {
     const animations = isProfileMenuVisible
       ? [
@@ -307,7 +298,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     Animated.parallel(animations).start();
   }, [isProfileMenuVisible, slideAnim, opacityAnim]);
 
-  // Reset flags when leaving fullscreen
+  // closing camera: reset flags and timer when exiting fullscreen recorder
   useEffect(() => {
     if (!isFullScreen) {
       setCameraReady(false);
@@ -319,6 +310,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
 
   // ======== CAMERA HELPERS ========
 
+  // opening camera: ask for camera + mic permissions
   const ensurePermissions = async () => {
     let cam = hasCamPerm;
     let mic = hasMicPerm;
@@ -340,7 +332,8 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     return true;
   };
 
-  const startFullScreenRecording = async () => {
+  // opening camera: enter fullscreen and arm auto-start on <Camera/> init
+  const handleStartPress = async () => {
     const ok = await ensurePermissions();
     if (!ok) return;
     if (!device) {
@@ -348,10 +341,11 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
       return;
     }
     setCameraReady(false);
-    setPendingStart(true);       // try to auto-start when initialized
+    setPendingStart(true); // will trigger startRecordingNow() in onInitialized
     setIsFullScreen(true);
   };
 
+  // recording: start capture once camera is initialized and ready
   const startRecordingNow = async () => {
     if (!cameraRef.current || !cameraReady || isRecording) return;
     try {
@@ -360,6 +354,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
       await cameraRef.current.startRecording({
         flash: "off",
         onRecordingFinished: (video: VideoFile) => {
+          // output: recorded file path is available here
           stopTimer();
           setRecordedVideoPath(video.path ?? null);
           setIsRecording(false);
@@ -385,6 +380,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     }
   };
 
+  // closing camera: stop capture safely and clear timer
   const stopRecording = async () => {
     if (!isRecording) return;
     try {
@@ -444,44 +440,17 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
   };
 
   const handleViewAIAnalysis = async () => {
-    if (!selectedAudioFile) {
-      Alert.alert("Error", "No audio file found. Please record a session first.");
+    if (!recordedVideoPath) {
+      Alert.alert("Error", "No video found. Please record a session first.");
       return;
     }
-
     setShowEndSessionModal(false);
     setShowCompletionModal(true);
-    setIsProcessing(true);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", selectedAudioFile);
-      if (expectedText) formData.append("expected_text", expectedText);
-
-      const processAudioResponse = await axios.post(
-        "http://192.168.1.113:8000/process-audio",
-        formData,
-        { headers: { "Content-Type": "multipart/form-data" } }
-      );
-
-      const { transcription, spacy_stats } = processAudioResponse.data;
-
-      const analyzeFeedbackResponse = await axios.post(
-        "http://192.168.1.113:8000/analyze-feedback",
-        { speech_text: transcription, spacy_stats }
-      );
-
-      setFeedback(analyzeFeedbackResponse.data);
-      setShowResultsPrompt(true);
-    } catch (error) {
-      console.error("Error processing audio or analyzing feedback:", error);
-      Alert.alert("Error", "An error occurred while processing. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+    setIsProcessing(false);
+    setShowResultsPrompt(true);
   };
 
-  // Save the actually recorded local video to Photos
+  // output: save the captured local video to Photos/Gallery
   const downloadVideo = async () => {
     try {
       setIsDownloading(true);
@@ -517,6 +486,53 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
     } finally {
       setIsDownloading(false);
       setShowEndSessionModal(false);
+    }
+  };
+
+  // OPTIONAL: Upload recorded video directly to Supabase (no expo-av)
+  const uploadVideo = async () => {
+    if (!recordedVideoPath) {
+      Alert.alert("No video", "Please record first.");
+      return;
+    }
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token =
+        sess?.session?.access_token ||
+        (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
+      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
+      if (!token || !SUPABASE_URL) throw new Error("Missing Supabase config");
+
+      const BUCKET = "recordings";
+      const objectPath = `live/${Date.now()}.mp4`;
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(
+        objectPath
+      )}`;
+
+      const res = await FileSystem.uploadAsync(uploadUrl, recordedVideoPath, {
+        httpMethod: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: token,
+          "Content-Type": "video/mp4",
+          "x-upsert": "false",
+        },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      });
+
+      if (res.status !== 200 && res.status !== 201) {
+        throw new Error(`Upload failed (${res.status}): ${res.body?.slice(0, 160)}`);
+      }
+
+      const { data: signed, error } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
+      if (error) throw error;
+
+      Alert.alert("Uploaded", "Signed URL created for your video.");
+    } catch (e: any) {
+      console.warn("Upload error:", e?.message || e);
+      Alert.alert("Upload failed", "Please try again later.");
     }
   };
 
@@ -621,30 +637,29 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
   // ===== Full Screen Recording View with VisionCamera =====
   const FullScreenRecording = () => (
     <View style={StyleSheet.absoluteFill} className="bg-black">
-      {/* Camera feed – only render when device + permissions + format exist */}
+      {/* camera feed – render only when device + permissions + chosen format exist */}
       {device && hasCamPerm && hasMicPerm && format ? (
         <Camera
-  ref={cameraRef}
-  style={StyleSheet.absoluteFill}
-  device={device}
-  isActive={isFullScreen}
-  video
-  audio
-  format={format}
-  // The 'fps' and 'videoStabilizationMode' values are derived from the 'format' object.
-  // Do not pass them as separate props when a format is specified.
-  onInitialized={async () => {
-    setCameraReady(true);
-    if (pendingStart && !isRecording) {
-      setPendingStart(false);
-      await startRecordingNow();
-    }
-  }}
-  onError={(e) => {
-    console.warn("Camera error:", e);
-    setCameraReady(false);
-  }}
-/>
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={isFullScreen}
+          video
+          audio
+          format={format}
+          // recording: fps/stabilization come from `format`; don't override here
+          onInitialized={async () => {
+            setCameraReady(true);
+            if (pendingStart && !isRecording) {
+              setPendingStart(false);
+              await startRecordingNow();
+            }
+          }}
+          onError={(e) => {
+            console.warn("Camera error:", e);
+            setCameraReady(false);
+          }}
+        />
       ) : (
         <View className="flex-1 items-center justify-center">
           <Text className="text-white">
@@ -653,13 +668,13 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
         </View>
       )}
 
-      {/* Right badge: camera type */}
+      {/* ui: right badge shows camera type */}
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="camera" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
         <Text className="text-white text-sm">Front Camera</Text>
       </View>
 
-      {/* Left badge: status + timer */}
+      {/* ui: left badge shows recording status + timer */}
       <View className="absolute top-[60px] left-[24px] bg-black/50 px-3 py-1.5 rounded-full z-10">
         <View className="flex-row items-center">
           <View
@@ -679,10 +694,10 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
         </View>
       </View>
 
-      {/* AI Feedback */}
+      {/* ui: floating AI feedback / tips while recording */}
       <AIFeedback />
 
-      {/* Bottom control: Start or Stop */}
+      {/* controls: tap to start or stop recording */}
       {!isRecording ? (
         <TouchableOpacity
           className="absolute bottom-10 w-[80px] h-[80px] rounded-full bg-white/90 justify-center items-center z-10 self-center"
@@ -705,7 +720,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
         </TouchableOpacity>
       )}
 
-      {/* Tip indicator */}
+      {/* ui: rotating tip chip */}
       <View className="absolute bottom-[120px] self-center flex-row items-center bg-black/50 px-3 py-2 rounded-full z-10">
         <Image
           source={require("../../../assets/tips.png")}
@@ -724,7 +739,8 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
       pathname.includes("exercise-speaking") ||
       pathname.includes("basic-contents") ||
       pathname.includes("advanced-contents") ||
-      pathname.includes("private-video-recording")
+      pathname.includes("private-video-recording") ||
+      pathname.includes("live-video-recording")
     )
       return "Speaking";
     if (pathname.includes("basic-exercise-reading") || pathname.includes("advance-execise-reading"))
@@ -835,7 +851,7 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
                     <View className="absolute">
                       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
                         <TouchableOpacity
-                          onPress={startFullScreenRecording}
+                          onPress={handleStartPress}
                           className="w-16 h-16 rounded-full items-center justify-center bg-gradient-to-br from-red-600 to-indigo-700 border-2 border-red-500"
                           activeOpacity={0.8}
                         >
@@ -869,6 +885,18 @@ console.log('Selected Camera Format:', JSON.stringify(format, null, 2));
                       className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
                       <Text className="text-white">Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Optional: quick upload button */}
+                {recordedVideoPath && (
+                  <View className="px-4 pb-4">
+                    <TouchableOpacity
+                      onPress={uploadVideo}
+                      className="mt-2 bg-white/10 border border-white/20 px-4 py-3 rounded-lg items-center"
+                    >
+                      <Text className="text-white">Upload to cloud</Text>
                     </TouchableOpacity>
                   </View>
                 )}
