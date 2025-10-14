@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from backend.iot_workspace.feedback_analyzer import FeedbackAnalyzer
 from supabase import create_client, Client
 from fastapi import Request
+from asyncio import CancelledError
 
 import whisper
 import spacy
@@ -104,6 +105,11 @@ class SpeechFeedbackRequest(BaseModel):
     attempt_id: str | None = None
     speech_text: str
     spacy_stats: dict
+    expected_text: str | None = None  # Add expected_text here
+class ScriptRequest(BaseModel):
+    lessonPrompt: str
+    topic: str  # The topic for the script
+    
 
 
 # =========================
@@ -126,9 +132,8 @@ async def get_current_user(request: Request):
 @app.post("/analyze-feedback")
 async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
     """
-    Step 1: Take the UUID of the logged-in user.
-    Step 2: Process the feedback.
-    Step 3: Display the feedback, including strengths, weaknesses, and suggestions.
+    Analyze feedback, including strengths, weaknesses, and suggestions.
+    Compare the transcription with the expected text if provided.
     """
     try:
         # Step 1: Extract the Authorization header and fetch the user
@@ -150,7 +155,15 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
         # Step 2: Process the feedback
         print("Processing feedback...")
         speech_text = request.speech_text
+        expected_text = request.expected_text  # Retrieve the expected text
         spacy_stats = request.spacy_stats
+        
+
+        # Compare transcription with expected text if provided
+        discrepancies = None
+        if expected_text:
+            discrepancies = compare_transcriptions(speech_text, expected_text)
+            print(f"Discrepancies between transcription and expected text: {discrepancies}")
 
         # Generate feedback using FeedbackAnalyzer
         feedback_analyzer = FeedbackAnalyzer()
@@ -168,6 +181,8 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
         return {
             "student_id": student_id,
             "speech_text": speech_text,
+            "expected_text": expected_text,
+            "discrepancies": discrepancies,  # Include discrepancies in the response
             "feedback_summary": {
                 "word_count": len(speech_text.split()),
                 "filler_words": spacy_stats.get("delivery", {}).get("filler_words", []),
@@ -186,6 +201,41 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
     except Exception as e:
         print(f"ERROR: /analyze-feedback - {e}")
         raise HTTPException(status_code=500, detail="An error occurred while processing the feedback")
+    
+@app.post("/generate-script")
+async def generate_script(request: ScriptRequest):
+    """
+    Generate a script for the user based on the lessonPrompt and topic.
+    """
+    try:
+        # Log the incoming request data
+        print("Received request to /generate-script")
+        print(f"Lesson Prompt: {request.lessonPrompt}")
+        print(f"Topic: {request.topic}")
+
+        # Call the FeedbackAnalyzer to generate the script
+        feedback_analyzer = FeedbackAnalyzer()
+        script = feedback_analyzer.generate_script(
+            lessonPrompt=request.lessonPrompt,
+            topic=request.topic,
+        )
+
+        # Log the generated script
+        print("Generated Script:")
+        print(script)
+
+        return {
+            "lessonPrompt": request.lessonPrompt,
+            "topic": request.topic,
+            "script": script,
+            "message": "Script generated successfully."
+        }
+    except ValueError as e:
+        print(f"ValueError in /generate-script: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"Error in /generate-script: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate script: {str(e)}")
 
 @app.post("/process-audio")
 async def process_audio(file: UploadFile = File(...), expected_text: str = None):

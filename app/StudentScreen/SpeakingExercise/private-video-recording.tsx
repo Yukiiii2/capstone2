@@ -28,6 +28,7 @@ import CompletionModal from "@/components/StudentModal/CompletionModal"; // ✅ 
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
 
+
 // 🎙️ audio-only (no expo-camera)
 import { Audio } from "expo-av";
 import axios from "axios";
@@ -118,14 +119,22 @@ const BackgroundDecor = () => (
 
 export default function PrivateVideoRecording() {
   // ===== Router + module/lesson context (same pattern as live) =====
+  const params = useLocalSearchParams();
+  const lessonPrompt = params.lessonPrompt as string; // Retrieve lessonPrompt
+  const topic = params.topic as string; // Retrieve topic
+  const generatedScript = params.generatedScript as string || "No script available."; // Retrieve the generated script
   const [feedback, setFeedback] = useState(null);
   const [aiFeedback, setAiFeedback] = useState<string | null>(null); // State to store AI feedback
   const [isEndSessionModalVisible, setIsEndSessionModalVisible] = useState(true);
   const [isCompletionModalVisible, setIsCompletionModalVisible] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [showGeneratedScript, setShowGeneratedScript] = useState(false); // State to toggle script visibility
   const router = useRouter();
   const pathname = usePathname();
-  const params = useLocalSearchParams();
+  
+
+  
+
 
   const normalizeParam = (v: string | string[] | undefined) =>
     Array.isArray(v) ? v[0] : v;
@@ -414,6 +423,7 @@ export default function PrivateVideoRecording() {
 
     stopTimer();
     setIsRecording(false);
+   
 
     if (uri) {
       setRecordedUri(uri);
@@ -427,7 +437,12 @@ export default function PrivateVideoRecording() {
       };
       setSelectedAudioFile(audioFile as any); // Update the state
     }
-
+     // Save the generated script as the expected text
+    if (generatedScript) {
+      setExpectedText(generatedScript);
+      console.log("Expected Text Set:", generatedScript);
+    }
+    
     await setAudioModeCompatIdle();
 
     return uri;
@@ -632,6 +647,14 @@ export default function PrivateVideoRecording() {
         </View>
       </View>
 
+      {/* Generated Script */}
+      {generatedScript && (
+        <View className="absolute bottom-[200px] bg-black/50 px-4 py-3 rounded-lg z-10 w-[90%]">
+          <Text className="text-white text-lg font-bold text-center">Script:</Text>
+          <Text className="text-gray-300 text-base text-center mt-2">{generatedScript}</Text>
+        </View>
+      )}
+
       {/* Stop */}
       <TouchableOpacity
         className="absolute bottom-10 w-[70px] h-[70px] rounded-full bg-white justify-center items-center z-10"
@@ -677,9 +700,11 @@ export default function PrivateVideoRecording() {
     Alert.alert("Error", "No audio file found. Please record a session first.");
     return;
   }
-  setIsEndSessionModalVisible(false); // Close the EndSessionModal
-  setIsCompletionModalVisible(true); // Show the CompletionModal
+
+  // Show the CompletionModal and set it to "Processing" state
+  setIsCompletionModalVisible(true);
   setIsProcessing(true);
+
   try {
     const { data: { session } } = await supabase.auth.getSession();
 
@@ -689,25 +714,25 @@ export default function PrivateVideoRecording() {
 
     const token = session.access_token;
 
-    console.log("Authorization Token:", token); // Debug log
-
     const formData = new FormData();
     formData.append("file", selectedAudioFile);
     if (expectedText) formData.append("expected_text", expectedText);
 
+    // Call /process-audio
     const processAudioResponse = await axios.post(
       "http://192.168.1.113:8000/process-audio",
       formData,
       {
         headers: {
           "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}`, // Include the token here
+          Authorization: `Bearer ${token}`,
         },
       }
     );
 
     const { transcription, spacy_stats } = processAudioResponse.data;
 
+    // Call /analyze-feedback
     const analyzeFeedbackResponse = await axios.post(
       "http://192.168.1.113:8000/analyze-feedback",
       {
@@ -716,14 +741,13 @@ export default function PrivateVideoRecording() {
       },
       {
         headers: {
-          Authorization: `Bearer ${token}`, // Include the token here
+          Authorization: `Bearer ${token}`,
         },
       }
     );
 
     const { ai_feedback } = analyzeFeedbackResponse.data;
     setAiFeedback(ai_feedback); // Store the AI feedback
-    setIsModalVisible(true); // Show the modal
   } catch (error) {
     console.error("Error processing audio or analyzing feedback:", error);
     Alert.alert(
@@ -731,7 +755,7 @@ export default function PrivateVideoRecording() {
       "An error occurred while processing the audio or analyzing feedback. Please try again."
     );
   } finally {
-    setIsProcessing(false);
+    setIsProcessing(false); // Stop processing
   }
 };
 
@@ -802,6 +826,7 @@ export default function PrivateVideoRecording() {
     const ok = await ensurePermissions();
     if (!ok) return;
 
+    
     setIsFullScreen(true);
     await startAudioRecording();
   };
@@ -833,12 +858,11 @@ export default function PrivateVideoRecording() {
 
       {/* ✅ Completion modal that runs the FastAPI analysis, then navigates */}
       <CompletionModal
-        visible={showCompletionModal}
+        visible={isCompletionModalVisible}
         showResultsPrompt={showResultsPrompt}
-        isProcessing={isProcessing}
-        audioFile={selectedAudioFile}
-        expectedText={expectedText}
-        onClose={() => setShowCompletionModal(false)}
+        isProcessing={isProcessing}    
+        
+        onClose={() => setIsCompletionModalVisible(false)}
         onLater={() => setShowCompletionModal(false)}
         onSeeResults={() => {
           setShowCompletionModal(false);

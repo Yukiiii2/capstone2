@@ -785,8 +785,6 @@ export default function LiveVideoRecording() {
         visible={showCompletionModal}
         showResultsPrompt={showResultsPrompt}
         isProcessing={isProcessing}
-        audioFile={selectedAudioFile}
-        expectedText={expectedText}
         onClose={() => setShowCompletionModal(false)}
         onLater={() => setShowCompletionModal(false)}
         onSeeResults={() => {

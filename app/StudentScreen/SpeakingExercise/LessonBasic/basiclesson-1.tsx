@@ -20,6 +20,9 @@ import { useRouter, useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get('window');
 
+const lessonPrompt = "List an instruction sentence so that the student states their name, grade level, and hobby.";
+const topic = "Effective Non-Verbal Communication";
+
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -596,12 +599,18 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white font-medium text-sm">Back to Quiz</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+              onPress={() =>
+                  router.push({
+                    pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+                    params: { lessonPrompt, topic },
+                  })
+                }
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
               <Text className="text-white font-semibold text-sm">Start Recording</Text>
             </TouchableOpacity>
+            
           </View>
         </View>
       </ScrollView>

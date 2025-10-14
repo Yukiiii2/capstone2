@@ -2,6 +2,7 @@
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Alert } from "react-native";
 import {
   View,
   Text,
@@ -11,6 +12,7 @@ import {
   StatusBar,
   useWindowDimensions,
   Platform,
+  
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
@@ -29,9 +31,19 @@ type FeatureType = {
 const normalize = (v: string | string[] | undefined) =>
   Array.isArray(v) ? v[0] : v;
 
+
+
+
+
+
 export default function LiveVidSelection() {
   const router = useRouter();
   const pathname = usePathname();
+  const params = useLocalSearchParams();
+  const lessonPrompt = params.lessonPrompt as string; // Retrieve lessonPrompt
+  const topic = params.topic as string; // Retrieve topic
+
+
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
@@ -358,26 +370,92 @@ export default function LiveVidSelection() {
                   <TouchableOpacity
                     className="flex-row items-center bg-violet-500/90 border border-white/30 px-6 py-2.5 rounded-lg w-[45%] justify-center"
                     activeOpacity={0.8}
-                    onPress={() =>
-                      pushWithCtx("StudentScreen/SpeakingExercise/live-video-recording", {
-                        // ensure level defaults to basic if it wasn’t set
-                        level: moduleCtx.level || "basic",
-                      })
-                    }
+                    
+                    onPress={async () => {
+                      
+                      try {
+                        // Call the /generate-script endpoint
+                        
+                        const response = await fetch("http://192.168.1.113:8000/generate-script", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            lessonPrompt,
+                            topic,
+                          }),
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                          throw new Error(data.detail || "Failed to generate script.");
+                        }
+
+                        // Navigate to the Live Video Recording screen with the generated script
+                        pushWithCtx("StudentScreen/SpeakingExercise/live-video-recording", {
+                          level: moduleCtx.level || "basic",
+                          generatedScript: data.script, // Pass the generated script
+                        });
+                      } catch (error) {
+                        console.error("Error generating script:", error);
+                        
+                      }
+                    }}
                   >
-                    <Text className="text-white font-bold text-sm">Go Live</Text>
+                    <Text className="text-white font-bold text-sm">Practice Live</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    className="flex-row items-center bg-white/30 border border-white/20 px-6 py-2.5 rounded-lg w-[47%] justify-center"
-                    activeOpacity={0.8}
-                    onPress={() =>
-                      pushWithCtx("StudentScreen/SpeakingExercise/private-video-recording", {
-                        level: moduleCtx.level || "basic",
-                      })
-                    }
-                  >
-                    <Text className="text-white font-bold text-sm">Practice Solo</Text>
-                  </TouchableOpacity>
+                      className="flex-row items-center bg-white/30 border border-white/20 px-6 py-2.5 rounded-lg w-[47%] justify-center"
+                      activeOpacity={0.8}
+                      onPress={async () => {
+                        try {
+                          console.log("Lesson Prompt:", lessonPrompt);
+                          console.log("Topic:", topic);
+
+                          if (!lessonPrompt || !topic) {
+                            Alert.alert("Error", "Lesson prompt or topic is missing. Please try again.");
+                            return;
+                          }
+
+                          console.log("Request Body:", {
+                            lessonPrompt,
+                            topic,
+                          });
+                            console.log("Lesson Prompt:", lessonPrompt);
+                            console.log("Topic:", topic);
+                          const response = await fetch("http://192.168.1.113:8000/generate-script", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              lessonPrompt,
+                              topic,
+                            }),
+                          });
+                          console.log("Request Body:", JSON.stringify({ lessonPrompt, topic }));
+                          const data = await response.json();
+                          console.log("Server Response:", data);
+
+                          if (!response.ok) {
+                            throw new Error(data.detail || "Failed to generate script.");
+                          }
+
+                          if (!data.script) {
+                            Alert.alert("Error", "Failed to generate a valid script. Please try again.");
+                            return;
+                          }
+
+                          pushWithCtx("StudentScreen/SpeakingExercise/private-video-recording", {
+                            level: moduleCtx.level || "basic",
+                            generatedScript: data.script,
+                          });
+                        } catch (error: any) {
+                          console.error("Error generating script:", error.message || error);
+                          Alert.alert("Error", error.message || "Failed to generate script. Please try again.");
+                        }
+                      }}
+                    >
+                      <Text className="text-white font-bold text-sm">Practice Solo</Text>
+                    </TouchableOpacity>
                 </View>
               </View>
 
