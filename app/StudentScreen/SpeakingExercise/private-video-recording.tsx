@@ -30,6 +30,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 // 🎙️ audio-only (no expo-camera)
 import { Audio } from "expo-av";
+import axios from "axios";
+
 
 /* ---------- Version-safe Audio Mode helpers ---------- */
 async function setAudioModeCompatRecording() {
@@ -116,6 +118,11 @@ const BackgroundDecor = () => (
 
 export default function PrivateVideoRecording() {
   // ===== Router + module/lesson context (same pattern as live) =====
+  const [feedback, setFeedback] = useState(null);
+  const [aiFeedback, setAiFeedback] = useState<string | null>(null); // State to store AI feedback
+  const [isEndSessionModalVisible, setIsEndSessionModalVisible] = useState(true);
+  const [isCompletionModalVisible, setIsCompletionModalVisible] = useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const params = useLocalSearchParams();
@@ -397,32 +404,40 @@ export default function PrivateVideoRecording() {
   };
 
   const stopAudioRecording = async () => {
-    try {
-      const rec = audioRecordingRef.current;
-      if (!rec) return null;
+  try {
+    const rec = audioRecordingRef.current;
+    if (!rec) return null;
 
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-      audioRecordingRef.current = null;
+    await rec.stopAndUnloadAsync();
+    const uri = rec.getURI();
+    audioRecordingRef.current = null;
 
-      stopTimer();
-      setIsRecording(false);
+    stopTimer();
+    setIsRecording(false);
 
-      if (uri) {
-        setRecordedUri(uri);
-        setShowContinueButton(true);
-      }
+    if (uri) {
+      setRecordedUri(uri);
+      setShowContinueButton(true);
 
-      await setAudioModeCompatIdle();
-
-      return uri;
-    } catch (e) {
-      stopTimer();
-      setIsRecording(false);
-      return null;
+      // Set the selectedAudioFile state with the recorded audio file
+      const audioFile = {
+        uri,
+        name: `recording-${Date.now()}.m4a`,
+        type: "audio/m4a",
+      };
+      setSelectedAudioFile(audioFile as any); // Update the state
     }
-  };
 
+    await setAudioModeCompatIdle();
+
+    return uri;
+  } catch (e) {
+    stopTimer();
+    setIsRecording(false);
+    console.error("Error stopping audio recording:", e);
+    return null;
+  }
+};
   // ---------- Upload (same as live; m4a into 'recordings') ----------
   const uploadRecording = async () => {
     if (!recordedUri) return;
@@ -657,45 +672,68 @@ export default function PrivateVideoRecording() {
   };
 
   // ✅ OPEN COMPLETION MODAL (do NOT navigate to results yet)
-  const handleViewAIAnalysis = async () => {
-    if (!recordedUri && !uploadUrl) {
-      Alert.alert("No recording", "Please record first.");
-      return;
+ const handleViewAIAnalysis = async () => {
+  if (!selectedAudioFile) {
+    Alert.alert("Error", "No audio file found. Please record a session first.");
+    return;
+  }
+  setIsEndSessionModalVisible(false); // Close the EndSessionModal
+  setIsCompletionModalVisible(true); // Show the CompletionModal
+  setIsProcessing(true);
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      throw new Error("User is not logged in.");
     }
 
-    try {
-      setShowEndSessionModal(false);
+    const token = session.access_token;
 
-      // build a File from the local URI (same approach as in live-video-recording)
-      let file: File | null = null;
+    console.log("Authorization Token:", token); // Debug log
 
-      if (recordedUri) {
-        // local file existed (best case)
-        const resp = await fetch(recordedUri);
-        const blob = await resp.blob();
-        file = new File([blob], `recording-${Date.now()}.m4a`, { type: "audio/mp4" });
-      } else if (uploadUrl) {
-        // fallback: we have a signed URL; fetch and wrap it
-        const resp = await fetch(uploadUrl);
-        const blob = await resp.blob();
-        file = new File([blob], `recording-${Date.now()}.m4a`, { type: "audio/mp4" });
+    const formData = new FormData();
+    formData.append("file", selectedAudioFile);
+    if (expectedText) formData.append("expected_text", expectedText);
+
+    const processAudioResponse = await axios.post(
+      "http://192.168.1.113:8000/process-audio",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`, // Include the token here
+        },
       }
+    );
 
-      if (!file) {
-        Alert.alert("Error", "Could not load recording for analysis.");
-        return;
+    const { transcription, spacy_stats } = processAudioResponse.data;
+
+    const analyzeFeedbackResponse = await axios.post(
+      "http://192.168.1.113:8000/analyze-feedback",
+      {
+        speech_text: transcription,
+        spacy_stats,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`, // Include the token here
+        },
       }
+    );
 
-      setSelectedAudioFile(file);
-      setExpectedText(null); // or set your prompt text if you have one
-      setIsProcessing(false);
-      setShowResultsPrompt(true);
-      setShowCompletionModal(true);
-    } catch (e) {
-      console.error("open completion modal error:", e);
-      Alert.alert("Error", "Failed to prepare the recording for analysis.");
-    }
-  };
+    const { ai_feedback } = analyzeFeedbackResponse.data;
+    setAiFeedback(ai_feedback); // Store the AI feedback
+    setIsModalVisible(true); // Show the modal
+  } catch (error) {
+    console.error("Error processing audio or analyzing feedback:", error);
+    Alert.alert(
+      "Error",
+      "An error occurred while processing the audio or analyzing feedback. Please try again."
+    );
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   // Save to gallery (works with audio files too)
   const downloadVideo = async () => {
@@ -810,7 +848,9 @@ export default function PrivateVideoRecording() {
             pathname: "StudentScreen/SpeakingExercise/full-results-speaking",
             params: { ...moduleCtx },
           });
+          
         }}
+        ai_feedback={aiFeedback} // Pass the AI feedback
       />
 
       <LivesessionCommunityModal

@@ -126,54 +126,57 @@ async def get_current_user(request: Request):
 @app.post("/analyze-feedback")
 async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
     """
-    Analyze speech feedback, validate student ID,
-    generate evaluation using Ollama AI, and store it in Supabase.
+    Step 1: Take the UUID of the logged-in user.
+    Step 2: Process the feedback.
+    Step 3: Display the feedback, including strengths, weaknesses, and suggestions.
     """
     try:
-        print(f"Request Headers: {req.headers}")  # Log all headers for debugging
-
-        # --- Fetch Authorization Token ---
+        # Step 1: Extract the Authorization header and fetch the user
         auth_header = req.headers.get("Authorization")
-        if not auth_header:
-            print("Authorization header is missing.")
-            raise HTTPException(
-                status_code=401,
-                detail="Unauthorized: Missing Authorization header."
-            )
-
-        if not auth_header.startswith("Bearer "):
-            print("Authorization header is invalid.")
-            raise HTTPException(
-                status_code=401,
-                detail="Unauthorized: Invalid Authorization header format."
-            )
-
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Unauthorized: Missing or invalid Authorization header")
+        
         token = auth_header.split("Bearer ")[1]
-        print(f"Authorization Token: {token}")
 
-        # --- Fetch Current User Info ---
-        user_response = supabase.auth.get_user(token)  # Fetch user info from Supabase
-        if not user_response or not user_response.get("user"):
-            raise HTTPException(
-                status_code=401,
-                detail="Unauthorized: Unable to fetch user information from Supabase token."
-            )
+        # Fetch the user from Supabase using the token
+        user_response = supabase.auth.get_user(token)
+        if not user_response or not user_response.user:
+            raise HTTPException(status_code=401, detail="Unauthorized: Invalid token")
+        
+        user = user_response.user
+        student_id = user.id  # Extract the UUID of the logged-in user
+        print(f"Student ID (UUID): {student_id}")
 
-        user = user_response["user"]
-        student_id = user["id"]  # Extract the student ID from the user object
-        print(f"Student ID: {student_id}")
-
-        # --- Process Feedback ---
-        # Use the student_id for further processing
+        # Step 2: Process the feedback
         print("Processing feedback...")
-        print(f"Speech Text: {request.speech_text}")
-        print(f"spaCy Stats: {request.spacy_stats}")
+        speech_text = request.speech_text
+        spacy_stats = request.spacy_stats
 
-        # Example response
+        # Generate feedback using FeedbackAnalyzer
+        feedback_analyzer = FeedbackAnalyzer()
+        feedback_result = feedback_analyzer.analyze_feedback(speech_text, spacy_stats)
+
+        if "error" in feedback_result:
+            raise HTTPException(status_code=500, detail=feedback_result["error"])
+
+        # Extract the AI-generated feedback
+        ai_feedback = feedback_result.get("feedback", "No feedback generated.")
+
+        print(f"AI Feedback: {ai_feedback}")
+
+        # Step 3: Display the feedback
         return {
             "student_id": student_id,
-            "speech_text": request.speech_text,
-            "spacy_stats": request.spacy_stats,
+            "speech_text": speech_text,
+            "feedback_summary": {
+                "word_count": len(speech_text.split()),
+                "filler_words": spacy_stats.get("delivery", {}).get("filler_words", []),
+                "repeated_words": spacy_stats.get("delivery", {}).get("repeated_words", []),
+                "words_per_minute": spacy_stats.get("delivery", {}).get("words_per_minute", 0),
+                "readability": spacy_stats.get("readability", {}),
+                "named_entities": spacy_stats.get("named_entities", []),
+            },
+            "ai_feedback": ai_feedback,  # Include the paragraph-form feedback
             "message": "Feedback analyzed successfully."
         }
 

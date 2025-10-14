@@ -150,7 +150,7 @@ const EndSessionModal: React.FC<EndSessionModalProps> = ({
       iconBg: "bg-white/10",
       iconColor: "#FFFFFF",
       onPress: handleAIAnalysis,
-      disabled: analysisDisabled,
+      disabled: isUploading || isFiring,
     },
   ];
 

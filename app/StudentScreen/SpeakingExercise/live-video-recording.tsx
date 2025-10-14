@@ -181,6 +181,9 @@ export default function LiveVideoRecording() {
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
 
+  const [aiFeedback, setAiFeedback] = useState<string | null>(null); // State to store AI feedback
+  const [isModalVisible, setIsModalVisible] = useState(false);
+
   // ui: status bar styling for immersive recorder
   useEffect(() => {
     StatusBar.setBarStyle("light-content");
@@ -790,6 +793,7 @@ export default function LiveVideoRecording() {
           setShowCompletionModal(false);
           router.push("StudentScreen/SpeakingExercise/full-results-speaking");
         }}
+        ai_feedback={aiFeedback} // Pass the AI feedback
       />
 
       <LivesessionCommunityModal
