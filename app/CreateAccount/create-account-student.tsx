@@ -357,8 +357,8 @@ export default function CreateAccountStudent() {
       // 2) we DO have a session (email confirmations OFF) → continue as before
       const userId = sign.session.user.id;
 
-      // 3) upload verification doc (optional)
-      const verification_path = await uploadVerificationIfAny(userId);
+      // 3) TEMP: skip uploading to Supabase Storage (still proceed normally)
+      const verification_path = null;
 
       // 4) upsert into profiles (RLS expects id = auth.uid())
       const { error: profErr } = await supabase.from("profiles").upsert({
@@ -627,8 +627,8 @@ export default function CreateAccountStudent() {
                         field.key === "password"
                           ? !passwordVisible
                           : field.key === "confirmPassword"
-                            ? !confirmPasswordVisible
-                            : false
+                          ? !confirmPasswordVisible
+                          : false
                       }
                       keyboardType={
                         field.type === "email" ? "email-address" : "default"
@@ -653,8 +653,8 @@ export default function CreateAccountStudent() {
                               ? "eye"
                               : "eye-off"
                             : confirmPasswordVisible
-                              ? "eye"
-                              : "eye-off"
+                            ? "eye"
+                            : "eye-off"
                         }
                         size={20}
                         color="#9CA3AF"

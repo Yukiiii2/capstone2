@@ -1,4 +1,4 @@
-package com.yourcompany.capstone2
+package com.yourcompany.voclaria
 
 import android.app.Application
 import android.content.res.Configuration

@@ -1,65 +1,63 @@
 {
   "expo": {
-    "scheme": "capstone2",
-    "name": "capstone2",
-    "slug": "capstone2",
+    "name": "Voclaria",
+    "slug": "Voclaria",
+    "scheme": "Voclaria",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/Speaksy.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
+
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.voclaria",
       "infoPlist": {
+        "CFBundleDisplayName": "Voclaria",
         "NSCameraUsageDescription": "This app uses the camera to record video for your practice sessions.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record audio during video recording.",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save videos to your photo library.",
         "NSPhotoLibraryUsageDescription": "This app needs permission to access your photo library to save videos."
-      },
-      "bundleIdentifier": "com.yourcompany.capstone2"
+      }
     },
+
     "android": {
+      "package": "com.yourcompany.voclaria",
+      "icon": "./assets/Speaksy.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/Speaksy.png",
         "backgroundColor": "#1A1F2E"
       },
       "navigationBar": {
         "backgroundColor": "#1A1F2E",
         "barStyle": "light"
       },
+      "softwareKeyboardLayoutMode": "pan",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.WAKE_LOCK"
-      ],
-      "softwareKeyboardLayoutMode": "pan",
-      "windowSoftInputMode": "adjustResize",
-      "package": "com.yourcompany.capstone2"
+      ]
     },
+
     "web": {
       "favicon": "./assets/favicon.png"
     },
+
     "plugins": [
       "expo-router",
-      "expo-video",
-      "expo-audio",
       "expo-secure-store",
-      "react-native-vision-camera"
+      ["react-native-vision-camera", {
+        "cameraPermissionText": "This app uses the camera to record video for your practice sessions.",
+        "microphonePermissionText": "This app needs access to your microphone to record audio during video recording."
+      }]
     ],
+
     "extra": {
-      "router": {},
       "eas": {
-        "projectId": "d9e999df-e502-411c-a74f-75c53515d991"
+        "projectId": "471ec504-8d26-49a0-8f2b-90c5deb400eb"
       }
     }
   }
