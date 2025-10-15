@@ -27,6 +27,8 @@ import LivesessionCommunityModal from "../../../components/StudentModal/Livesess
 import CompletionModal from "@/components/StudentModal/CompletionModal"; // ✅ add the completion modal
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
+import { Camera, CameraType } from "expo-camera"; // Import Camera and CameraType
+
 
 
 // 🎙️ audio-only (no expo-camera)
@@ -124,6 +126,8 @@ export default function PrivateVideoRecording() {
   const topic = params.topic as string; // Retrieve topic
   const generatedScript = params.generatedScript as string || "No script available."; // Retrieve the generated script
   const [feedback, setFeedback] = useState(null);
+  const [cameraRef, setCameraRef] = useState<React.RefObject<typeof Camera> | null>(null); // Use typeof Camera for the type
+  const [cameraType, setCameraType] = useState<"front" | "back">("front");
   const [aiFeedback, setAiFeedback] = useState<string | null>(null); // State to store AI feedback
   const [isEndSessionModalVisible, setIsEndSessionModalVisible] = useState(true);
   const [isCompletionModalVisible, setIsCompletionModalVisible] = useState(false);
@@ -177,6 +181,7 @@ export default function PrivateVideoRecording() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
+  
 
   // ✅ completion modal state (same pattern as live-video-recording)
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -314,24 +319,33 @@ export default function PrivateVideoRecording() {
   }, [isProfileMenuVisible]);
 
   // 🔐 Permissions (mic only)
-  const ensurePermissions = async () => {
+ const ensurePermissions = async () => {
     try {
-      const mic = await Audio.requestPermissionsAsync();
-      const ok = mic?.status === "granted";
+      // Request camera permissions using expo-camera
+      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+
+      // Request microphone permissions using expo-av
+      const micPermission = await Audio.requestPermissionsAsync(); // Returns an object with a "status" property
+
+      // Check if both permissions are granted
+      const ok = cameraStatus === "granted" && micPermission?.status === "granted";
+
       setHasPerms(ok);
+
       if (!ok) {
         Alert.alert(
           "Permission required",
-          "Microphone permission is needed to record audio.",
+          "Camera and microphone permissions are needed to record video.",
           [
             { text: "Cancel", style: "cancel" },
             { text: "Open Settings", onPress: () => Linking.openSettings() },
           ]
         );
       }
+
       return ok;
     } catch (e) {
-      console.warn("permission error", e);
+      console.warn("Permission error", e);
       setHasPerms(false);
       return false;
     }
@@ -442,7 +456,7 @@ export default function PrivateVideoRecording() {
       setExpectedText(generatedScript);
       console.log("Expected Text Set:", generatedScript);
     }
-    
+
     await setAudioModeCompatIdle();
 
     return uri;
