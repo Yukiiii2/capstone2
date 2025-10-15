@@ -734,7 +734,7 @@ export default function PrivateVideoRecording() {
 
     // Call /process-audio
     const processAudioResponse = await axios.post(
-      "http://192.168.1.113:8000/process-audio",
+      "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-audio",
       formData,
       {
         headers: {
@@ -748,7 +748,7 @@ export default function PrivateVideoRecording() {
 
     // Call /analyze-feedback
     const analyzeFeedbackResponse = await axios.post(
-      "http://192.168.1.113:8000/analyze-feedback",
+      "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-feedback",
       {
         speech_text: transcription,
         spacy_stats,

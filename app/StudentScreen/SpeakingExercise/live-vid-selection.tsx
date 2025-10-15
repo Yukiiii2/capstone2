@@ -376,7 +376,7 @@ export default function LiveVidSelection() {
                       try {
                         // Call the /generate-script endpoint
                         
-                        const response = await fetch("http://192.168.1.113:8000/generate-script", {
+                        const response = await fetch("https://unbalanceable-lyman-microstomatous.ngrok-free.dev/generate-script", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
@@ -423,7 +423,7 @@ export default function LiveVidSelection() {
                           });
                             console.log("Lesson Prompt:", lessonPrompt);
                             console.log("Topic:", topic);
-                          const response = await fetch("http://192.168.1.113:8000/generate-script", {
+                          const response = await fetch("https://unbalanceable-lyman-microstomatous.ngrok-free.dev/generate-script", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
