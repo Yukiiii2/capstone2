@@ -84,9 +84,8 @@ class FeedbackAnalyzer:
 
                 "Analyze this speech and provide feedback on pronunciation, tone, and clarity. "
                 "Suggest areas for improvement and practical exercises."
-                "If there are discrepancies between the speech and expected text, highlight them."
                 "The feedback should be elaborated but concise."
-                "Limit your response in every aspect after the ai feedback to 20 words. for example if the ai feedback has 20 words"
+                "Limit your response in every aspect after the ai feedback to 15 words"
                 
                 
                 
@@ -130,10 +129,11 @@ class FeedbackAnalyzer:
 
             # Construct the dynamic prompt
             prompt = (
-                f"{lessonPrompt} {topic}\n\n"
+                f"{lessonPrompt} \n"
+                f"The topic is: {topic}. "
                 f"The script should be between {min_words} and {max_words} words long. "
-                "Do not include any introductory or explanatory text. Only provide the script content."
-                "Provide the Script only, no other introductory or explanatory text."
+                "Provide the script only, dont include any other text or introduction."
+                
             )
 
             # Log the constructed prompt
