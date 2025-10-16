@@ -5,7 +5,7 @@ import spacy
 class FeedbackAnalyzer:
     def __init__(self):
         self.llm = Llama3Analyzer()  # Llama3 for feedback generation
-        self.transcriber = WhisperTranscriber(model_name="base")  # Whisper for transcription
+        self.transcriber = WhisperTranscriber(model_name="small")  # Whisper for transcription
         self.nlp = spacy.load("en_core_web_sm")  # spaCy for linguistic analysis
 
     def _get_spacy_stats(self, text: str) -> dict:
@@ -57,7 +57,7 @@ class FeedbackAnalyzer:
             except Exception as e:
                 return {"error": f"Error comparing transcriptions: {str(e)}"}
 
-    def analyze_feedback(self, speech_text: str, spacy_stats: dict, expected_text: str = None) -> dict:
+    def analyze_feedback(self, speech_text: str, spacy_stats: dict, expected_text: str = None, criteria: str = None) -> dict:
         """
         Generate feedback based on the speech text, spaCy statistics, and expected text.
 
@@ -81,11 +81,16 @@ class FeedbackAnalyzer:
                 f"Speech: {speech_text}\n\n"
                 f"Expected Text: {expected_text}\n\n"
                 f"spaCy Stats: {spacy_stats}\n\n"
+                f"Analyze this speech and provide feedback on {criteria} \n\n"
 
-                "Analyze this speech and provide feedback on pronunciation, tone, and clarity. "
-                "Suggest areas for improvement and practical exercises."
-                "If there are discrepancies between the speech and expected text, highlight them."
-                "limit your response in every aspect to 15 words."
+                "Suggest areas for improvement and practical exercises.\n"
+                "The feedback should be elaborated but concise. \n\n"
+
+
+                "Limit your response in every aspect after the ai feedback to 15 words \n"
+                
+                
+                
                 
 
             )
@@ -126,9 +131,11 @@ class FeedbackAnalyzer:
 
             # Construct the dynamic prompt
             prompt = (
-                f"{lessonPrompt} {topic}\n\n"
-                f"The script should be between {min_words} and {max_words} words long. "
-                "Do not include any introductory or explanatory text. Only provide the script content."
+                f"{lessonPrompt} \n"
+                f"Topic: {topic}. \n"
+                f"The script should be between {min_words} and {max_words} words long. \n"
+                "Provide the script only, dont include any other text or introductory statements be direct to the point. \n"
+                
             )
 
             # Log the constructed prompt

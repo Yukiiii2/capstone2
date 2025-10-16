@@ -20,6 +20,10 @@ import { useRouter, useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get('window');
 
+const lessonPrompt = "List an one sentence  script for the users to read, about the topic";
+const topic = "Effective Non-Verbal Communication";
+const criteria = "";
+
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">

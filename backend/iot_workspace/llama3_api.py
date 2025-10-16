@@ -157,7 +157,6 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
         speech_text = request.speech_text
         expected_text = request.expected_text  # Retrieve the expected text
         spacy_stats = request.spacy_stats
-        
 
         # Compare transcription with expected text if provided
         discrepancies = None
@@ -177,7 +176,26 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
 
         print(f"AI Feedback: {ai_feedback}")
 
-        # Step 3: Display the feedback
+        # Step 3: Prepare data for the `feedback_ai` table
+        print("Preparing data for `feedback_ai` table...")
+        attempt_id = str(uuid.uuid4())  # Generate a unique attempt ID
+        feedback_data = {
+            "student_id": student_id,
+            "attempt_id": attempt_id,
+            "evaluation": ai_feedback,
+            "transcription": speech_text,
+        }
+
+        # Step 4: Insert data into the `feedback_ai` table
+        print("Inserting data into `feedback_ai` table...")
+        response = supabase.table("feedback_ai").insert(feedback_data).execute()
+        if not response.data:  # Check if the data attribute is empty
+            print(f"Supabase Insert Error: {response.json()}")
+            raise HTTPException(status_code=500, detail="Failed to save feedback details to the database.")
+
+        print("Feedback details inserted successfully into `feedback_ai` table.")
+
+        # Step 5: Return the feedback response
         return {
             "student_id": student_id,
             "speech_text": speech_text,
@@ -192,7 +210,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
                 "named_entities": spacy_stats.get("named_entities", []),
             },
             "ai_feedback": ai_feedback,  # Include the paragraph-form feedback
-            "message": "Feedback analyzed successfully."
+            "message": "Feedback analyzed successfully.",
         }
 
     except HTTPException as e:
