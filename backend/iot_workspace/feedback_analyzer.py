@@ -57,7 +57,7 @@ class FeedbackAnalyzer:
             except Exception as e:
                 return {"error": f"Error comparing transcriptions: {str(e)}"}
 
-    def analyze_feedback(self, speech_text: str, spacy_stats: dict, expected_text: str = None) -> dict:
+    def analyze_feedback(self, speech_text: str, spacy_stats: dict, expected_text: str = None, criteria: str = None) -> dict:
         """
         Generate feedback based on the speech text, spaCy statistics, and expected text.
 
@@ -81,10 +81,12 @@ class FeedbackAnalyzer:
                 f"Speech: {speech_text}\n\n"
                 f"Expected Text: {expected_text}\n\n"
                 f"spaCy Stats: {spacy_stats}\n\n"
+                f"Analyze this speech and provide feedback on {criteria} \n\n"
 
-                "Analyze this speech and provide feedback on pronunciation, tone, and clarity. \n"
                 "Suggest areas for improvement and practical exercises.\n"
-                "The feedback should be elaborated but concise. \n"
+                "The feedback should be elaborated but concise. \n\n"
+
+
                 "Limit your response in every aspect after the ai feedback to 15 words \n"
                 
                 

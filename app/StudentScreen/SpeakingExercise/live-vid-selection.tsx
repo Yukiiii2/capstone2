@@ -44,6 +44,7 @@ export default function LiveVidSelection() {
   const params = useLocalSearchParams();
   const lessonPrompt = params.lessonPrompt as string; // Retrieve lessonPrompt
   const topic = params.topic as string; // Retrieve topic
+  const criteria = params.criteria as string; // Retrieve criteria
 
 
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
@@ -459,6 +460,7 @@ export default function LiveVidSelection() {
                         pushWithCtx("StudentScreen/SpeakingExercise/private-video-recording", {
                           level: moduleCtx.level || "basic",
                           generatedScript: data.script,
+                          criteria: criteria || "",
                         });
                       } catch (error: any) {
                         console.error("Error generating script:", error.message || error);
