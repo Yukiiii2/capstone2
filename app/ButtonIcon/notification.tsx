@@ -155,125 +155,136 @@ function pickActor(a: RawActor): { id?: string; name?: string; avatar_url?: stri
 
 const NotificationScreen = () => {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      user: 'Alex Johnson',
-      action: 'liked your recent speaking exercise',
-      time: '2h ago',
-      type: 'like',
-      profilePic: 'https://randomuser.me/api/portraits/men/32.jpg',
-      reactionIcon: 'thumbs-up',
-      color: '#3B82F6',
-      isRead: false,
-      role: 'Teacher',
-      lesson: 'Lesson 2: Basic Conversations'
-    },
-    {
-      id: '2',
-      user: 'Sarah Chen',
-      action: 'commented: "Excellent analysis! Your insights are very thoughtful."',
-      time: '5h ago',
-      type: 'comment',
-      profilePic: 'https://randomuser.me/api/portraits/women/44.jpg',
-      reactionIcon: 'chatbubble-ellipses',
-      color: '#10B981',
-      isRead: false,
-      lesson: 'Advanced - Lesson 4',
-      role: 'Teacher'
-    },
-    {
-      id: '3',
-      user: 'Michael Rodriguez',
-      action: 'reacted with ❤️ to your speaking practice',
-      time: '1d ago',
-      type: 'heart',
-      profilePic: 'https://randomuser.me/api/portraits/men/22.jpg',
-      reactionIcon: 'heart',
-      color: '#EC4899',
-      isRead: true,
-      role: 'Peer',
-      lesson: 'Lesson 5: Speaking Practice'
-    },
-    {
-      id: '4',
-      user: 'Emma Wilson',
-      action: 'reacted with 😮 to your reading',
-      time: '2d ago',
-      type: 'wow',
-      profilePic: 'https://randomuser.me/api/portraits/women/63.jpg',
-      reactionIcon: 'happy-outline',
-      color: '#F59E0B',
-      isRead: true,
-      role: 'Teacher',
-      lesson: 'Lesson 3: Advanced Vocabulary'
-    },
-    {
-      id: '5',
-      user: 'Maya Chen',
-      action: 'commented: "Great content!"',
-      time: '12m ago',
-      type: 'comment',
-      profilePic: 'https://randomuser.me/api/portraits/women/28.jpg',
-      reactionIcon: 'chatbubble-ellipses',
-      color: '#10B981',
-      isRead: false,
-      lesson: 'Lesson 2: Basic Grammar',
-      role: 'Peer'
-    },
-    {
-      id: '6',
-      user: 'Taylor Smith',
-      action: 'reacted with ❤️ to your exercise',
-      time: '35m ago',
-      type: 'heart',
-      profilePic: 'https://randomuser.me/api/portraits/women/51.jpg',
-      reactionIcon: 'heart',
-      color: '#EC4899',
-      isRead: false,
-      role: 'Peer',
-      lesson: 'Lesson 6: Practice Exercises'
-    },
-    {
-      id: '7',
-      user: 'Jordan Lee',
-      action: 'commented: "Amazing progress! Keep it up!"',
-      time: '1h ago',
-      type: 'comment',
-      profilePic: 'https://randomuser.me/api/portraits/men/45.jpg',
-      reactionIcon: 'chatbubble-ellipses',
-      color: '#10B981',
-      isRead: true,
-      role: 'Teacher',
-      lesson: 'Lesson 4: Advanced Topics'
-    },
-    {
-      id: '8',
-      user: 'Priya Patel',
-      action: 'reacted with 😮 to your story',
-      time: '2h ago',
-      type: 'wow',
-      profilePic: 'https://randomuser.me/api/portraits/women/68.jpg',
-      reactionIcon: 'happy-outline',
-      color: '#F59E0B',
-      isRead: false,
-      role: 'Peer',
-      lesson: 'Lesson 1: Introduction'
-    },
-    {
-      id: '9',
-      user: 'Carlos Mendez',
-      action: 'liked your latest post',
-      time: '3h ago',
-      type: 'like',
-      profilePic: 'https://randomuser.me/api/portraits/men/52.jpg',
-      reactionIcon: 'thumbs-up',
-      color: '#3B82F6',
-      isRead: true,
-      lesson: 'Lesson 3: Vocabulary Builder',
-      role: 'Teacher'
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    let channel: any = null; // keep ref to cleanup
+
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Join to profiles via FK name; alias as "actor"
+      const { data, error } = await supabase
+        .from('notifications')
+        .select(`
+          id,
+          type,
+          is_read,
+          created_at,
+          post_id,
+          actor:profiles!notifications_actor_id_fkey ( id, name, avatar_url )
+        `)
+        .eq('recipient_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        console.log('load notifications error:', error.message);
+        return;
+      }
+
+      const mapped: Notification[] = [];
+      for (const r of ((data ?? []) as RawNotifRow[])) {
+        const actorObj = pickActor((r as any).actor);
+        const actorId = actorObj.id ?? r.actor_id;
+        const actorName = actorObj.name ?? 'Someone';
+        const meta = TYPE_META[(r.type as NotificationType) ?? 'like'] ?? TYPE_META.like;
+
+        let avatarUri = actorObj.avatar_url ?? '';
+        if (actorId && avatarUri && !/^https?:\/\//i.test(avatarUri)) {
+          const signed = await resolveSignedAvatar(actorId, avatarUri);
+          avatarUri = signed ?? avatarUri;
+        }
+
+        mapped.push({
+          id: String(r.id),
+          user: actorName,
+          action: meta.actionTpl(actorName),
+          time: timeAgo(r.created_at),
+          type: (r.type as NotificationType),
+          profilePic: avatarUri || 'https://i.pravatar.cc/100?img=1',
+          reactionIcon: meta.icon,
+          color: meta.color,
+          isRead: !!r.is_read,
+          role: undefined,
+          lesson: undefined,
+          postId: r.post_id, // <-- keep post id
+        });
+      }
+
+      if (mounted) setNotifications(mapped);
     }
-  ]);
+
+    load();
+
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      channel = supabase
+        .channel('notifications-for-me')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${user.id}` },
+          async (payload: any) => {
+            if (payload.eventType === 'INSERT') {
+              const row = payload.new as RawNotifRow;
+              const { data: actor } = await supabase
+                .from('profiles')
+                .select('id, name, avatar_url')
+                .eq('id', (row as any).actor_id)
+                .single();
+
+              const meta = TYPE_META[((row as any).type as NotificationType) ?? 'like'] ?? TYPE_META.like;
+
+              let avatarUri = actor?.avatar_url ?? '';
+              if (actor?.id && avatarUri && !/^https?:\/\//i.test(avatarUri)) {
+                const signed = await resolveSignedAvatar(actor.id, avatarUri);
+                avatarUri = signed ?? avatarUri;
+              }
+
+              setNotifications(prev => [
+                {
+                  id: String((row as any).id),
+                  user: actor?.name ?? 'Someone',
+                  action: meta.actionTpl(actor?.name ?? 'Someone'),
+                  time: timeAgo((row as any).created_at),
+                  type: ((row as any).type as NotificationType),
+                  profilePic: avatarUri || 'https://i.pravatar.cc/100?img=1',
+                  reactionIcon: meta.icon,
+                  color: meta.color,
+                  isRead: !!(row as any).is_read,
+                  role: undefined,
+                  lesson: undefined,
+                  postId: (row as any).post_id, // <-- keep post id on realtime
+                },
+                ...prev,
+              ]);
+            }
+
+            if (payload.eventType === 'UPDATE') {
+              const row = payload.new as RawNotifRow;
+              setNotifications(prev =>
+                prev.map(n => (n.id === String(row.id) ? { ...n, isRead: !!row.is_read } : n))
+              );
+            }
+
+            if (payload.eventType === 'DELETE') {
+              const row = payload.old as RawNotifRow;
+              setNotifications(prev => prev.filter(n => n.id !== String(row.id)));
+            }
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      mounted = false;
+      if (channel) supabase.removeChannel(channel); // proper cleanup
+    };
+  }, []);
 
   const markAsRead = async (id: string) => {
     setNotifications(prevNotifications =>
@@ -296,8 +307,8 @@ const NotificationScreen = () => {
     return (
       <TouchableOpacity
         key={id}
-        style={[styles.notificationItem, !isRead && styles.unreadNotification]}
-        onPress={() => markAsRead(id)}
+        style={styles.notificationItem}
+        onPress={() => markAsRead(id)} // mark read on tap (no UI change)
       >
         <UserAvatar imageUrl={profilePic} name={user} role={role} />
         <View style={styles.notificationContent}>
@@ -370,11 +381,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     marginHorizontal: 8,
-  },
-  unreadNotification: {
-    backgroundColor: 'rgba(167, 139, 250, 0.1)',
-    borderLeftWidth: 3,
-    borderLeftColor: '#a78bfa',
   },
   notificationContent: {
     flex: 1,

@@ -1,24 +1,21 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Animated, 
-  Easing, 
-  TouchableOpacity, 
-  ScrollView, 
-  Image, 
-  Pressable, 
-  Alert, 
-  Dimensions,
+// app/StudentScreen/SpeakingExercise/LessonAdvance/advancelesson-6.tsx
+import React, { useState, useRef, useEffect } from "react";
+import {
+  View,
+  Text,
+  Animated,
+  Easing,
+  TouchableOpacity,
+  ScrollView,
   StatusBar,
-  Linking
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+  Linking,
+  Dimensions,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, useLocalSearchParams, router } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
@@ -35,11 +32,7 @@ const BackgroundDecor = () => (
 type RubricItem = {
   label: string;
   rating?: string;
-  descriptions: {
-    high: string;
-    medium: string;
-    low: string;
-  };
+  descriptions: { high: string; medium: string; low: string };
 };
 
 type LessonDetail = {
@@ -62,16 +55,13 @@ const LESSONS: LessonDetail[] = [
     id: 6,
     title: "Speaking Without Notes",
     subtitle: "Advanced • Lesson 6",
-    intro: `This module trains students to use memory techniques (loci/story arcs) and anchor phrases instead of relying on a script.`,
-    importance: [
-      "Signals preparation and confidence.",
-      "Avoids robotic delivery.",
-      "Better audience connection."
-    ],
+    intro:
+      "This module trains students to use memory techniques (loci/story arcs) and anchor phrases instead of relying on a script.",
+    importance: ["Signals preparation and confidence.", "Avoids robotic delivery.", "Better audience connection."],
     tips: [
       "Use the memory palace method.",
       "Prepare anchor phrases (short cues for sections).",
-      "Paraphrase ideas instead of memorizing word-for-word."
+      "Paraphrase ideas instead of memorizing word-for-word.",
     ],
     taskInstructions: [
       "Prepare a 3-4 minute talk using only anchor phrases (no script)",
@@ -79,7 +69,7 @@ const LESSONS: LessonDetail[] = [
       "Create 4-5 short anchor phrases as your main cues",
       "Practice paraphrasing ideas instead of memorizing exact words",
       "Focus on smooth transitions between points",
-  "Record your talk and assess your natural delivery"
+      "Record your talk and assess your natural delivery",
     ],
     taskBody: `Task: Deliver a 4-min talk using only anchor phrases.
 
@@ -101,126 +91,41 @@ Sample Delivery (based on anchor phrases):
     rubric: [
       {
         label: "Accuracy",
-        descriptions: {
-          high: "Devices used correctly",
-          medium: "Some mistakes",
-          low: "Misused or unclear"
-        }
+        descriptions: { high: "Devices used correctly", medium: "Some mistakes", low: "Misused or unclear" },
       },
       {
         label: "Clarity",
-        descriptions: {
-          high: "Message becomes clearer",
-          medium: "Somewhat clearer",
-          low: "No improvement"
-        }
+        descriptions: { high: "Message becomes clearer", medium: "Somewhat clearer", low: "No improvement" },
       },
       {
         label: "Style",
-        descriptions: {
-          high: "Devices sound natural",
-          medium: "Slightly forced",
-          low: "Overused or distracting"
-        }
+        descriptions: { high: "Devices sound natural", medium: "Slightly forced", low: "Overused or distracting" },
       },
-    ],  
+    ],
     references: [
       { url: "https://owl.purdue.edu/owl/general_writing/academic_writing/rhetorical_situation.html" },
-      { url: "https://www.toastmasters.org/magazine/magazine-issues/2018/nov/building-credibility" }
-    ]
-  }
+      { url: "https://www.toastmasters.org/magazine/magazine-issues/2018/nov/building-credibility" },
+    ],
+  },
 ];
 
-// Animated Progress Bar Component
-const ProgressBar = ({ progress }: { progress: number }) => {
-  const widthAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(widthAnim, {
-      toValue: progress,
-      duration: 800,
-      easing: Easing.out(Easing.ease),
-      useNativeDriver: false,
-    }).start();
-  }, [progress]);
-
-  return (
-    <View className="h-2 bg-white/10 rounded-full overflow-hidden mt-4">
-      <Animated.View 
-        className="h-full bg-violet-600 rounded-full" 
-        style={{ width: widthAnim.interpolate({
-          inputRange: [0, 100],
-          outputRange: ['0%', '100%']
-        }) }}
-      />
-    </View>
-  );
-};
-
-// Floating Action Button Component
-const FloatingActionButton = ({ 
-  icon, 
-  onPress, 
-  label 
-}: { 
-  icon: string; 
-  onPress: () => void; 
-  label?: string;
-}) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.9,
-      useNativeDriver: true,
-    }).start();
-  };
-  
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        className="bg-violet-600 py-4 px-6 rounded-2xl flex-row items-center"
-        activeOpacity={0.8}
-      >
-        <Text className="text-white font-bold text-base mr-2">{label}</Text>
-        <Ionicons name={icon as any} size={20} color="#fff" />
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
-
-// Section Indicator Component
+// Section Indicator
 const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
-  // Don't show progress in recording section (section 2)
   if (currentSection === 2) return null;
-  
   return (
     <View className="flex-row justify-center gap-6 mt-1 mb">
       {[0, 1, 2].map((sectionIndex) => {
         const isActive = sectionIndex === currentSection;
         const isCompleted = sectionIndex < currentSection;
-        
         return (
           <View key={sectionIndex} className="items-center">
-            <View 
-              className={`w-2 h-2 rounded-full ${isActive ? 'bg-violet-500' : isCompleted ? 'bg-violet-400' : 'bg-white/20'}`}
+            <View
+              className={`w-2 h-2 rounded-full ${
+                isActive ? "bg-violet-500" : isCompleted ? "bg-violet-400" : "bg-white/20"
+              }`}
             />
-            <Text 
-              className={`text-xs mt-1 ${isActive ? 'text-violet-400' : 'text-white/40'}`}
-            >
-              {sectionIndex === 0 ? 'Lesson' : sectionIndex === 1 ? 'Task' : 'Record'}
+            <Text className={`text-xs mt-1 ${isActive ? "text-violet-400" : "text-white/40"}`}>
+              {sectionIndex === 0 ? "Lesson" : sectionIndex === 1 ? "Task" : "Record"}
             </Text>
           </View>
         );
@@ -229,35 +134,33 @@ const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
   );
 };
 
-// Lesson Section Component
-const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: () => void, onBack: () => void }) => {
+// Lesson Section
+const LessonSection = ({
+  data,
+  onNext,
+  onBack,
+}: {
+  data: LessonDetail;
+  onNext: () => void;
+  onBack: () => void;
+}) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 700,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mb-4 mx-4">
           <View className="flex-row justify-between items-center mb-4">
@@ -267,6 +170,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
             <Text className="text-white text-2xl font-bold">Lesson Content</Text>
             <View className="w-10" />
           </View>
+
           <Text className="text-white leading-6 text-lg mb-6">{data.intro}</Text>
 
           <View className="mb-6">
@@ -306,34 +210,23 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
             </View>
             <View>
               {data.references.map((ref, i) => (
-                <TouchableOpacity 
-                  key={i} 
-                  onPress={() => Linking.openURL(ref.url)}
-                  className="flex-row items-center py-2"
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="link" size={18} color="#a78bfa" className="mr-3" />
-                  <Text className="text-violet-300 text-xs left-2 underline">
-                    {ref.title || ref.url}
-                  </Text>
+                <TouchableOpacity key={i} onPress={() => Linking.openURL(ref.url)} className="flex-row items-center py-2">
+                  <Ionicons name="link" size={18} color="#a78bfa" />
+                  <Text className="text-violet-300 text-xs left-2 underline">{ref.title || ref.url}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
           <View className="flex-row justify-between mt mb-4 px-4">
-            <TouchableOpacity 
-              onPress={() => onBack()}
+            <TouchableOpacity
+              onPress={onBack}
               className="py-3 px-8 rounded-xl bg-white/20 border border-white/20 flex-1 mr-3 items-center"
               activeOpacity={0.7}
             >
               <Text className="text-white font-medium text-base">Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={onNext}
-              className="py-3 px-8 rounded-xl bg-violet-600 flex-1 ml-3 items-center"
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity onPress={onNext} className="py-3 px-8 rounded-xl bg-violet-600 flex-1 ml-3 items-center" activeOpacity={0.8}>
               <Text className="text-white font-semibold text-base">Proceed</Text>
             </TouchableOpacity>
           </View>
@@ -343,10 +236,14 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
   );
 };
 
-// Task Section Component
-const TaskSection = ({ data, onBack, onNext }: { 
-  data: LessonDetail; 
-  onBack: () => void; 
+// Task Section
+const TaskSection = ({
+  data,
+  onBack,
+  onNext,
+}: {
+  data: LessonDetail;
+  onBack: () => void;
   onNext: () => void;
 }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
@@ -354,43 +251,28 @@ const TaskSection = ({ data, onBack, onNext }: {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 700,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <View className="flex-1 p-6">
-        <TouchableOpacity 
-          onPress={onBack}
-          className="flex-row items-center mb-6"
-        >
+        <TouchableOpacity onPress={onBack} className="flex-row items-center mb-6">
           <Ionicons name="arrow-back" size={24} color="#fff" />
           <Text className="text-white ml-2">Back to Lesson</Text>
         </TouchableOpacity>
-        
+
         <View className="bg-white/5 p-6 rounded-xl mb-6">
           <Text className="text-white text-xl font-bold mb-4">Your Task</Text>
-          <Text className="text-white text-base mb-6 whitespace-pre-line">
-            {data.taskBody}
-          </Text>
-          
+          <Text className="text-white text-base mb-6 whitespace-pre-line">{data.taskBody}</Text>
+
           <View className="mb-6">
             <Text className="text-white text-lg font-semibold mb-3">Instructions:</Text>
             <View className="space-y-2">
@@ -402,37 +284,34 @@ const TaskSection = ({ data, onBack, onNext }: {
               ))}
             </View>
           </View>
-          
+
           <View className="bg-white/10 p-4 rounded-lg mb-6">
-  <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
-  <View className="space-y-2">
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🏰</Text>
-      <Text className="text-white/80 text-sm">Use the Memory Palace method to visualize key points</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🎯</Text>
-      <Text className="text-white/80 text-sm">Create short anchor phrases instead of full sentences</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🔄</Text>
-      <Text className="text-white/80 text-sm">Paraphrase ideas rather than memorizing word-for-word</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🗺️</Text>
-      <Text className="text-white/80 text-sm">Structure your talk with a clear beginning, middle, and end</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">😌</Text>
-      <Text className="text-white/80 text-sm">Stay calm and recover smoothly if you lose your place</Text>
-    </View>
-  </View>
-</View>
-          
-          <TouchableOpacity
-            className="bg-violet-600 py-4 rounded-lg items-center"
-            onPress={onNext}
-          >
+            <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
+            <View className="space-y-2">
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🏰</Text>
+                <Text className="text-white/80 text-sm">Use the Memory Palace method to visualize key points</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🎯</Text>
+                <Text className="text-white/80 text-sm">Create short anchor phrases instead of full sentences</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🔄</Text>
+                <Text className="text-white/80 text-sm">Paraphrase ideas rather than memorizing word-for-word</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🗺️</Text>
+                <Text className="text-white/80 text-sm">Structure your talk with a clear beginning, middle, and end</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">😌</Text>
+                <Text className="text-white/80 text-sm">Stay calm and recover smoothly if you lose your place</Text>
+              </View>
+            </View>
+          </View>
+
+          <TouchableOpacity className="bg-violet-600 py-4 rounded-lg items-center" onPress={onNext}>
             <Text className="text-white font-bold text-base">Continue to Recording</Text>
           </TouchableOpacity>
         </View>
@@ -441,35 +320,26 @@ const TaskSection = ({ data, onBack, onNext }: {
   );
 };
 
-// Recording Section Component
-const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => void }) => {
+// Recording Section
+const RecordingSection = ({ onBack }: { onBack: () => void }) => {
+  const params = useLocalSearchParams(); // forward whatever we received (module_id, module_title, level, display)
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 700,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mt-10 mb-4 mx-4">
           <View className="items-center">
@@ -486,7 +356,6 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white text-base font-semibold ml-2">Evaluation Rubric</Text>
             </View>
             <View className="border-2 border-white/20 rounded-lg overflow-hidden">
-              {/* Table Header */}
               <View className="flex-row bg-white/10">
                 <View className="w-1/4 p-2 border-r-2 border-white/20">
                   <Text className="text-white font-medium text-xs">Criteria</Text>
@@ -501,49 +370,65 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
                   <Text className="text-white font-bold text-sm">1</Text>
                 </View>
               </View>
-              
-              {/* Table Rows - Only first 4 criteria */}
-              {data.rubric.slice(0, 4).map((item, i) => (
+
+              {[
+                { label: "Accuracy", high: "Devices used correctly", medium: "Some mistakes", low: "Misused or unclear" },
+                { label: "Clarity", high: "Message becomes clearer", medium: "Somewhat clearer", low: "No improvement" },
+                { label: "Style", high: "Devices sound natural", medium: "Slightly forced", low: "Overused or distracting" },
+              ].map((r, i) => (
                 <View key={i} className="border-t-2 border-white/10">
                   <View className="flex-row min-h-[100px]">
                     <View className="w-1/4 p-2 border-r-2 border-white/10">
-                      <Text className="text-white text-xs font-medium">{item.label}</Text>
+                      <Text className="text-white text-xs font-medium">{r.label}</Text>
                     </View>
                     <View className="w-1/4 p-2 border-r-2 border-white/10">
-                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.high}</Text>
+                      <Text className="text-white/90 text-[11px] leading-4">{r.high}</Text>
                     </View>
                     <View className="w-1/4 p-2 border-r-2 border-white/10">
-                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.medium}</Text>
+                      <Text className="text-white/90 text-[11px] leading-4">{r.medium}</Text>
                     </View>
                     <View className="w-1/4 p-2">
-                      <Text className="text-white/90 text-[11px] leading-4">{item.descriptions.low}</Text>
+                      <Text className="text-white/90 text-[11px] leading-4">{r.low}</Text>
                     </View>
                   </View>
                 </View>
               ))}
             </View>
-            {/* Score Guide */}
+
             <View className="mt-4 bg-white/5 p-3 rounded-lg">
               <Text className="text-white font-medium mb-2">Score Guide:</Text>
               <View className="space-y-2">
-                <Text className="text-white/90 text-xs">16–20 = <Text className="text-green-400">Excellent</Text></Text>
-                <Text className="text-white/90 text-xs mt-2">11–15 = <Text className="text-blue-400">Good</Text></Text>
-                <Text className="text-white/90 text-xs mt-2">6–10 = <Text className="text-yellow-400">Needs Work</Text></Text>
-                <Text className="text-white/90 text-xs mt-2">1–5 = <Text className="text-red-400">Poor</Text></Text>
+                <Text className="text-white/90 text-xs">
+                  16–20 = <Text className="text-green-400">Excellent</Text>
+                </Text>
+                <Text className="text-white/90 text-xs mt-2">
+                  11–15 = <Text className="text-blue-400">Good</Text>
+                </Text>
+                <Text className="text-white/90 text-xs mt-2">
+                  6–10 = <Text className="text-yellow-400">Needs Work</Text>
+                </Text>
+                <Text className="text-white/90 text-xs mt-2">
+                  1–5 = <Text className="text-red-400">Poor</Text>
+                </Text>
               </View>
             </View>
           </View>
 
           <View className="flex-row justify-between mt-2 space-x-3">
-            <TouchableOpacity 
-              onPress={onBack} 
+            <TouchableOpacity
+              onPress={onBack}
               className="py-3 px-4 rounded-xl bg-white/10 border border-white/20 flex-1 items-center justify-center active:opacity-70"
               activeOpacity={0.7}
             >
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+            <TouchableOpacity
+              onPress={() =>
+                router.push({
+                  pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+                  params, // forward module_id, module_title, level, display, etc.
+                })
+              }
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
@@ -558,12 +443,11 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 
 export default function LessonScreen() {
   const [currentSection, setCurrentSection] = useState(0);
-  const params = useLocalSearchParams();
-  const lessonId = parseInt(params.id as string) || 1;
-  const lesson = LESSONS.find(l => l.id === lessonId) || LESSONS[0];
+  const params = useLocalSearchParams<{ id?: string }>();
+  const lessonId = parseInt((params.id as string) || "6", 10) || 6;
+  const lesson = LESSONS.find((l) => l.id === lessonId) || LESSONS[0];
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Scroll to top when section changes
   useEffect(() => {
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollTo({ y: 0, animated: true });
@@ -571,31 +455,22 @@ export default function LessonScreen() {
   }, [currentSection]);
 
   const sections = [
-    <LessonSection 
-      key="lesson" 
-      data={lesson} 
+    <LessonSection
+      key="lesson"
+      data={lesson}
       onNext={() => setCurrentSection(1)}
-      onBack={() => router.push('/StudentScreen/SpeakingExercise/basic-contents')}
+      onBack={() => router.push("/StudentScreen/SpeakingExercise/advanced-contents")}
     />,
-    <TaskSection 
-      key="task" 
-      data={lesson} 
-      onBack={() => setCurrentSection(0)} 
-      onNext={() => setCurrentSection(2)} 
-    />,
-    <RecordingSection 
-      key="recording" 
-      data={lesson} 
-      onBack={() => setCurrentSection(1)} 
-    />
+    <TaskSection key="task" data={lesson} onBack={() => setCurrentSection(0)} onNext={() => setCurrentSection(2)} />,
+    <RecordingSection key="recording" onBack={() => setCurrentSection(1)} />,
   ];
 
   return (
     <View className="flex-1 bg-slate-900">
       <StatusBar barStyle="light-content" />
       <BackgroundDecor />
-      
-      <ScrollView 
+
+      <ScrollView
         ref={scrollViewRef}
         className="flex-1 z-10"
         contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
@@ -607,9 +482,7 @@ export default function LessonScreen() {
           <SectionIndicator currentSection={currentSection} />
         </View>
 
-        <View className="flex-1">
-          {sections[currentSection]}
-        </View>
+        <View className="flex-1">{sections[currentSection]}</View>
       </ScrollView>
     </View>
   );

@@ -12,8 +12,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 import ProfileMenu from "@/components/ProfileModal/ProfileMenuNew";
-
-// ⬇️ keep your project's supabase import style
 import { supabase } from "@/lib/supabaseClient";
 
 // ===== TYPES =====
@@ -22,13 +20,13 @@ type ModuleType = {
   label: string;
   title: string;
   desc: string;
-  progress: number;
+  progress: number; // 0..1
   color: string;
   navigateTo: string;
   isActive?: boolean;
 };
 
-// ===== MODULES (progress = 0 for now) =====
+// ===== MODULES (progress = 0 initially; will be filled from Supabase) =====
 const BASE_MODULES: ModuleType[] = [
   {
     key: "Basic",
@@ -61,6 +59,10 @@ const SpeakingHome = () => {
   const [fullName, setFullName] = useState<string>("");
   const [email, setEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
+  // progress state for the two tracks
+  const [basicProgress, setBasicProgress] = useState<number>(0);    // 0..1
+  const [advancedProgress, setAdvancedProgress] = useState<number>(0); // 0..1
 
   const initials = useMemo(() => {
     const base = (fullName || email || "U").trim();
@@ -130,6 +132,71 @@ const SpeakingHome = () => {
       mounted = false;
     };
   }, []);
+
+  // ---- pull aggregate progress for Basic/Advanced from Supabase ----
+  useEffect(() => {
+    let cancel = false;
+
+    const loadTrackProgress = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user || cancel) return;
+
+      // helper that computes average progress for a level (basic/advanced)
+      const computeLevelProgress = async (level: "basic" | "advanced"): Promise<number> => {
+        // 1) fetch modules in this track
+        const { data: mods, error: modsErr } = await supabase
+          .from("modules")
+          .select("id")
+          .eq("category", "speaking")
+          .eq("level", level)
+          .eq("active", true);
+
+        if (modsErr || !mods?.length) return 0;
+
+        const moduleIds = mods.map((m) => m.id);
+        // 2) fetch student_progress rows for these modules
+        const { data: rows, error: spErr } = await supabase
+          .from("student_progress")
+          .select("module_id, progress")
+          .eq("student_id", user.id)
+          .in("module_id", moduleIds);
+
+        if (spErr) return 0;
+
+        // 3) average progress across all modules in this track (treat missing as 0)
+        const sum = (rows ?? []).reduce((acc, r) => acc + (r.progress ?? 0), 0);
+        const totalModules = moduleIds.length;
+        const avgPercent = sum / totalModules; // still 0..100
+        const normalized = Math.max(0, Math.min(1, Math.round(avgPercent) / 100));
+        return normalized;
+      };
+
+      try {
+        const [basic, advanced] = await Promise.all([
+          computeLevelProgress("basic"),
+          computeLevelProgress("advanced"),
+        ]);
+        if (!cancel) {
+          setBasicProgress(basic);
+          setAdvancedProgress(advanced);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    loadTrackProgress();
+
+    // optional: refresh when you come back to this screen
+    const focusSub = router?.addListener?.("focus", loadTrackProgress);
+
+    return () => {
+      cancel = true;
+      // @ts-ignore
+      if (focusSub && typeof focusSub.remove === "function") focusSub.remove();
+    };
+  }, [router]);
 
   // ----- header & handlers -----
   const handleIconPress = (iconName: string) => {
@@ -300,6 +367,12 @@ const SpeakingHome = () => {
     </View>
   );
 
+  // build the two cards with live progress
+  const modulesToShow: ModuleType[] = [
+    { ...BASE_MODULES[0], progress: basicProgress },
+    { ...BASE_MODULES[1], progress: advancedProgress },
+  ];
+
   return (
     <View className="flex-1 bg-[#0F172A] pt-1">
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
@@ -319,7 +392,6 @@ const SpeakingHome = () => {
             <ProfileMenu
               visible={isProfileMenuVisible}
               onDismiss={() => setIsProfileMenuVisible(false)}
-              // no user prop needed; it fetches from Supabase for consistency with Home
             />
 
             <LivePracticeSection />
@@ -328,7 +400,7 @@ const SpeakingHome = () => {
               <Text className="text-white bottom-8 text-xl font-bold mb-4">
                 Learning Paths
               </Text>
-              {BASE_MODULES.map((mod) => (
+              {modulesToShow.map((mod) => (
                 <ModuleCard
                   key={mod.key}
                   mod={{ ...mod, isActive: selectedModule === mod.key }}

@@ -1,15 +1,11 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { 
   View, 
   Text, 
-  StyleSheet, 
   Animated, 
   Easing, 
   TouchableOpacity, 
   ScrollView, 
-  Image, 
-  Pressable, 
-  Alert, 
   Dimensions,
   StatusBar,
   Linking
@@ -155,69 +151,20 @@ const ProgressBar = ({ progress }: { progress: number }) => {
   );
 };
 
-// Floating Action Button Component
-const FloatingActionButton = ({ 
-  icon, 
-  onPress, 
-  label 
-}: { 
-  icon: string; 
-  onPress: () => void; 
-  label?: string;
-}) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.9,
-      useNativeDriver: true,
-    }).start();
-  };
-  
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        className="bg-violet-600 py-4 px-6 rounded-2xl flex-row items-center"
-        activeOpacity={0.8}
-      >
-        <Text className="text-white font-bold text-base mr-2">{label}</Text>
-        <Ionicons name={icon as any} size={20} color="#fff" />
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
-
 // Section Indicator Component
 const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
-  // Don't show progress in recording section (section 2)
   if (currentSection === 2) return null;
-  
   return (
     <View className="flex-row justify-center gap-6 mt-1 mb">
       {[0, 1, 2].map((sectionIndex) => {
         const isActive = sectionIndex === currentSection;
         const isCompleted = sectionIndex < currentSection;
-        
         return (
           <View key={sectionIndex} className="items-center">
             <View 
               className={`w-2 h-2 rounded-full ${isActive ? 'bg-violet-500' : isCompleted ? 'bg-violet-400' : 'bg-white/20'}`}
             />
-            <Text 
-              className={`text-xs mt-1 ${isActive ? 'text-violet-400' : 'text-white/40'}`}
-            >
+            <Text className={`text-xs mt-1 ${isActive ? 'text-violet-400' : 'text-white/40'}`}>
               {sectionIndex === 0 ? 'Lesson' : sectionIndex === 1 ? 'Task' : 'Record'}
             </Text>
           </View>
@@ -249,13 +196,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mb-4 mx-4">
           <View className="flex-row justify-between items-center mb-4">
@@ -342,11 +283,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
 };
 
 // Task Section Component
-const TaskSection = ({ data, onBack, onNext }: { 
-  data: LessonDetail; 
-  onBack: () => void; 
-  onNext: () => void;
-}) => {
+const TaskSection = ({ data, onBack, onNext }: { data: LessonDetail; onBack: () => void; onNext: () => void; }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
@@ -367,18 +304,9 @@ const TaskSection = ({ data, onBack, onNext }: {
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <View className="flex-1 p-6">
-        <TouchableOpacity 
-          onPress={onBack}
-          className="flex-row items-center mb-6"
-        >
+        <TouchableOpacity onPress={onBack} className="flex-row items-center mb-6">
           <Ionicons name="arrow-back" size={24} color="#fff" />
           <Text className="text-white ml-2">Back to Lesson</Text>
         </TouchableOpacity>
@@ -402,35 +330,32 @@ const TaskSection = ({ data, onBack, onNext }: {
           </View>
           
           <View className="bg-white/10 p-4 rounded-lg mb-6">
-  <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
-  <View className="space-y-2">
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">👥</Text>
-      <Text className="text-white/80 text-sm">Use Social Proof: Show others are already participating</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🤝</Text>
-      <Text className="text-white/80 text-sm">Apply Reciprocity: Offer value in return for action</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🎯</Text>
-      <Text className="text-white/80 text-sm">Anticipate objections and address them respectfully</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">📊</Text>
-      <Text className="text-white/80 text-sm">Support claims with facts, examples, or data</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🎭</Text>
-      <Text className="text-white/80 text-sm">Tailor your message to your specific audience</Text>
-    </View>
-  </View>
-</View>
+            <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
+            <View className="space-y-2">
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">👥</Text>
+                <Text className="text-white/80 text-sm">Use Social Proof: Show others are already participating</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🤝</Text>
+                <Text className="text-white/80 text-sm">Apply Reciprocity: Offer value in return for action</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🎯</Text>
+                <Text className="text-white/80 text-sm">Anticipate objections and address them respectfully</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">📊</Text>
+                <Text className="text-white/80 text-sm">Support claims with facts, examples, or data</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🎭</Text>
+                <Text className="text-white/80 text-sm">Tailor your message to your specific audience</Text>
+              </View>
+            </View>
+          </View>
           
-          <TouchableOpacity
-            className="bg-violet-600 py-4 rounded-lg items-center"
-            onPress={onNext}
-          >
+          <TouchableOpacity className="bg-violet-600 py-4 rounded-lg items-center" onPress={onNext}>
             <Text className="text-white font-bold text-base">Continue to Recording</Text>
           </TouchableOpacity>
         </View>
@@ -440,7 +365,7 @@ const TaskSection = ({ data, onBack, onNext }: {
 };
 
 // Recording Section Component
-const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => void }) => {
+const RecordingSection = ({ data, onBack, moduleId }: { data: LessonDetail; onBack: () => void; moduleId: string }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
@@ -461,13 +386,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mt-10 mb-4 mx-4">
           <View className="items-center">
@@ -475,7 +394,9 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
           </View>
 
           <View className="mb-10">
-            <Text className="text-white text-sm top-4 leading-5">Task: Deliver a 60-sec persuasive pitch using 2 persuasion principles and answer 1 objection.</Text>
+            <Text className="text-white text-sm top-4 leading-5">
+              Task: Deliver a 60-sec persuasive pitch using 2 persuasion principles and answer 1 objection.
+            </Text>
           </View>
 
           <View className="mb-5">
@@ -500,7 +421,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
                 </View>
               </View>
               
-              {/* Table Rows - Only first 4 criteria */}
+              {/* Table Rows */}
               {data.rubric.slice(0, 4).map((item, i) => (
                 <View key={i} className="border-t-2 border-white/10">
                   <View className="flex-row min-h-[100px]">
@@ -520,6 +441,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
                 </View>
               ))}
             </View>
+
             {/* Score Guide */}
             <View className="mt-4 bg-white/5 p-3 rounded-lg">
               <Text className="text-white font-medium mb-2">Score Guide:</Text>
@@ -540,14 +462,29 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
             >
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
+
+            {/* 🔗 Pass module_id forward so recorder -> full-result-advanced can mark 100% */}
             <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+              onPress={() => router.push({
+                pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+                params: { module_id: moduleId },
+              })}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
               <Text className="text-white font-semibold text-sm">Start Recording</Text>
             </TouchableOpacity>
           </View>
+
+          {/* NOTE:
+              Inside your live-vid-selection / recording flow for advanced,
+              after successful submission, navigate to:
+              router.push({
+                pathname: "/StudentScreen/SpeakingExercise/full-result-advanced",
+                params: { module_id }
+              });
+              full-result-advanced will then set progress to 100% for that module.
+          */}
         </View>
       </ScrollView>
     </Animated.View>
@@ -557,11 +494,11 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 export default function LessonScreen() {
   const [currentSection, setCurrentSection] = useState(0);
   const params = useLocalSearchParams();
-  const lessonId = parseInt(params.id as string) || 1;
+  const lessonId = parseInt(params.id as string) || 2;          // defaults to 2 for this file
+  const moduleId = (params.module_id as string) || "";          // 🔗 read module_id
   const lesson = LESSONS.find(l => l.id === lessonId) || LESSONS[0];
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Scroll to top when section changes
   useEffect(() => {
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollTo({ y: 0, animated: true });
@@ -573,7 +510,7 @@ export default function LessonScreen() {
       key="lesson" 
       data={lesson} 
       onNext={() => setCurrentSection(1)}
-      onBack={() => router.push('/StudentScreen/SpeakingExercise/basic-contents')}
+      onBack={() => router.push('/StudentScreen/SpeakingExercise/advanced-contents')}
     />,
     <TaskSection 
       key="task" 
@@ -585,6 +522,7 @@ export default function LessonScreen() {
       key="recording" 
       data={lesson} 
       onBack={() => setCurrentSection(1)} 
+      moduleId={moduleId}
     />
   ];
 

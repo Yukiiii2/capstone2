@@ -488,6 +488,27 @@ export default function AdvancedContents() {
     [setRecent]
   );
 
+  // 🆕 BASIC-STYLE NAV: open /LessonAdvance/advancelesson-${id}
+  const handleLessonPress = useCallback(
+    (displayId: number, title: string) => {
+      const moduleId = moduleIdByDisplayId[displayId] || "";
+      // keep recents behavior
+      pushRecent(moduleId, title);
+
+      router.push({
+        pathname: `/StudentScreen/SpeakingExercise/LessonAdvance/advancelesson-${displayId}`,
+        params: {
+          id: String(displayId),
+          module_id: moduleId,
+          module_title: title,
+          level: "advanced",
+          display: String(displayId),
+        },
+      });
+    },
+    [moduleIdByDisplayId, pushRecent, router]
+  );
+
   return (
     <View className="flex-1 bg-[#0F172A] pt-1">
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
@@ -676,19 +697,7 @@ export default function AdvancedContents() {
                               Alert.alert("Locked", "Complete the previous module to unlock this lesson.");
                               return;
                             }
-                            const moduleId = moduleIdByDisplayId[lesson.id];
-                            // 🆕 Optimistically reflect the click in Recents
-                            pushRecent(moduleId, lesson.title);
-
-                            router.push({
-                              pathname: "StudentScreen/SpeakingExercise/lessons-advanced",
-                              params: {
-                                module_id: moduleId,
-                                module_title: lesson.title,
-                                level: "advanced",
-                                display: String(lesson.id),
-                              },
-                            });
+                            handleLessonPress(lesson.id, lesson.title);
                           }}
                           disabled={isLocked}
                           style={({ pressed }) => ({

@@ -445,7 +445,7 @@ const TaskSection = ({ data, onBack, onNext }: {
 };
 
 // Recording Section Component
-const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => void }) => {
+const RecordingSection = ({ data, onBack, moduleId }: { data: LessonDetail; onBack: () => void; moduleId: string }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
@@ -546,13 +546,28 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+              onPress={() => router.push({
+                pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+                // 🔗 Pass module_id so the recorder can forward it to FULL RESULT
+                params: { lessonPrompt, topic, module_id: moduleId },
+              })}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
               <Text className="text-white font-semibold text-sm">Start Recording</Text>
             </TouchableOpacity>
           </View>
+
+          {/* NOTE:
+              Inside your live-vid-selection flow, when the upload/eval is done,
+              navigate to /StudentScreen/SpeakingExercise/full-result-advanced
+              and KEEP passing module_id so that screen can mark 100%.
+              Example:
+              router.push({
+                pathname: "/StudentScreen/SpeakingExercise/full-result-advanced",
+                params: { module_id }
+              });
+          */}
         </View>
       </ScrollView>
     </Animated.View>
@@ -562,8 +577,9 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 export default function LessonScreen() {
   const [currentSection, setCurrentSection] = useState(0);
   const params = useLocalSearchParams();
-  const lessonId = parseInt(params.id as string) || 1;
-  const lesson = LESSONS.find(l => l.id === lessonId) || LESSONS[0];
+  const lessonParamId = parseInt(params.id as string) || 1;
+  const moduleId = (params.module_id as string) || ""; // 🔗 read module_id from params
+  const lesson = LESSONS.find(l => l.id === lessonParamId) || LESSONS[0];
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Scroll to top when section changes
@@ -578,7 +594,7 @@ export default function LessonScreen() {
       key="lesson" 
       data={lesson} 
       onNext={() => setCurrentSection(1)}
-      onBack={() => router.push('/StudentScreen/SpeakingExercise/basic-contents')}
+      onBack={() => router.push('/StudentScreen/SpeakingExercise/advanced-contents')}
     />,
     <TaskSection 
       key="task" 
@@ -590,6 +606,7 @@ export default function LessonScreen() {
       key="recording" 
       data={lesson} 
       onBack={() => setCurrentSection(1)} 
+      moduleId={moduleId} // 🔗 forward module_id to recorder
     />
   ];
 

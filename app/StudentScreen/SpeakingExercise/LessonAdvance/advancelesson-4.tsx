@@ -1,22 +1,18 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { 
   View, 
   Text, 
-  StyleSheet, 
   Animated, 
   Easing, 
   TouchableOpacity, 
   ScrollView, 
-  Image, 
-  Pressable, 
-  Alert, 
   Dimensions,
   StatusBar,
   Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter, useLocalSearchParams, router } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get('window');
 
@@ -162,69 +158,20 @@ const ProgressBar = ({ progress }: { progress: number }) => {
   );
 };
 
-// Floating Action Button Component
-const FloatingActionButton = ({ 
-  icon, 
-  onPress, 
-  label 
-}: { 
-  icon: string; 
-  onPress: () => void; 
-  label?: string;
-}) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.9,
-      useNativeDriver: true,
-    }).start();
-  };
-  
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        className="bg-violet-600 py-4 px-6 rounded-2xl flex-row items-center"
-        activeOpacity={0.8}
-      >
-        <Text className="text-white font-bold text-base mr-2">{label}</Text>
-        <Ionicons name={icon as any} size={20} color="#fff" />
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
-
 // Section Indicator Component
 const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
-  // Don't show progress in recording section (section 2)
   if (currentSection === 2) return null;
-  
   return (
     <View className="flex-row justify-center gap-6 mt-1 mb">
       {[0, 1, 2].map((sectionIndex) => {
         const isActive = sectionIndex === currentSection;
         const isCompleted = sectionIndex < currentSection;
-        
         return (
           <View key={sectionIndex} className="items-center">
             <View 
               className={`w-2 h-2 rounded-full ${isActive ? 'bg-violet-500' : isCompleted ? 'bg-violet-400' : 'bg-white/20'}`}
             />
-            <Text 
-              className={`text-xs mt-1 ${isActive ? 'text-violet-400' : 'text-white/40'}`}
-            >
+            <Text className={`text-xs mt-1 ${isActive ? 'text-violet-400' : 'text-white/40'}`}>
               {sectionIndex === 0 ? 'Lesson' : sectionIndex === 1 ? 'Task' : 'Record'}
             </Text>
           </View>
@@ -256,13 +203,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mb-4 mx-4">
           <View className="flex-row justify-between items-center mb-4">
@@ -317,7 +258,7 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
                   className="flex-row items-center py-2"
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="link" size={18} color="#a78bfa" className="mr-3" />
+                  <Ionicons name="link" size={18} color="#a78bfa" />
                   <Text className="text-violet-300 text-xs left-2 underline">
                     {ref.title || ref.url}
                   </Text>
@@ -342,6 +283,11 @@ const LessonSection = ({ data, onNext, onBack }: { data: LessonDetail, onNext: (
               <Text className="text-white font-semibold text-base">Proceed</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Advanced rule hint: progress updates on results only */}
+          <Text className="text-white/60 text-center text-xs mt-1">
+            Note: For advanced lessons, progress updates after you finish and view your results.
+          </Text>
         </View>
       </ScrollView>
     </Animated.View>
@@ -374,18 +320,9 @@ const TaskSection = ({ data, onBack, onNext }: {
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <View className="flex-1 p-6">
-        <TouchableOpacity 
-          onPress={onBack}
-          className="flex-row items-center mb-6"
-        >
+        <TouchableOpacity onPress={onBack} className="flex-row items-center mb-6">
           <Ionicons name="arrow-back" size={24} color="#fff" />
           <Text className="text-white ml-2">Back to Lesson</Text>
         </TouchableOpacity>
@@ -409,35 +346,32 @@ const TaskSection = ({ data, onBack, onNext }: {
           </View>
           
           <View className="bg-white/10 p-4 rounded-lg mb-6">
-  <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
-  <View className="space-y-2">
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">👂</Text>
-      <Text className="text-white/80 text-sm">Listen fully to the entire question before answering</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">⏱️</Text>
-      <Text className="text-white/80 text-sm">Keep answers concise (20-30 seconds maximum)</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🌉</Text>
-      <Text className="text-white/80 text-sm">Bridge back to your main message when possible</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">😌</Text>
-      <Text className="text-white/80 text-sm">Stay calm and maintain steady speaking pace</Text>
-    </View>
-    <View className="flex-row items-start">
-      <Text className="text-violet-400 mr-2">🔄</Text>
-      <Text className="text-white/80 text-sm">Use the Clarify → Answer → Bridge method consistently</Text>
-    </View>
-  </View>
-</View>
+            <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
+            <View className="space-y-2">
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">👂</Text>
+                <Text className="text-white/80 text-sm">Listen fully to the entire question before answering</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">⏱️</Text>
+                <Text className="text-white/80 text-sm">Keep answers concise (20-30 seconds maximum)</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🌉</Text>
+                <Text className="text-white/80 text-sm">Bridge back to your main message when possible</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">😌</Text>
+                <Text className="text-white/80 text-sm">Stay calm and maintain steady speaking pace</Text>
+              </View>
+              <View className="flex-row items-start">
+                <Text className="text-violet-400 mr-2">🔄</Text>
+                <Text className="text-white/80 text-sm">Use the Clarify → Answer → Bridge method consistently</Text>
+              </View>
+            </View>
+          </View>
           
-          <TouchableOpacity
-            className="bg-violet-600 py-4 rounded-lg items-center"
-            onPress={onNext}
-          >
+          <TouchableOpacity className="bg-violet-600 py-4 rounded-lg items-center" onPress={onNext}>
             <Text className="text-white font-bold text-base">Continue to Recording</Text>
           </TouchableOpacity>
         </View>
@@ -450,6 +384,25 @@ const TaskSection = ({ data, onBack, onNext }: {
 const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => void }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
+  const params = useLocalSearchParams();
+
+  const startRecording = () => {
+    const module_id = (params.module_id as string) || "";
+    const display = (params.display as string) || String(data.id);
+
+    // Advanced rule: do NOT set progress here.
+    // We forward module context; the full-result page will upsert 100%.
+    router.push({
+      pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+      params: {
+        module_id,
+        level: "advanced",
+        display,
+        // where your recorder should send the user after they finish
+        returnTo: "/StudentScreen/SpeakingExercise/full-result",
+      },
+    });
+  };
 
   useEffect(() => {
     Animated.parallel([
@@ -468,13 +421,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
   }, []);
 
   return (
-    <Animated.View 
-      style={{ 
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }]
-      }} 
-      className="flex-1"
-    >
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
         <View className="bg-gradient-to-b from-white/5 to-white/10 rounded-2xl p-4 border border-white/10 mt-10 mb-4 mx-4">
           <View className="items-center">
@@ -482,7 +429,12 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
           </View>
 
           <View className="mb-10">
-            <Text className="text-white text-sm top-4 leading-5">Task: Answer 5 questions using the “Clarify → Answer → Bridge” method.</Text>
+            <Text className="text-white text-sm top-4 leading-5">
+              Task: Answer 5 questions using the “Clarify → Answer → Bridge” method.
+            </Text>
+            <Text className="text-white/60 text-xs mt-3">
+              Progress updates to 100% after you finish and view your results.
+            </Text>
           </View>
 
           <View className="mb-5">
@@ -491,7 +443,6 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white text-base font-semibold ml-2">Evaluation Rubric</Text>
             </View>
             <View className="border-2 border-white/20 rounded-lg overflow-hidden">
-              {/* Table Header */}
               <View className="flex-row bg-white/10">
                 <View className="w-1/4 p-2 border-r-2 border-white/20">
                   <Text className="text-white font-medium text-xs">Criteria</Text>
@@ -507,7 +458,6 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
                 </View>
               </View>
               
-              {/* Table Rows - Only first 4 criteria */}
               {data.rubric.slice(0, 4).map((item, i) => (
                 <View key={i} className="border-t-2 border-white/10">
                   <View className="flex-row min-h-[100px]">
@@ -527,7 +477,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
                 </View>
               ))}
             </View>
-            {/* Score Guide */}
+
             <View className="mt-4 bg-white/5 p-3 rounded-lg">
               <Text className="text-white font-medium mb-2">Score Guide:</Text>
               <View className="space-y-2">
@@ -548,7 +498,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => router.push("/StudentScreen/SpeakingExercise/live-vid-selection")}
+              onPress={startRecording}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
@@ -564,11 +514,10 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 export default function LessonScreen() {
   const [currentSection, setCurrentSection] = useState(0);
   const params = useLocalSearchParams();
-  const lessonId = parseInt(params.id as string) || 1;
+  const lessonId = parseInt((params.id as string) || "4", 10) || 4;
   const lesson = LESSONS.find(l => l.id === lessonId) || LESSONS[0];
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Scroll to top when section changes
   useEffect(() => {
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollTo({ y: 0, animated: true });
@@ -580,7 +529,8 @@ export default function LessonScreen() {
       key="lesson" 
       data={lesson} 
       onNext={() => setCurrentSection(1)}
-      onBack={() => router.push('/StudentScreen/SpeakingExercise/basic-contents')}
+      // 🔁 Back to ADVANCED contents (fixed)
+      onBack={() => router.push('/StudentScreen/SpeakingExercise/advanced-contents')}
     />,
     <TaskSection 
       key="task" 

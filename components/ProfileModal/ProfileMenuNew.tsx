@@ -510,7 +510,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
                     className="flex-row items-center p-4 rounded-xl active:bg-white/5"
                     onPress={() => {
                       handleClose();
-                      router.push("/StudentScreen/ClassProgress/class-progress");
+                      router.push("/ProfileMenu/class-progress");
                     }}
                     activeOpacity={0.7}
                   >
