@@ -5,7 +5,7 @@ import spacy
 class FeedbackAnalyzer:
     def __init__(self):
         self.llm = Llama3Analyzer()  # Llama3 for feedback generation
-        self.transcriber = WhisperTranscriber(model_name="base")  # Whisper for transcription
+        self.transcriber = WhisperTranscriber(model_name="small")  # Whisper for transcription
         self.nlp = spacy.load("en_core_web_sm")  # spaCy for linguistic analysis
 
     def _get_spacy_stats(self, text: str) -> dict:
@@ -82,10 +82,10 @@ class FeedbackAnalyzer:
                 f"Expected Text: {expected_text}\n\n"
                 f"spaCy Stats: {spacy_stats}\n\n"
 
-                "Analyze this speech and provide feedback on pronunciation, tone, and clarity. "
-                "Suggest areas for improvement and practical exercises."
-                "The feedback should be elaborated but concise."
-                "Limit your response in every aspect after the ai feedback to 15 words"
+                "Analyze this speech and provide feedback on pronunciation, tone, and clarity. \n"
+                "Suggest areas for improvement and practical exercises.\n"
+                "The feedback should be elaborated but concise. \n"
+                "Limit your response in every aspect after the ai feedback to 15 words \n"
                 
                 
                 
@@ -130,9 +130,9 @@ class FeedbackAnalyzer:
             # Construct the dynamic prompt
             prompt = (
                 f"{lessonPrompt} \n"
-                f"The topic is: {topic}. "
-                f"The script should be between {min_words} and {max_words} words long. "
-                "Provide the script only, dont include any other text or introduction."
+                f"Topic: {topic}. \n"
+                f"The script should be between {min_words} and {max_words} words long. \n"
+                "Provide the script only, dont include any other text or introductory statements be direct to the point. \n"
                 
             )
 
