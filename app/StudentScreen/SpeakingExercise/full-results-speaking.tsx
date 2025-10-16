@@ -173,43 +173,59 @@ export default function FullResultsSpeaking() {
 
   // ---------- modules helpers ----------
   async function resolveModule() {
-    try {
-      if (!currentModule.id || !currentModule.title) {
-        const { data } = await supabase
-          .from("modules")
-          .select("id, title, level, order_index")
-          .eq("category", "speaking")
-          .eq("level", currentModule.level)
-          .eq("active", true)
-          .order("order_index", { ascending: true })
-          .limit(1);
-        if (data && data.length) {
-          const m = data[0];
-          setCurrentModule({
-            id: m.id,
-            title: m.title,
-            level: m.level === "advanced" ? "advanced" : "basic",
-            order_index: m.order_index ?? null,
-          });
-        }
-      } else {
-        const { data } = await supabase
-          .from("modules")
-          .select("id, title, order_index")
-          .eq("id", currentModule.id)
-          .maybeSingle();
-        if (data) {
-          setCurrentModule((prev) => ({
-            ...prev,
-            order_index: data.order_index ?? prev.order_index,
-            title: prev.title ?? data.title,
-          }));
-        }
+  try {
+    if (!currentModule.id || !currentModule.title) {
+      const { data, error } = await supabase
+        .from("modules")
+        .select("id, title, level, order_index")
+        .eq("category", "speaking")
+        .eq("level", currentModule.level)
+        .eq("active", true)
+        .order("order_index", { ascending: true })
+        .limit(1);
+
+      if (error) {
+        console.error("resolveModule: Failed to fetch module:", error.message);
+        return;
       }
-    } catch {
-      // no-op
+
+      if (data && data.length) {
+        const m = data[0];
+        setCurrentModule({
+          id: m.id,
+          title: m.title,
+          level: m.level === "advanced" ? "advanced" : "basic",
+          order_index: m.order_index ?? null,
+        });
+        console.log("resolveModule: Current module set:", m);
+      } else {
+        console.warn("resolveModule: No module found");
+      }
+    } else {
+      const { data, error } = await supabase
+        .from("modules")
+        .select("id, title, order_index")
+        .eq("id", currentModule.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("resolveModule: Failed to fetch current module:", error.message);
+        return;
+      }
+
+      if (data) {
+        setCurrentModule((prev) => ({
+          ...prev,
+          order_index: data.order_index ?? prev.order_index,
+          title: prev.title ?? data.title,
+        }));
+        console.log("resolveModule: Current module updated:", data);
+      }
     }
+  } catch (e) {
+    console.error("resolveModule: Unexpected error:", e);
   }
+}
 
   async function resolveNextModule() {
     try {
@@ -233,22 +249,52 @@ export default function FullResultsSpeaking() {
 
   // ---------- attempts + progress ----------
   async function logAttempt(userId: string) {
-    try {
-      await supabase.from("attempts").insert([
-        {
-          user_id: userId,
-          module_id: currentModule.id,
-          score: clampPct(uiScore),
-          category: "speaking",
-          level: currentModule.level,
-          session_id: session_id ?? null,
-          attempt_ref: attempt_id ?? null,
-        } as any,
-      ]);
-    } catch (e) {
-      console.log("[full-results] attempts insert skipped:", (e as any)?.message);
+  try {
+    if (!currentModule.id) {
+      console.error("logAttempt: currentModule.id is null");
+      return;
     }
+
+    // Fetch the latest attempt number for the student and module
+    const { data: latestAttempt, error: fetchError } = await supabase
+      .from("attempts")
+      .select("attempt_number")
+      .eq("student_id", userId) // Use student_id instead of user_id
+      .eq("module_id", currentModule.id)
+      .order("attempt_number", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
+      console.error("logAttempt: Failed to fetch latest attempt number:", fetchError.message);
+      return;
+    }
+
+    const nextAttemptNumber = latestAttempt?.attempt_number ? latestAttempt.attempt_number + 1 : 1;
+
+    // Insert the new attempt
+    const { error: insertError } = await supabase.from("attempts").insert([
+      {
+        student_id: userId, // Use student_id instead of user_id
+        module_id: currentModule.id,
+        attempt_number: nextAttemptNumber, // Increment attempt number
+        score: clampPct(uiScore),
+        category: "speaking",
+        level: currentModule.level,
+        session_id: session_id ?? null,
+        
+      },
+    ]);
+
+    if (insertError) {
+      console.error("logAttempt: Failed to insert attempt:", insertError.message);
+    } else {
+      console.log("logAttempt: Attempt logged successfully with attempt_number:", nextAttemptNumber);
+    }
+  } catch (e) {
+    console.error("logAttempt: Unexpected error:", e);
   }
+}
 
   async function upsertStudentProgress(userId: string) {
     try {
@@ -388,19 +434,20 @@ export default function FullResultsSpeaking() {
   }, [currentModule.order_index, currentModule.id, currentModule.title]);
 
   // save once
-  const savedOnceRef = useRef(false);
-  useEffect(() => {
-    (async () => {
-      if (savedOnceRef.current) return;
-      const { data: auth } = await supabase.auth.getUser();
-      const user = auth?.user;
-      if (!user) return;
-      savedOnceRef.current = true;
-      await logAttempt(user.id);
-      await upsertStudentProgress(user.id);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiScore, currentModule.level]);
+  // Save once when the module is resolved
+const savedOnceRef = useRef(false);
+useEffect(() => {
+  (async () => {
+    if (savedOnceRef.current || !currentModule.id) return; // Wait until currentModule.id is set
+    const { data: auth } = await supabase.auth.getUser();
+    const user = auth?.user;
+    if (!user) return;
+    savedOnceRef.current = true;
+    await logAttempt(user.id);
+    await upsertStudentProgress(user.id);
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [currentModule.id, uiScore]);
 
   const goRetake = async () => {
     try {
