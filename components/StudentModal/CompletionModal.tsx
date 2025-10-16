@@ -73,9 +73,21 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
                   </Text>
                   <Markdown
                     styles={{
-                      text: { color: "white", fontSize: 14 },
-                      heading1: { color: "white", fontSize: 18, fontWeight: "bold" },
-                      bullet: { marginVertical: 5 },
+                      text: { color: "white", fontSize: 14, lineHeight: 22, marginBottom: 10 }, // General text style with proper spacing
+                      heading1: { color: "white", fontSize: 18, fontWeight: "bold", marginBottom: 15 }, // H1 style with spacing
+                      heading2: { color: "white", fontSize: 16, fontWeight: "bold", marginBottom: 12 }, // H2 style
+                      bullet: { color: "white", fontSize: 14, marginVertical: 8, paddingLeft: 15 }, // Bullet list style with spacing
+                      strong: { color: "#8F00FF", fontWeight: "bold" }, // Bold text style for *word* or **word**
+                      em: { color: "#8F00FF", fontStyle: "italic" }, // Italic text style for _word_
+                      listItem: { marginVertical: 8 }, // Spacing between list items
+                      blockQuote: {
+                        color: "white",
+                        fontStyle: "italic",
+                        borderLeftWidth: 4,
+                        borderLeftColor: "#8F00FF",
+                        paddingLeft: 10,
+                        marginVertical: 12,
+                      }, // Blockquote style with spacing
                     }}
                   >
                     {ai_feedback || "No feedback available."}

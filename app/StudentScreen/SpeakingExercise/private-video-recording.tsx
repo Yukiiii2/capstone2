@@ -124,6 +124,7 @@ export default function PrivateVideoRecording() {
   const params = useLocalSearchParams();
   const lessonPrompt = params.lessonPrompt as string; // Retrieve lessonPrompt
   const topic = params.topic as string; // Retrieve topic
+  const criteria = params.criteria as string; // Retrieve criteria
   const generatedScript = params.generatedScript as string || "No script available."; // Retrieve the generated script
   const [feedback, setFeedback] = useState(null);
   const [cameraRef, setCameraRef] = useState<React.RefObject<typeof Camera> | null>(null); // Use typeof Camera for the type
@@ -731,10 +732,11 @@ export default function PrivateVideoRecording() {
     const formData = new FormData();
     formData.append("file", selectedAudioFile);
     if (expectedText) formData.append("expected_text", expectedText);
+    if (criteria) formData.append("criteria", criteria);
 
     // Call /process-audio
     const processAudioResponse = await axios.post(
-      "http://192.168.1.113:8000/process-audio",
+      "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-audio",
       formData,
       {
         headers: {
@@ -748,10 +750,11 @@ export default function PrivateVideoRecording() {
 
     // Call /analyze-feedback
     const analyzeFeedbackResponse = await axios.post(
-      "http://192.168.1.113:8000/analyze-feedback",
+      "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-feedback",
       {
         speech_text: transcription,
         spacy_stats,
+        criteria,
       },
       {
         headers: {

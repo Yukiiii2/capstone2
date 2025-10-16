@@ -13,6 +13,31 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import { supabase } from "@/lib/supabaseClient"; // ⬅️ import supabase
+
+// ⬇️ 1) Helper to count today's completed tasks from student_progress
+async function fetchTasksCompletedToday() {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return 0;
+
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end   = new Date(); end.setHours(23, 59, 59, 999);
+
+  const { count, error } = await supabase
+    .from("student_progress")
+    .select("id", { count: "exact", head: true })
+    .eq("student_id", uid)
+    .eq("progress", 100)
+    .gte("updated_at", start.toISOString())
+    .lt("updated_at", end.toISOString());
+
+  if (error) {
+    console.warn("tasks today query error:", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
 
 // Background Decorator Component
 const BackgroundDecor = () => (
@@ -33,6 +58,12 @@ const BackgroundDecor = () => (
 
 const LogoutScreen = () => {
   const [isLoggingOut, setIsLoggingOut] = useState(true);
+  const [tasksToday, setTasksToday] = useState(0); // ⬅️ 2) state for tasks today
+
+  // If you’re already tracking session time elsewhere, pass it in or compute here.
+  // For now we leave the label static; it won’t “keep ticking” on this screen.
+  const [sessionTimeLabel, setSessionTimeLabel] = useState("2h 34m");
+
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const scaleAnim = React.useRef(new Animated.Value(0.9)).current;
   const rotateAnim = React.useRef(new Animated.Value(0)).current;
@@ -72,14 +103,27 @@ const LogoutScreen = () => {
     }).start(({ finished }) => {
       if (finished) {
         rotation.stop();
-        setIsLoggingOut(false);
+        setIsLoggingOut(false); // ⬅️ this triggers the stats load below
       }
     });
 
     return () => {
       rotation.stop();
     };
-  }, []);
+  }, [fadeAnim, scaleAnim, rotateAnim, progressAnim]);
+
+  // ⬇️ 3) load today's completed tasks once loading finishes
+  useEffect(() => {
+    if (!isLoggingOut) {
+      (async () => {
+        const n = await fetchTasksCompletedToday();
+        setTasksToday(n);
+        // If you saved a session timer elsewhere, fetch and freeze it here:
+        // const label = await getFrozenSessionDurationLabel();
+        // setSessionTimeLabel(label);
+      })();
+    }
+  }, [isLoggingOut]);
 
   const rotateInterpolate = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -105,20 +149,20 @@ const LogoutScreen = () => {
       >
         <View className="items-center">
           {isLoggingOut ? (
-            <Animated.View 
+            <Animated.View
               className="w-24 h-24 items-center justify-center mb-4"
               style={{ transform: [{ rotate: rotateInterpolate }] }}
             >
               <Ionicons name="sync" size={40} color="#8B5CF6" />
             </Animated.View>
           ) : (
-            <Image 
-              source={require("@/assets/Speaksy.png")} 
+            <Image
+              source={require("@/assets/Speaksy.png")}
               className="w-24 h-24 mb-4"
               resizeMode="contain"
             />
           )}
-          
+
           <Text className="text-white text-2xl font-bold text-center mb-2">
             {isLoggingOut ? "Logging you out..." : "See You Later!"}
           </Text>
@@ -147,19 +191,16 @@ const LogoutScreen = () => {
                 <Ionicons name="time-outline" size={20} color="#FFFFFF" />
                 <Text className="text-white ml-2">Session Time</Text>
               </View>
-              <Text className="text-white font-semibold">2h 34m</Text>
+              <Text className="text-white font-semibold">{sessionTimeLabel}</Text>
             </View>
 
             <View className="flex-row justify-between bg-white/5 rounded-xl px-4 py-3 items-center">
               <View className="flex-row items-center">
-                <Ionicons
-                  name="checkmark-outline"
-                  size={20}
-                  color="#FFFFFF"
-                />
+                <Ionicons name="checkmark-outline" size={20} color="#FFFFFF" />
                 <Text className="text-white ml-2">Tasks Completed</Text>
               </View>
-              <Text className="text-white font-semibold">8</Text>
+              {/* ⬇️ 4) show real count from Supabase */}
+              <Text className="text-white font-semibold">{tasksToday}</Text>
             </View>
           </View>
         )}
@@ -185,7 +226,11 @@ const LogoutScreen = () => {
             <TouchableOpacity
               activeOpacity={0.8}
               className="bg-white/10 py-4 rounded-xl items-center border border-white/20"
-              onPress={() => router.replace("/StudentScreen/HomePage")}
+              onPress={() => {
+                // “Exit App” – there’s no universal RN API; use BackHandler on Android
+                // or just go to the landing page as a fallback:
+                router.replace("/landing-page");
+              }}
             >
               <Text className="text-white font-semibold text-base">
                 Exit App

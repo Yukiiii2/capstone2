@@ -33,6 +33,7 @@
   "include": [
     "app",
     "backend/lib",
+     "components",
     "**/*.d.ts",
     "src/types/**/*.d.ts"
   ],

@@ -1,5 +1,5 @@
 // app/StudentScreen/SpeakingExercise/full-results-speaking.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "@/lib/supabaseClient";
 
-/* ─────────── tiny helpers (typing only; no UI changes) ─────────── */
+/* ─────────── helpers ─────────── */
 const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const fmtPct = (n: number) => `${clampPct(n)}%`;
 const widthStyle = (n: number): ViewStyle => ({ width: `${clampPct(n)}%` as `${number}%` });
@@ -44,7 +44,7 @@ export default function FullResultsSpeaking() {
       score?: string;
     }>();
 
-  // ---------- score (prop) with live override from feedback_ai ----------
+  // ---------- score (param) with live override from feedback_ai ----------
   const initialScore = useMemo(() => {
     const n = Number(score);
     return Number.isFinite(n) ? clampPct(n) : 78;
@@ -65,16 +65,14 @@ export default function FullResultsSpeaking() {
     order_index: null,
   });
 
-  const [nextModule, setNextModule] = useState<{ id: string | null; title: string | null } | null>(
-    null
-  );
+  const [nextModule, setNextModule] = useState<{ id: string | null; title: string | null } | null>(null);
 
   // AI feedback (from feedback_ai.evaluation jsonb)
   const [loadingTips, setLoadingTips] = useState(false);
   const [tips, setTips] = useState<string[]>([]);
 
-  // ---------- load tips & score from feedback_ai ----------
-  async function loadFeedbackFromAI() {
+  /* ─────────── pull tips & a better score from feedback_ai ─────────── */
+  const loadFeedbackFromAI = useCallback(async () => {
     const keyId = attempt_id || session_id;
     if (!keyId) return;
     try {
@@ -115,9 +113,9 @@ export default function FullResultsSpeaking() {
     } finally {
       setLoadingTips(false);
     }
-  }
+  }, [attempt_id, session_id]);
 
-  // ---------- realtime updates from feedback_ai ----------
+  /* ─────────── realtime feedback_ai inserts ─────────── */
   useEffect(() => {
     const keyId = attempt_id || session_id;
     if (!keyId) return;
@@ -171,8 +169,8 @@ export default function FullResultsSpeaking() {
     };
   }, [attempt_id, session_id]);
 
-  // ---------- modules helpers ----------
-  async function resolveModule() {
+  /* ─────────── resolve module + next module ─────────── */
+  const resolveModule = useCallback(async () => {
     try {
       if (!currentModule.id || !currentModule.title) {
         const { data } = await supabase
@@ -209,9 +207,9 @@ export default function FullResultsSpeaking() {
     } catch {
       // no-op
     }
-  }
+  }, [currentModule.id, currentModule.level, currentModule.title]);
 
-  async function resolveNextModule() {
+  const resolveNextModule = useCallback(async () => {
     try {
       const curOrder = currentModule.order_index ?? 0;
       const { data } = await supabase
@@ -229,55 +227,103 @@ export default function FullResultsSpeaking() {
     } catch {
       setNextModule(null);
     }
-  }
+  }, [currentModule.level, currentModule.order_index]);
 
-  // ---------- attempts + progress ----------
-  async function logAttempt(userId: string) {
-    try {
-      await supabase.from("attempts").insert([
-        {
-          user_id: userId,
-          module_id: currentModule.id,
-          score: clampPct(uiScore),
-          category: "speaking",
-          level: currentModule.level,
-          session_id: session_id ?? null,
-          attempt_ref: attempt_id ?? null,
-        } as any,
-      ]);
-    } catch (e) {
-      console.log("[full-results] attempts insert skipped:", (e as any)?.message);
+  /* ─────────── write attempts + student_progress (REFLECT AI SCORE) ─────────── */
+  const fetchFinalScore = useCallback(async (): Promise<number> => {
+    const key = attempt_id || session_id;
+    if (!key) return clampPct(uiScore);
+    const col = attempt_id ? "attempt_id" : "session_id";
+    const { data } = await supabase
+      .from("feedback_ai")
+      .select("evaluation")
+      .eq(col, key)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    if (data && data.length) {
+      for (const row of data) {
+        const ev = row?.evaluation as any;
+        const s =
+          typeof ev?.final_score === "number"
+            ? ev.final_score
+            : typeof ev?.score === "number"
+            ? ev.score
+            : null;
+        if (s != null) return clampPct(s);
+      }
     }
-  }
+    return clampPct(uiScore);
+  }, [attempt_id, session_id, uiScore]);
 
-  async function upsertStudentProgress(userId: string) {
-    try {
+  const logAttempt = useCallback(
+    async (studentId: string, finalScore: number) => {
+      try {
+        await supabase.from("attempts").insert([
+          {
+            user_id: studentId, // your attempts table used user_id originally; keep as-is if that's your schema
+            module_id: currentModule.id,
+            score: finalScore,
+            category: "speaking",
+            level: currentModule.level,
+            session_id: session_id ?? null,
+            attempt_ref: attempt_id ?? null,
+          } as any,
+        ]);
+      } catch {
+        // ignore
+      }
+    },
+    [currentModule.id, currentModule.level, attempt_id, session_id]
+  );
+
+  const upsertStudentProgress = useCallback(
+    async (studentId: string, finalScore: number) => {
+      // IMPORTANT: student_progress in your list screens uses student_id and expects progress 0..100
+      if (!currentModule.id && !currentModule.title) return;
+
       const payload: any = {
-        user_id: userId,
+        student_id: studentId,
         category: "speaking",
         level: currentModule.level,
-        completed: true,
-        progress: 1,
+        progress: clampPct(finalScore), // 0..100 so your unlock check (>=100) works
+        completed: clampPct(finalScore) >= 100,
         updated_at: new Date().toISOString(),
       };
       if (currentModule.id) payload.module_id = currentModule.id;
       if (currentModule.title) payload.module = currentModule.title;
 
-      const { error } = await supabase
-        .from("student_progress")
-        .upsert(payload, {
-          onConflict: currentModule.id ? "user_id,module_id" : "user_id,module",
-        });
+      if (currentModule.id) {
+        // upsert by (student_id, module_id)
+        const { error } = await supabase
+          .from("student_progress")
+          .upsert(payload, { onConflict: "student_id,module_id" });
+        if (!error) return;
 
-      if (error) {
+        // fallback
         const { data: existing } = await supabase
           .from("student_progress")
           .select("id")
-          .match(
-            currentModule.id
-              ? { user_id: userId, module_id: currentModule.id }
-              : { user_id: userId, module: currentModule.title }
-          )
+          .eq("student_id", studentId)
+          .eq("module_id", currentModule.id)
+          .maybeSingle();
+        if (existing?.id) {
+          await supabase.from("student_progress").update(payload).eq("id", existing.id);
+        } else {
+          await supabase.from("student_progress").insert(payload);
+        }
+      } else if (currentModule.title) {
+        // rare fallback by (student_id, module)
+        const { error } = await supabase
+          .from("student_progress")
+          .upsert(payload, { onConflict: "student_id,module" });
+        if (!error) return;
+
+        const { data: existing } = await supabase
+          .from("student_progress")
+          .select("id")
+          .eq("student_id", studentId)
+          .eq("module", currentModule.title)
           .maybeSingle();
         if (existing?.id) {
           await supabase.from("student_progress").update(payload).eq("id", existing.id);
@@ -285,72 +331,74 @@ export default function FullResultsSpeaking() {
           await supabase.from("student_progress").insert(payload);
         }
       }
-    } catch (e) {
-      console.log("[full-results] student_progress upsert skipped:", (e as any)?.message);
-    }
+    },
+    [currentModule.id, currentModule.title, currentModule.level]
+  );
 
-    // aggregate overall % for this level
-    try {
-      const { data: allMods } = await supabase
-        .from("modules")
-        .select("id")
-        .eq("category", "speaking")
-        .eq("level", currentModule.level)
-        .eq("active", true);
-
-      const total = allMods?.length ?? 0;
-
-      const { data: doneMods } = await supabase
-        .from("student_progress")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("category", "speaking")
-        .eq("level", currentModule.level)
-        .eq("completed", true);
-
-      const completed = doneMods?.length ?? 0;
-      const overall = total > 0 ? completed / total : 0;
-
-      const aggregateRow: any = {
-        user_id: userId,
-        category: "speaking",
-        level: currentModule.level,
-        module: null,
-        module_id: null,
-        progress: overall,
-        completed: completed >= total && total > 0,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error: aggErr } = await supabase
-        .from("student_progress")
-        .upsert(aggregateRow, { onConflict: "user_id,category,level,module_id" });
-
-      if (aggErr) {
-        const { data: agg } = await supabase
-          .from("student_progress")
+  const upsertAggregateRow = useCallback(
+    async (studentId: string) => {
+      try {
+        const { data: allMods } = await supabase
+          .from("modules")
           .select("id")
-          .is("module_id", null)
-          .eq("user_id", userId)
           .eq("category", "speaking")
           .eq("level", currentModule.level)
-          .maybeSingle();
+          .eq("active", true);
 
-        if (agg?.id) {
-          await supabase.from("student_progress").update(aggregateRow).eq("id", agg.id);
-        } else {
-          await supabase.from("student_progress").insert(aggregateRow);
+        const total = allMods?.length ?? 0;
+
+        const { data: done } = await supabase
+          .from("student_progress")
+          .select("id")
+          .eq("student_id", studentId)
+          .eq("category", "speaking")
+          .eq("level", currentModule.level)
+          .eq("completed", true);
+
+        const completed = done?.length ?? 0;
+        const overallPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        const aggregateRow: any = {
+          student_id: studentId,
+          category: "speaking",
+          level: currentModule.level,
+          module: null,
+          module_id: null,
+          progress: overallPct, // store 0..100 so headers match Basic/Advanced pages
+          completed: completed >= total && total > 0,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error } = await supabase
+          .from("student_progress")
+          .upsert(aggregateRow, { onConflict: "student_id,category,level,module_id" });
+
+        if (error) {
+          const { data: existing } = await supabase
+            .from("student_progress")
+            .select("id")
+            .is("module_id", null)
+            .eq("student_id", studentId)
+            .eq("category", "speaking")
+            .eq("level", currentModule.level)
+            .maybeSingle();
+
+        if (existing?.id) {
+            await supabase.from("student_progress").update(aggregateRow).eq("id", existing.id);
+          } else {
+            await supabase.from("student_progress").insert(aggregateRow);
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch (e) {
-      console.log("[full-results] aggregate progress skipped:", (e as any)?.message);
-    }
-  }
+    },
+    [currentModule.level]
+  );
 
-  // ---------- metrics derived from uiScore ----------
+  /* ─────────── metrics derived from score ─────────── */
   const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
-
-  function deriveMetricsFromScore(s: number): MetricBlock[] {
+  const deriveMetricsFromScore = (s: number): MetricBlock[] => {
     const fluency = clampPct(s - 2);
     const clarity = clampPct(s);
     const fillers = clampPct(100 - Math.max(0, 100 - s) * 0.9);
@@ -361,7 +409,7 @@ export default function FullResultsSpeaking() {
       { label: "Filler Word Reduction", value: fillers, icon: "time", trend: "up", change: 0.8 },
       { label: "Speaking Rate (WPM)", value: wpm, icon: "pulse", trend: "up", change: 0.6 },
     ];
-  }
+  };
   const recalcMetrics = (n: number) => setMetrics(deriveMetricsFromScore(n));
 
   // react to live score changes
@@ -387,7 +435,7 @@ export default function FullResultsSpeaking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentModule.order_index, currentModule.id, currentModule.title]);
 
-  // save once
+  // save once when landing here (so unlock happens even if user never tapped "See Results" in modal)
   const savedOnceRef = useRef(false);
   useEffect(() => {
     (async () => {
@@ -396,19 +444,25 @@ export default function FullResultsSpeaking() {
       const user = auth?.user;
       if (!user) return;
       savedOnceRef.current = true;
-      await logAttempt(user.id);
-      await upsertStudentProgress(user.id);
+
+      const finalScore = await fetchFinalScore();
+      await logAttempt(user.id, finalScore);
+      await upsertStudentProgress(user.id, finalScore);
+      await upsertAggregateRow(user.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiScore, currentModule.level]);
 
+  /* ─────────── nav actions ─────────── */
   const goRetake = async () => {
     try {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (user) {
-        await logAttempt(user.id);
-        await upsertStudentProgress(user.id);
+        const finalScore = await fetchFinalScore();
+        await logAttempt(user.id, finalScore);
+        await upsertStudentProgress(user.id, finalScore);
+        await upsertAggregateRow(user.id);
       }
     } catch {}
     router.replace("StudentScreen/SpeakingExercise/live-vid-selection");
@@ -419,13 +473,16 @@ export default function FullResultsSpeaking() {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (user) {
-        await logAttempt(user.id);
-        await upsertStudentProgress(user.id);
+        const finalScore = await fetchFinalScore();
+        await logAttempt(user.id, finalScore);
+        await upsertStudentProgress(user.id, finalScore);
+        await upsertAggregateRow(user.id);
       }
     } catch {}
     router.replace("StudentScreen/HomePage/home-page");
   };
 
+  /* ─────────── UI (unchanged) ─────────── */
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       <View className="absolute inset-0">
@@ -446,16 +503,8 @@ export default function FullResultsSpeaking() {
     return [
       { skill: "Gestures", level: clampPct(Math.max(70, arr[0].value)), trend: "up" },
       { skill: "Pacing", level: clampPct(Math.max(65, arr[3].value)), trend: "up" },
-      {
-        skill: "Grammar",
-        level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))),
-        trend: "up",
-      },
-      {
-        skill: "Engagement",
-        level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))),
-        trend: "up",
-      },
+      { skill: "Grammar", level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))), trend: "up" },
+      { skill: "Engagement", level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))), trend: "up" },
     ];
   }, [metrics, uiScore]);
 
@@ -463,16 +512,8 @@ export default function FullResultsSpeaking() {
     const arr = metrics ?? deriveMetricsFromScore(uiScore);
     const sorted = [...arr].sort((a, b) => a.value - b.value).slice(0, 2);
     return [
-      {
-        skill: sorted[0]?.label?.replace(" Score", "") || "Clarity",
-        level: clampPct(sorted[0]?.value ?? 60),
-        trend: "down",
-      },
-      {
-        skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone",
-        level: clampPct(sorted[1]?.value ?? 62),
-        trend: "down",
-      },
+      { skill: sorted[0]?.label?.replace(" Score", "") || "Clarity", level: clampPct(sorted[0]?.value ?? 60), trend: "down" },
+      { skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone", level: clampPct(sorted[1]?.value ?? 62), trend: "down" },
       { skill: "Pronunciation", level: clampPct(Math.round(uiScore * 0.7)), trend: "down" },
     ];
   }, [metrics, uiScore]);
@@ -683,9 +724,7 @@ export default function FullResultsSpeaking() {
                   <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginTop: 1 }} />
                 </View>
                 <Text className="text-gray-200 bottom-1.5 text-sm flex-1">
-                  <Text className="font-medium text-white">
-                    Personalized exercises tailored to your improvement areas
-                  </Text>
+                  <Text className="font-medium text-white">Personalized exercises tailored to your improvement areas</Text>
                 </Text>
               </View>
 
@@ -694,9 +733,7 @@ export default function FullResultsSpeaking() {
                   <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginTop: 1 }} />
                 </View>
                 <Text className="text-gray-200 bottom-1 text-sm flex-1">
-                  <Text className="font-medium text-white">
-                    Track your progress over time with detailed analytics
-                  </Text>
+                  <Text className="font-medium text-white">Track your progress over time with detailed analytics</Text>
                 </Text>
               </View>
 
@@ -705,9 +742,7 @@ export default function FullResultsSpeaking() {
                   <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginTop: 1 }} />
                 </View>
                 <Text className="text-gray-200 top-1 text-sm flex-1">
-                  <Text className="font-medium text-white">
-                    Expert feedback on your speaking patterns
-                  </Text>
+                  <Text className="font-medium text-white">Expert feedback on your speaking patterns</Text>
                 </Text>
               </View>
             </View>
