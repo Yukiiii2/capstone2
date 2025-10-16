@@ -920,6 +920,12 @@ const CommunityPage: React.FC = () => {
             setAudioPlaying(status.isPlaying);
             setAudioDuration(status.durationMillis ?? 0);
             setAudioPosition(status.positionMillis ?? 0);
+            // ⬇️ reset to Play when finished and seek to start
+            if ((status as any).didJustFinish) {
+              setAudioPlaying(false);
+              setAudioPosition(0);
+              try { soundRef.current?.setPositionAsync(0); } catch {}
+            }
           }
         );
         if (!mounted) {
@@ -953,10 +959,19 @@ const CommunityPage: React.FC = () => {
     const s = soundRef.current;
     const st = await s.getStatusAsync();
     if (!st.isLoaded) return;
+    // ⬇️ if at end, jump back to start before playing again
+    const RESTART_EPS = 800;
+    const atEnd =
+      (st.durationMillis ?? 0) > 0 &&
+      Math.abs((st.positionMillis ?? 0) - (st.durationMillis ?? 0)) < RESTART_EPS;
     if (st.isPlaying) {
       await s.pauseAsync();
       setAudioPlaying(false);
     } else {
+      if (atEnd) {
+        await s.setPositionAsync(0);
+        setAudioPosition(0);
+      }
       await s.playAsync();
       setAudioPlaying(true);
     }

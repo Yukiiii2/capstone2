@@ -31,6 +31,8 @@ import Svg, { Circle } from "react-native-svg";
 
 // ⬇️ keep your project’s import style (same depth as assets)
 import { supabase } from "@/lib/supabaseClient";
+// ✅ NEW: start tracking the session as soon as Home loads
+import { ensureSessionStart } from "@/lib/sessionTracker";
 
 const TRANSPARENT_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
@@ -148,6 +150,11 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
 }
 
 function HomePage() {
+  // ✅ Ensure the session timer starts as soon as the student reaches Home after login
+  useEffect(() => {
+    ensureSessionStart();
+  }, []);
+
   // ===== Hooks =====
   const router = useRouter();
   const pathname = usePathname();

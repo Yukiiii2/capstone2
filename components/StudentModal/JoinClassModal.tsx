@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,27 +11,186 @@ import {
   StyleSheet,
   Animated,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabaseClient';
+import { useRouter } from 'expo-router';
 
 // ──────────────────────────────────────
 // Table names in your project
 const CLASS_CODE_TABLE = 'class_codes';
 const JOIN_TABLE = 'class_join_requests';
-
+const PROFILE_TABLE = 'profiles';
 // ──────────────────────────────────────
 
 interface JoinClassModalProps {
   visible: boolean;
   onClose: () => void;
+  // Fired ONLY when teacher approved (not on submit).
   onJoinClass?: (data: { classCode: string; gradeLevel: string; strand: string }) => void;
 }
 
 type GradeLevel = '11' | '12' | '';
 type Strand = 'STEM' | 'ABM' | 'GAS' | 'HUMMS' | 'TVL' | '';
 
+// ──────────────────────────────────────
+// Small inline “Pending” watcher modal
+// ──────────────────────────────────────
+function JoinPendingModal({
+  visible,
+  onClose,
+  teacherId,
+  code,
+  onApproved,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  teacherId: string | null;
+  code: string | null;
+  onApproved: (approvedCode: string) => void;
+}) {
+  const [teacherName, setTeacherName] = useState<string | null>(null);
+  const [requestStatus, setRequestStatus] = useState<'pending' | 'approved' | 'denied'>('pending');
+
+  // resolve teacher name (optional)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!teacherId || !visible) return;
+      const { data } = await supabase
+        .from(PROFILE_TABLE)
+        .select('name')
+        .eq('id', teacherId)
+        .maybeSingle();
+      if (!cancelled) setTeacherName(data?.name || null);
+    })();
+    return () => { cancelled = true; };
+  }, [teacherId, visible]);
+
+  // realtime watch for approval/denial of the most recent request for this code
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let mounted = true;
+
+    (async () => {
+      if (!visible || !code) return;
+      const { data: auth } = await supabase.auth.getUser();
+      const studentId = auth?.user?.id;
+      if (!studentId) return;
+
+      // find latest request for this student + code
+      const { data: latest } = await supabase
+        .from(JOIN_TABLE)
+        .select('id,status,code_entered')
+        .eq('student_id', studentId)
+        .eq('code_entered', code)
+        .order('requested_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const watchedId = latest?.id;
+
+      channel = supabase
+        .channel(`class-join-pending-${studentId}-${code}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: JOIN_TABLE,
+            filter: watchedId ? `id=eq.${watchedId}` : `student_id=eq.${studentId}`,
+          },
+          (payload: any) => {
+            if (!mounted) return;
+            const row = payload?.new || payload?.old;
+            if (!row || row.code_entered !== code) return;
+
+            const status = (row.status as 'pending' | 'approved' | 'denied') ?? 'pending';
+            setRequestStatus(status);
+
+            if (status === 'approved') {
+              setTimeout(() => onApproved(code), 300);
+            }
+            if (status === 'denied') {
+              Alert.alert('Request Denied', 'Your join request was denied by the teacher.');
+              onClose();
+            }
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      mounted = false;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [visible, code, onApproved, onClose]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableWithoutFeedback>
+        <View className="flex-1 bg-black/60 items-center justify-center p-6">
+          <View className="bg-[#1A1F2E]/95 border border-white/10 rounded-2xl p-6 w-full max-w-md">
+            <View className="items-center mb-4">
+              <View className="w-12 h-12 rounded-full bg-white/10 items-center justify-center mb-2">
+                {requestStatus === 'pending' ? (
+                  <ActivityIndicator />
+                ) : (
+                  <Ionicons
+                    name={requestStatus === 'approved' ? 'checkmark-circle' : 'close-circle'}
+                    size={26}
+                    color={requestStatus === 'approved' ? '#10B981' : '#EF4444'}
+                  />
+                )}
+              </View>
+              <Text className="text-white text-lg font-semibold">
+                {requestStatus === 'pending' ? 'Waiting for Approval' : requestStatus === 'approved' ? 'Approved' : 'Denied'}
+              </Text>
+              <Text className="text-white/70 text-sm mt-1 text-center">
+                {requestStatus === 'pending'
+                  ? `Your request to join ${teacherName ? teacherName + "'s" : 'the'} class is pending.`
+                  : requestStatus === 'approved'
+                  ? 'You can now access the class progress view.'
+                  : 'Please contact your teacher if you think this is a mistake.'}
+              </Text>
+              {!!code && (
+                <Text className="text-white/60 text-xs mt-2">Class Code: <Text className="text-white font-semibold">{code}</Text></Text>
+              )}
+            </View>
+
+            <View className="flex-row gap-3 mt-2">
+              <TouchableOpacity
+                onPress={onClose}
+                className="flex-1 bg-white/10 border border-white/15 rounded-xl py-3 items-center"
+              >
+                <Text className="text-white font-medium">
+                  {requestStatus === 'approved' ? 'Close' : 'Hide'}
+                </Text>
+              </TouchableOpacity>
+              {requestStatus === 'approved' && (
+                <TouchableOpacity
+                  onPress={() => code && onApproved(code)}
+                  className="flex-1 bg-violet-600 rounded-xl py-3 items-center"
+                >
+                  <Text className="text-white font-semibold">Go to Class</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+// ──────────────────────────────────────
+
 const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoinClass }) => {
+  const router = useRouter();
+
   const [classCode, setClassCode] = useState('');
   const [gradeLevel, setGradeLevel] = useState<GradeLevel>('');
   const [strand, setStrand] = useState<Strand>('');
@@ -41,8 +200,15 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
   const [showGradeDropdown, setShowGradeDropdown] = useState(false);
   const [showStrandDropdown, setShowStrandDropdown] = useState(false);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
-  const normalizedStrand = strand === 'HUMMS' ? 'HUMSS' : strand;
 
+  // pending watcher state
+  const [pending, setPending] = useState<{ open: boolean; teacherId: string | null; code: string | null }>({
+    open: false,
+    teacherId: null,
+    code: null,
+  });
+
+  const normalizedStrand = strand === 'HUMMS' ? 'HUMSS' : strand;
 
   const gradeLevels = [
     { label: 'Grade 11', value: '11' },
@@ -53,9 +219,43 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
     { label: 'STEM', value: 'STEM' },
     { label: 'ABM', value: 'ABM' },
     { label: 'GAS', value: 'GAS' },
-    { label: 'HUMMS', value: 'HUMMS' }, // UI label; we normalize to HUMSS before saving
+    { label: 'HUMMS', value: 'HUMMS' },
     { label: 'TVL', value: 'TVL' },
   ];
+
+  // ⬇️ When the modal opens: if there is ALREADY a pending request, skip form and show Pending
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!visible) return;
+      const { data: auth } = await supabase.auth.getUser();
+      const studentId = auth?.user?.id;
+      if (!studentId) return;
+
+      // latest pending for this student (any teacher/code), if any
+      const { data: pendingRow, error } = await supabase
+        .from(JOIN_TABLE)
+        .select('teacher_id, code_entered, status')
+        .eq('student_id', studentId)
+        .eq('status', 'pending')
+        .order('requested_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cancelled || error) return;
+
+      if (pendingRow?.status === 'pending') {
+        // Close the form and show the pending watcher immediately
+        onClose();
+        setPending({
+          open: true,
+          teacherId: pendingRow.teacher_id as string,
+          code: pendingRow.code_entered as string,
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visible, onClose]);
 
   const toggleGradeDropdown = () => {
     if (showStrandDropdown) setShowStrandDropdown(false);
@@ -108,11 +308,9 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
     try {
       setIsSubmitting(true);
 
-      // normalize code and strand
       const code = classCode.trim().toUpperCase();
       const canonicalStrand = (strand === 'HUMMS' ? 'HUMSS' : strand) as 'STEM'|'ABM'|'GAS'|'HUMSS'|'TVL';
 
-      // current user
       const { data: auth, error: authErr } = await supabase.auth.getUser();
       if (authErr || !auth?.user?.id) {
         Alert.alert('Not signed in', 'Please sign in first.');
@@ -120,7 +318,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       }
       const studentId = auth.user.id;
 
-      // 1) find teacher by class code (RLS must allow select)
+      // 1) resolve teacher by code
       const { data: codeRow, error: codeErr } = await supabase
         .from(CLASS_CODE_TABLE)
         .select('teacher_id, code')
@@ -135,200 +333,232 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
         Alert.alert('Invalid code', 'No class was found for that code.');
         return;
       }
-      const teacherId = codeRow.teacher_id;
+      const teacherId = codeRow.teacher_id as string;
 
-      // 2) block duplicates (pending or already approved)
-      const { data: existing, error: existErr } = await supabase
+      // 2) check the LATEST request (so "removed/denied" students can re-join)
+      const { data: lastReq, error: lastErr } = await supabase
         .from(JOIN_TABLE)
-        .select('id, status')
+        .select('id,status,code_entered')
         .eq('teacher_id', teacherId)
         .eq('student_id', studentId)
-        .in('status', ['pending', 'approved'])
-        .limit(1);
+        .eq('code_entered', code)
+        .order('requested_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (existErr) {
+      if (lastErr) {
         Alert.alert('Error', 'Could not check your previous request.');
         return;
       }
-      if ((existing?.length || 0) > 0) {
-        const ex = existing![0];
-        if (ex.status === 'pending') {
-          Alert.alert('Already requested', 'Your request is already pending approval.');
-          return;
-        }
-        if (ex.status === 'approved') {
-          Alert.alert('Already joined', 'You are already in this class.');
-          return;
-        }
+
+      if (lastReq?.status === 'pending') {
+        // open watcher instead of blocking; DO NOT mark joined
+        setPending({ open: true, teacherId, code });
+        resetForm();
+        onClose();
+        return;
       }
 
-      // 3) insert join request (columns: teacher_id, student_id, grade_level, strand, status)
+      if (lastReq?.status === 'approved') {
+        Alert.alert('Already joined', 'You are already in this class.');
+        return;
+      }
+
+      // 3) insert NEW pending request when status is 'denied' (or no record)
       const { error: insErr } = await supabase
-  .from('class_join_requests')
-  .insert({
-    teacher_id: teacherId,
-    student_id: studentId,
-    grade_level: gradeLevel,
-    strand: normalizedStrand,
-    code_entered: code,       // <-- use the column your table has (NOT NULL)
-    status: 'pending',
-  });
+        .from(JOIN_TABLE)
+        .insert({
+          teacher_id: teacherId,
+          student_id: studentId,
+          grade_level: gradeLevel,
+          strand: normalizedStrand,
+          code_entered: code,
+          status: 'pending',
+        });
 
       if (insErr) {
         Alert.alert('Error', insErr.message || 'Could not send join request.');
         return;
       }
 
-      onJoinClass?.({ classCode: code, gradeLevel, strand: canonicalStrand });
+      // DO NOT call onJoinClass here (no state change yet).
       resetForm();
       onClose();
+      setPending({ open: true, teacherId, code });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View className="flex-1 bg-black/50 justify-end">
-          <TouchableWithoutFeedback>
-            <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-3xl p-6 max-h-[80%] border-t border-white/10">
-              <View className="flex-row justify-between items-center mb-6">
-                <Text className="text-white text-2xl font-bold">Join a Class</Text>
-                <TouchableOpacity onPress={onClose} className="p-1">
-                  <Ionicons name="close" size={24} color="#94A3B8" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <Text className="text-slate-400 text-base mb-6">
-                  Please select your grade level and strand, then enter the class code provided by your teacher.
-                </Text>
-
-                {/* Grade Level */}
-                <View className="mb-4 relative">
-                  <Text className="text-white text-base font-medium mb-2">Grade Level</Text>
-                  <TouchableOpacity
-                    className="bg-white/5 rounded-xl p-4 border border-white/10 flex-row justify-between items-center"
-                    onPress={toggleGradeDropdown}
-                    activeOpacity={0.7}
-                  >
-                    <Text className={`${gradeLevel ? 'text-white' : 'text-gray-400'}`}>
-                      {gradeLevel ? `Grade ${gradeLevel}` : 'Select Grade Level'}
-                    </Text>
-                    <Ionicons name={showGradeDropdown ? 'chevron-up' : 'chevron-down'} size={16} color="#94A3B8" />
+    <>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View className="flex-1 bg-black/50 justify-end">
+            <TouchableWithoutFeedback>
+              <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-t-3xl p-6 max-h=[80%] border-t border-white/10">
+                <View className="flex-row justify-between items-center mb-6">
+                  <Text className="text-white text-2xl font-bold">Join a Class</Text>
+                  <TouchableOpacity onPress={onClose} className="p-1">
+                    <Ionicons name="close" size={24} color="#94A3B8" />
                   </TouchableOpacity>
-                  {showGradeError && <Text className="text-red-400 text-xs mt-1">Please select your grade level</Text>}
-
-                  {showGradeDropdown && (
-                    <View className="absolute z-10 w-full mt-1 bg-[#1A1F2E] border border-white/10 rounded-xl overflow-hidden top-full">
-                      {gradeLevels.map((item) => (
-                        <TouchableOpacity
-                          key={item.value}
-                          className={`px-4 py-3 ${gradeLevel === item.value ? 'bg-blue-500/20' : ''}`}
-                          onPress={() => selectGrade(item.value as GradeLevel)}
-                        >
-                          <Text className="text-white">{item.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
                 </View>
 
-                {/* Strand */}
-                <View className="mb-6 relative">
-                  <Text className="text-white text-base font-medium mb-2">Strand</Text>
-                  <TouchableOpacity
-                    className={`${!gradeLevel ? 'opacity-50' : ''} bg-white/5 rounded-xl p-4 border ${
-                      !gradeLevel ? 'border-white/5' : 'border-white/10'
-                    } flex-row justify-between items-center`}
-                    onPress={toggleStrandDropdown}
-                    activeOpacity={0.7}
-                    disabled={!gradeLevel}
-                  >
-                    <Text className={`${strand ? 'text-white' : 'text-gray-400'}`}>
-                      {strand || (gradeLevel ? 'Select Strand' : 'Select Grade Level First')}
-                    </Text>
-                    <Ionicons
-                      name={showStrandDropdown ? 'chevron-up' : 'chevron-down'}
-                      size={16}
-                      color={!gradeLevel ? '#4B5563' : '#94A3B8'}
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <Text className="text-slate-400 text-base mb-6">
+                    Please select your grade level and strand, then enter the class code provided by your teacher.
+                  </Text>
+
+                  {/* Grade Level */}
+                  <View className="mb-4 relative">
+                    <Text className="text-white text-base font-medium mb-2">Grade Level</Text>
+                    <TouchableOpacity
+                      className="bg-white/5 rounded-xl p-4 border border-white/10 flex-row justify-between items-center"
+                      onPress={toggleGradeDropdown}
+                      activeOpacity={0.7}
+                    >
+                      <Text className={`${gradeLevel ? 'text-white' : 'text-gray-400'}`}>
+                        {gradeLevel ? `Grade ${gradeLevel}` : 'Select Grade Level'}
+                      </Text>
+                      <Ionicons name={showGradeDropdown ? 'chevron-up' : 'chevron-down'} size={16} color="#94A3B8" />
+                    </TouchableOpacity>
+                    {showGradeError && <Text className="text-red-400 text-xs mt-1">Please select your grade level</Text>}
+
+                    {showGradeDropdown && (
+                      <View className="absolute z-10 w-full mt-1 bg-[#1A1F2E] border border-white/10 rounded-xl overflow-hidden top-full">
+                        {gradeLevels.map((item) => (
+                          <TouchableOpacity
+                            key={item.value}
+                            className={`px-4 py-3 ${gradeLevel === item.value ? 'bg-blue-500/20' : ''}`}
+                            onPress={() => selectGrade(item.value as GradeLevel)}
+                          >
+                            <Text className="text-white">{item.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Strand */}
+                  <View className="mb-6 relative">
+                    <Text className="text-white text-base font-medium mb-2">Strand</Text>
+                    <TouchableOpacity
+                      className={`${!gradeLevel ? 'opacity-50' : ''} bg-white/5 rounded-xl p-4 border ${
+                        !gradeLevel ? 'border-white/5' : 'border-white/10'
+                      } flex-row justify-between items-center`}
+                      onPress={toggleStrandDropdown}
+                      activeOpacity={0.7}
+                      disabled={!gradeLevel}
+                    >
+                      <Text className={`${strand ? 'text-white' : 'text-gray-400'}`}>
+                        {strand || (gradeLevel ? 'Select Strand' : 'Select Grade Level First')}
+                      </Text>
+                      <Ionicons
+                        name={showStrandDropdown ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={!gradeLevel ? '#4B5563' : '#94A3B8'}
+                      />
+                    </TouchableOpacity>
+                    {showStrandError && <Text className="text-red-400 text-xs mt-1">Please select your strand</Text>}
+
+                    {showStrandDropdown && (
+                      <View className="absolute z-10 w-full mt-1 bg-[#1A1F2E] border border-white/10 rounded-xl overflow-hidden top-full">
+                        {strands.map((item) => (
+                          <TouchableOpacity
+                            key={item.value}
+                            className={`px-4 py-3 ${strand === item.value ? 'bg-blue-500/20' : ''}`}
+                            onPress={() => selectStrand(item.value as Strand)}
+                          >
+                            <Text className="text-white">{item.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Class Code */}
+                  <View className="mb-6">
+                    <Text className="text-white text-base font-medium mb-2">Class Code</Text>
+                    <TextInput
+                      className="bg-white/5 text-white rounded-xl p-4 border border-white/10 text-base"
+                      placeholder="Enter class code"
+                      placeholderTextColor="#94A3B8"
+                      value={classCode}
+                      onChangeText={(t) => setClassCode(t.toUpperCase())}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      editable={!!gradeLevel && !!strand}
+                      style={!gradeLevel || !strand ? { opacity: 0.5 } : {}}
                     />
-                  </TouchableOpacity>
-                  {showStrandError && <Text className="text-red-400 text-xs mt-1">Please select your strand</Text>}
+                    {(!gradeLevel || !strand) && (
+                      <Text className="text-amber-400 text-xs mt-1">Please select both grade level and strand first</Text>
+                    )}
+                  </View>
 
-                  {showStrandDropdown && (
-                    <View className="absolute z-10 w-full mt-1 bg-[#1A1F2E] border border-white/10 rounded-xl overflow-hidden top-full">
-                      {strands.map((item) => (
-                        <TouchableOpacity
-                          key={item.value}
-                          className={`px-4 py-3 ${strand === item.value ? 'bg-blue-500/20' : ''}`}
-                          onPress={() => selectStrand(item.value as Strand)}
-                        >
-                          <Text className="text-white">{item.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {/* Class Code */}
-                <View className="mb-6">
-                  <Text className="text-white text-base font-medium mb-2">Class Code</Text>
-                  <TextInput
-                    className="bg-white/5 text-white rounded-xl p-4 border border-white/10 text-base"
-                    placeholder="Enter class code"
-                    placeholderTextColor="#94A3B8"
-                    value={classCode}
-                    onChangeText={(t) => setClassCode(t.toUpperCase())}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    editable={!!gradeLevel && !!strand}
-                    style={!gradeLevel || !strand ? { opacity: 0.5 } : {}}
-                  />
-                  {(!gradeLevel || !strand) && (
-                    <Text className="text-amber-400 text-xs mt-1">Please select both grade level and strand first</Text>
-                  )}
-                </View>
-
-                {/* Actions */}
-                <View className="flex-row gap-3 mt-4">
-                  <TouchableOpacity
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl py-4 items-center justify-center active:bg-white/10"
-                    onPress={handleCancel}
-                    disabled={isSubmitting}
-                  >
-                    <Text className="text-white font-semibold text-base">Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    className={`flex-1 rounded-xl py-4 items-center justify-center border ${
-                      isFormValid ? 'bg-violet-600 border-violet-600 active:bg-violet-700' : 'bg-violet-600/50 border-violet-600/50'
-                    }`}
-                    onPress={handleJoin}
-                    disabled={!isFormValid || isSubmitting}
-                  >
-                    <Text className="text-white font-semibold text-base">
-                      {isSubmitting ? 'Joining...' : 'Join Class'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
-
-      {(showGradeDropdown || showStrandDropdown) && (
-        <TouchableWithoutFeedback
-          onPress={() => {
-            setShowGradeDropdown(false);
-            setShowStrandDropdown(false);
-          }}
-        >
-          <View className="absolute inset-0" />
+                  {/* Actions */}
+                  <View className="flex-row gap-3 mt-4">
+                    <TouchableOpacity
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl py-4 items-center justify-center active:bg-white/10"
+                      onPress={handleCancel}
+                      disabled={isSubmitting}
+                    >
+                      <Text className="text-white font-semibold text-base">Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      className={`flex-1 rounded-xl py-4 items-center justify-center border ${
+                        isFormValid ? 'bg-violet-600 border-violet-600 active:bg-violet-700' : 'bg-violet-600/50 border-violet-600/50'
+                      }`}
+                      onPress={handleJoin}
+                      disabled={!isFormValid || isSubmitting}
+                    >
+                      <Text className="text-white font-semibold text-base">
+                        {isSubmitting ? 'Joining...' : 'Join Class'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
         </TouchableWithoutFeedback>
-      )}
-    </Modal>
+
+        {(showGradeDropdown || showStrandDropdown) && (
+          <TouchableWithoutFeedback
+            onPress={() => {
+              setShowGradeDropdown(false);
+              setShowStrandDropdown(false);
+            }}
+          >
+            <View className="absolute inset-0" />
+          </TouchableWithoutFeedback>
+        )}
+      </Modal>
+
+      {/* Pending watcher (opens after successful insert OR if one already exists) */}
+      <JoinPendingModal
+        visible={pending.open}
+        teacherId={pending.teacherId}
+        code={pending.code}
+        onClose={() => setPending({ open: false, teacherId: null, code: null })}
+        onApproved={(approvedCode) => {
+          setPending({ open: false, teacherId: null, code: null });
+
+          // NOW tell the parent and navigate.
+          if (onJoinClass) {
+            onJoinClass({
+              classCode: approvedCode,
+              gradeLevel: gradeLevel || '',
+              strand: (strand === 'HUMMS' ? 'HUMSS' : strand) || '',
+            });
+          }
+
+          router.replace({
+            pathname: '/StudentScreen/StudentClass/class-progress',
+            params: { code: approvedCode },
+          });
+        }}
+      />
+    </>
   );
 };
 

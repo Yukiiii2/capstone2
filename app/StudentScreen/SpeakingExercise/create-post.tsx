@@ -10,23 +10,26 @@ import {
   ActivityIndicator,
   Linking,
   StatusBar,
+  Switch,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import { Audio } from "expo-av";
-import { Switch } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "@/lib/supabaseClient";
 
+/* ----------------------------- helpers ----------------------------- */
+
 const isAudioUrl = (uri?: string | null) =>
   !!uri && /\.(m4a|mp3|aac|wav|ogg)(\?|#|$)/i.test(uri || "");
 
-// ---------- NEW: helpers to resolve recording path/signing ----------
-const normalizeRecordingPath = (p: string) => p.replace(/^recordings\//, "").replace(/^\/+/, "");
+const normalizeRecordingPath = (p: string) =>
+  p.replace(/^recordings\//, "").replace(/^\/+/, "");
 
+/** Sign any object in the `recordings` bucket (audio or video). */
 async function signRecording(objectPath: string | null): Promise<string | null> {
   if (!objectPath) return null;
   try {
@@ -45,35 +48,40 @@ async function signRecording(objectPath: string | null): Promise<string | null> 
   }
 }
 
-// Try to find the MOST RECENT file in recordings/<userId>/
-// (falls back to top-level 'recordings' if not organized by user folder)
-async function findLatestRecordingPath(userId: string): Promise<string | null> {
-  // First, try user folder
-  const tryFolder = async (folder: string) => {
+/** Optional auto-fallback: newest file in root (skip folders), prefer audio/video extensions. */
+// ✅ changed: avoid picking folder names like "<userId>/audio"
+async function findLatestRecordingPath(userId?: string | null): Promise<string | null> {
+  const pickNewestFile = async (folder: string) => {
     const { data, error } = await supabase.storage
       .from("recordings")
-      .list(folder, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
-    if (error) return null;
-    if (data && data.length > 0) return `${folder}/${data[0].name}`.replace(/^\/+/, "");
-    return null;
+      .list(folder, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+    if (error || !data) return null;
+
+    const isFileLike = (name: string) => /\.[a-z0-9]+$/i.test(name);
+    const onlyMedia = data
+      .filter((e: any) => !!e && isFileLike(e.name)) // skip folders (no extension)
+      .sort((a: any, b: any) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+    if (!onlyMedia.length) return null;
+    return `${folder ? folder + "/" : ""}${onlyMedia[0].name}`.replace(/^\/+/, "");
   };
 
-  let objectPath =
-    (await tryFolder(userId)) ||
-    (await tryFolder("")) // root bucket (if not organized by user folder)
-  ;
-
-  return objectPath;
+  // Your bucket looks flat (private-*.m4a / speaking-*.m4a), so root is enough.
+  return (await pickNewestFile("")) || null;
 }
+
+/* ---------------------------- component ---------------------------- */
 
 const CreatePost = () => {
   const router = useRouter();
 
-  // ---------- Robust params handling (+ audio support) ----------
+  // Params we expect from EndSession (recordingPath is the IMPORTANT one)
   const rawParams = useLocalSearchParams<{
-    videoUri?: string | string[];
-    audioUri?: string | string[];
-    recordingPath?: string | string[]; // NEW: if EndSession passes storage path directly
+    videoUri?: string | string[];        // legacy direct video uri
+    audioUri?: string | string[];        // legacy direct audio uri
+    recordingPath?: string | string[];   // storage key you just uploaded (e.g. "private-...m4a" or "speaking-...m4a")
     module_id?: string | string[];
     module_title?: string | string[];
     moduleTitle?: string | string[];
@@ -84,25 +92,23 @@ const CreatePost = () => {
 
   const incomingVideoUri = pick(rawParams.videoUri) ?? undefined;
   const incomingAudioUri = pick(rawParams.audioUri) ?? undefined;
-  const incomingRecordingPath = pick(rawParams.recordingPath) ?? undefined; // ← storage path like "userId/file.m4a"
+  const incomingRecordingPath = pick(rawParams.recordingPath) ?? undefined; // ✅ will drive audio preview
 
-  // If they pass a "videoUri" that is actually an audio file (e.g., .m4a),
-  // treat it as audio to avoid black Video component.
+  // If they passed a "videoUri" that is actually audio, treat as audio to avoid black player.
   const coercedAudioFromVideo = isAudioUrl(incomingVideoUri) ? incomingVideoUri : undefined;
 
-  // These are *preview* URIs for the UI (signed URLs or local file URIs)
+  // Preview URLs (signed or local) for UI
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | undefined>(undefined);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | undefined>(undefined);
 
-  // This is what we will persist in DB: the STORAGE PATH if available (clean, durable)
-  // e.g. "user-uuid/1699999999.m4a"
-  const [mediaPathForDB, setMediaPathForDB] = useState<string | null>(null);
+  // Values persisted to DB
+  const [mediaPathForDB, setMediaPathForDB] = useState<string | null>(null);         // storage key or URL fallback
   const [mediaTypeForDB, setMediaTypeForDB] = useState<"audio" | "video" | null>(null);
 
   const module_id = pick(rawParams.module_id);
   const levelParam = pick(rawParams.level) as "basic" | "advanced" | undefined;
 
-  // Prefer snake_case; fallback to camelCase; decode if encoded
+  // Title
   const rawTitleFromParams = pick(rawParams.module_title) ?? pick(rawParams.moduleTitle) ?? null;
   const initialTitle =
     rawTitleFromParams != null
@@ -114,18 +120,14 @@ const CreatePost = () => {
           }
         })()
       : "";
-
-  // ------- Title is now editable by the user -------
   const [postTitle, setPostTitle] = useState<string>(initialTitle);
 
   // Refs
   const videoRef = useRef<Video>(null);
   const tagInputRef = useRef<TextInput>(null);
-
-  // 🎧 audio sound ref
   const soundRef = useRef<Audio.Sound | null>(null);
 
-  // State variables
+  // Post state
   const [postText, setPostText] = useState("");
   const [isPublic, setIsPublic] = useState(true);
   const [showTagInput, setShowTagInput] = useState(false);
@@ -135,7 +137,7 @@ const CreatePost = () => {
   const [allowRatings, setAllowRatings] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // Video state
+  // Video status
   const [hasPlayed, setHasPlayed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -153,17 +155,17 @@ const CreatePost = () => {
     positionMillis: 0,
   });
 
-  // Audio state
+  // Audio status
   const [isAudioLoaded, setIsAudioLoaded] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-  const [audioDuration, setAudioDuration] = useState(0); // ms
-  const [audioPosition, setAudioPosition] = useState(0); // ms
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioPosition, setAudioPosition] = useState(0);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
 
-  // ------- Profile: avatar or initials -------
+  // Profile / initials
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string>("You");
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null); // NEW: needed for locating recordings
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const initials = useMemo(() => {
     const parts = (displayName || "").trim().split(/\s+/);
@@ -172,9 +174,9 @@ const CreatePost = () => {
     return (a + b) || a || "U";
   }, [displayName]);
 
+  // Load user + avatar
   useEffect(() => {
     let mounted = true;
-
     (async () => {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
@@ -195,7 +197,6 @@ const CreatePost = () => {
       const resolveAndSign = async (): Promise<string | null> => {
         const stored = profile?.avatar_url?.toString();
         if (!stored) return null;
-
         const normalized = stored.replace(/^avatars\//, "");
         let objectPath: string | null = null;
 
@@ -207,9 +208,7 @@ const CreatePost = () => {
             .list(normalized, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
           if (files && files.length > 0) objectPath = `${normalized}/${files[0].name}`;
         }
-
         if (!objectPath) return null;
-
         const { data: signed } = await supabase.storage
           .from("avatars")
           .createSignedUrl(objectPath, 60 * 60);
@@ -225,101 +224,101 @@ const CreatePost = () => {
         setAvatarUri(null);
       }
     })();
-
     return () => {
       mounted = false;
     };
   }, []);
 
-  // ---------- NEW: Resolve which media to show/post ----------
+  // AUTO-RESOLVE MEDIA: prefer recordingPath (fresh upload) → explicit audio/video → newest file fallback
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      // If EndSession already passed a storage path, prefer it.
-      // Example: recordingPath="user-uuid/1700000000000.m4a" or "recordings/user-uuid/..."
-      if (incomingRecordingPath) {
-        const cleanPath = normalizeRecordingPath(incomingRecordingPath);
-        const signed = await signRecording(cleanPath);
+      const log = (m: string, extra?: any) => console.log(`[CreatePost] ${m}`, extra ?? "");
+
+      const recordingPathParam = incomingRecordingPath ? normalizeRecordingPath(incomingRecordingPath) : null;
+      const audioUriParam = incomingAudioUri ?? coercedAudioFromVideo ?? null;
+      const videoUriParam = incomingVideoUri && !isAudioUrl(incomingVideoUri) ? incomingVideoUri : null;
+
+      log("params", { recordingPathParam, audioUriParam, videoUriParam });
+
+      // 1) Fresh recording storage key: sign & preview
+      if (recordingPathParam) {
+        const isAud = isAudioUrl(recordingPathParam);
+        const signed = await signRecording(recordingPathParam);
         if (!cancelled) {
-          setMediaPathForDB(cleanPath);
-          setMediaTypeForDB("audio");
-          setAudioPreviewUrl(signed || undefined);
-          setVideoPreviewUrl(undefined);
+          setMediaPathForDB(recordingPathParam);
+          setMediaTypeForDB(isAud ? "audio" : "video");
+          setAudioPreviewUrl(isAud ? signed ?? undefined : undefined);
+          setVideoPreviewUrl(!isAud ? signed ?? undefined : undefined);
         }
         return;
       }
 
-      // Else if an explicit audioUri param is provided
-      if (incomingAudioUri || isAudioUrl(incomingVideoUri)) {
-        const aud = (incomingAudioUri || coercedAudioFromVideo)!;
-
-        // If it's a storage path, sign for preview and keep path for DB
-        if (!/^https?:\/\//i.test(aud) && !/^file:\/\//i.test(aud)) {
-          const cleanPath = normalizeRecordingPath(aud);
-          const signed = await signRecording(cleanPath);
+      // 2) Explicit audio param (storage key or URL)
+      if (audioUriParam) {
+        if (!/^https?:\/\//i.test(audioUriParam) && !/^file:\/\//i.test(audioUriParam)) {
+          const clean = normalizeRecordingPath(audioUriParam);
+          const signed = await signRecording(clean);
           if (!cancelled) {
-            setMediaPathForDB(cleanPath);
+            setMediaPathForDB(clean);
             setMediaTypeForDB("audio");
-            setAudioPreviewUrl(signed || undefined);
+            setAudioPreviewUrl(signed ?? undefined);
+            setVideoPreviewUrl(undefined);
+          }
+          return;
+        } else {
+          if (!cancelled) {
+            setMediaPathForDB(/^file:\/\//i.test(audioUriParam) ? null : audioUriParam);
+            setMediaTypeForDB("audio");
+            setAudioPreviewUrl(audioUriParam);
             setVideoPreviewUrl(undefined);
           }
           return;
         }
-
-        // If it's http/file, assume already saved or local preview only.
-        // We can't derive the storage path reliably; still show preview.
-        if (!cancelled) {
-          setMediaPathForDB(/^file:\/\//i.test(aud) ? null : aud); // fallback: store URL if not local
-          setMediaTypeForDB("audio");
-          setAudioPreviewUrl(aud);
-          setVideoPreviewUrl(undefined);
-        }
-        return;
       }
 
-      // Else if a *video* param was passed (normal behavior)
-      if (incomingVideoUri && !isAudioUrl(incomingVideoUri)) {
+      // 3) Explicit video param (URL)
+      if (videoUriParam) {
         if (!cancelled) {
-          setMediaPathForDB(incomingVideoUri); // if you also upload/stored your videos, swap to its path
+          setMediaPathForDB(videoUriParam);
           setMediaTypeForDB("video");
-          setVideoPreviewUrl(incomingVideoUri);
+          setVideoPreviewUrl(videoUriParam);
           setAudioPreviewUrl(undefined);
         }
         return;
       }
 
-      // Else nothing came via params -> locate MOST RECENT recording saved by Continue button
-      if (currentUserId) {
-        const latest = await findLatestRecordingPath(currentUserId);
-        if (latest) {
-          const signed = await signRecording(latest);
-          if (!cancelled) {
-            setMediaPathForDB(latest);
-            setMediaTypeForDB("audio");
-            setAudioPreviewUrl(signed || undefined);
-            setVideoPreviewUrl(undefined);
-          }
-          return;
-        }
+      // 4) LAST-CHANCE: auto-pick newest file from root (skip folders)
+      const latest = await findLatestRecordingPath(currentUserId);
+      if (latest && !cancelled) {
+        const isAud = isAudioUrl(latest);
+        const signed = await signRecording(latest);
+        setMediaPathForDB(latest);
+        setMediaTypeForDB(isAud ? "audio" : "video");
+        setAudioPreviewUrl(isAud ? signed ?? undefined : undefined);
+        setVideoPreviewUrl(!isAud ? signed ?? undefined : undefined);
+        log("auto-picked-latest", latest);
+        return;
       }
 
-      // If nothing at all, ensure blanks
+      // Nothing to preview
       if (!cancelled) {
         setMediaPathForDB(null);
         setMediaTypeForDB(null);
         setAudioPreviewUrl(undefined);
         setVideoPreviewUrl(undefined);
+        log("no-media-found");
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingRecordingPath, incomingAudioUri, incomingVideoUri, coercedAudioFromVideo, currentUserId]);
 
-  // Seed tags from title’s first word
+  // Seed tags from editable title
   useEffect(() => {
     const first = (postTitle || "").trim().split(/\s+/)[0];
     if (!first) return;
@@ -331,7 +330,7 @@ const CreatePost = () => {
     });
   }, [postTitle]);
 
-  // --------- VIDEO setup ----------
+  // Video setup
   useEffect(() => {
     if (!videoRef.current || !videoPreviewUrl) return;
     const setupVideo = async () => {
@@ -343,9 +342,7 @@ const CreatePost = () => {
     };
     setupVideo();
     return () => {
-      if (videoRef.current) {
-        videoRef.current.pauseAsync();
-      }
+      videoRef.current?.pauseAsync().catch(() => {});
     };
   }, [videoPreviewUrl]);
 
@@ -365,13 +362,20 @@ const CreatePost = () => {
     }
   };
 
-  // --------- AUDIO setup ----------
+  // Audio setup  (ensure playback under iOS silent switch)
   useEffect(() => {
     let mounted = true;
     const loadAudio = async () => {
       if (!audioPreviewUrl) return;
       setIsLoadingAudio(true);
       try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+        });
+
         if (soundRef.current) {
           await soundRef.current.unloadAsync();
           soundRef.current = null;
@@ -406,10 +410,8 @@ const CreatePost = () => {
 
     return () => {
       mounted = false;
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
+      soundRef.current?.unloadAsync().catch(() => {});
+      soundRef.current = null;
     };
   }, [audioPreviewUrl]);
 
@@ -428,7 +430,7 @@ const CreatePost = () => {
     }
   };
 
-  // --------- Save media (video OR audio) ----------
+  // Save media locally
   const downloadMedia = async () => {
     const mediaUri = videoPreviewUrl || audioPreviewUrl;
     if (!mediaUri) {
@@ -438,7 +440,6 @@ const CreatePost = () => {
 
     try {
       setIsDownloading(true);
-
       const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
         if (!canAskAgain) {
@@ -479,31 +480,17 @@ const CreatePost = () => {
       Alert.alert("Success", `${isAud ? "Audio" : "Video"} saved to gallery!`);
     } catch (error) {
       console.error("Error saving media:", error);
-      Alert.alert(
-        "Error",
-        error instanceof Error
-          ? `Failed to save: ${error.message}`
-          : "An unknown error occurred while saving."
-      );
+      Alert.alert("Error", error instanceof Error ? `Failed to save: ${error.message}` : "Unknown error.");
     } finally {
       setIsDownloading(false);
     }
   };
 
-  // --------- Create post ----------
+  // Create post  (caption optional; saves correct media_url/type)
   const handlePost = async () => {
     const safeTitle = postTitle.trim() || "Untitled";
 
-    if (!postText.trim()) {
-      Alert.alert("Add something first", "Write a short caption before posting.");
-      return;
-    }
-
-    // Prefer STORAGE PATH for DB. If we don't have it (e.g., http URL only), fall back.
-    const media_url = mediaPathForDB;
-    const media_type = mediaTypeForDB;
-
-    if (!media_url || !media_type) {
+    if (!mediaPathForDB || !mediaTypeForDB) {
       Alert.alert("Missing media", "No attached recording found to share.");
       return;
     }
@@ -522,16 +509,15 @@ const CreatePost = () => {
           {
             user_id: user.id,
             title: safeTitle,
-            content: postText.trim(),
-            media_url,          // ← storage path (e.g., "user-uuid/xxx.m4a")
-            media_type,         // "audio" or "video"
+            content: postText.trim() || null,
+            media_url: mediaPathForDB,                // ✅ "private-*.m4a" or signed video URL
+            media_type: mediaTypeForDB || "audio",    // ✅ persists type
             module: postTitle || null,
             type: "speaking",
             status: "published",
             visibility: "public",
             allow_comments: allowComments,
             allow_reviews: allowRatings,
-            // module_id, level: levelParam, ...
           },
         ])
         .select("id")
@@ -552,6 +538,7 @@ const CreatePost = () => {
     }
   };
 
+  // tag helpers
   const handleAddTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
       setTags((prev) => [...prev, newTag.trim()]);
@@ -559,7 +546,6 @@ const CreatePost = () => {
     }
     setShowTagInput(false);
   };
-
   const removeTag = (tagToRemove: string) => {
     setTags((prev) => prev.filter((tag) => tag !== tagToRemove));
   };
@@ -612,6 +598,8 @@ const CreatePost = () => {
           <TouchableOpacity onPress={() => router.back()} className="p-2 bottom-5 left-2 -ml-2">
             <Ionicons name="arrow-back" size={30} color="#fff" />
           </TouchableOpacity>
+          <Text className="text-white text-xl font-bold">Create Post</Text>
+          <View className="w-8" />
         </View>
 
         {/* ===== Media Preview(s) ===== */}
@@ -678,41 +666,6 @@ const CreatePost = () => {
           </View>
         )}
 
-        {/* Audio Preview */}
-        {audioPreviewUrl && (
-          <View className="mb-4 rounded-xl overflow-hidden bg-white/10 border border-white/10 p-4">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-white font-medium">Audio Preview</Text>
-              <TouchableOpacity
-                onPress={toggleAudioPlay}
-                className="bg-black/40 rounded-full px-3 py-1.5"
-                disabled={!isAudioLoaded || isLoadingAudio}
-              >
-                <Text className="text-white text-sm">
-                  {isLoadingAudio ? "Loading…" : isAudioPlaying ? "Pause" : "Play"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View className="mt-2">
-              <View className="w-full bg-white/20 rounded-full h-1.5">
-                <View
-                  className="bg-white h-full rounded-full"
-                  style={{
-                    width: `${
-                      audioDuration ? Math.min(100, (audioPosition / audioDuration) * 100) : 0
-                    }%`,
-                  }}
-                />
-              </View>
-              <View className="flex-row justify-between mt-1">
-                <Text className="text-gray-300 text-xs">{fmt(audioPosition)}</Text>
-                <Text className="text-gray-300 text-xs">{fmt(audioDuration)}</Text>
-              </View>
-            </View>
-          </View>
-        )}
-
         {/* Post Content */}
         <View className="bg-white/10 rounded-2xl p-5 mb-4 border border-white/10">
           <View className="flex-row items-start space-x-3 mb-4">
@@ -762,6 +715,41 @@ const CreatePost = () => {
             />
           </View>
 
+          {/* 🔊 Audio Preview — directly under the Title */}
+          {audioPreviewUrl && (
+            <View className="mt-2 mb-3 rounded-xl overflow-hidden bg-white/10 border border-white/10 p-4">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-white font-medium">Audio Preview</Text>
+                <TouchableOpacity
+                  onPress={toggleAudioPlay}
+                  className="bg-black/40 rounded-full px-3 py-1.5"
+                  disabled={!isAudioLoaded || isLoadingAudio}
+                >
+                  <Text className="text-white text-sm">
+                    {isLoadingAudio ? "Loading…" : isAudioPlaying ? "Pause" : "Play"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View className="mt-2">
+                <View className="w-full bg-white/20 rounded-full h-1.5">
+                  <View
+                    className="bg-white h-full rounded-full"
+                    style={{
+                      width: `${
+                        audioDuration ? Math.min(100, (audioPosition / audioDuration) * 100) : 0
+                      }%`,
+                    }}
+                  />
+                </View>
+                <View className="flex-row justify-between mt-1">
+                  <Text className="text-gray-300 text-xs">{fmt(audioPosition)}</Text>
+                  <Text className="text-gray-300 text-xs">{fmt(audioDuration)}</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           <TextInput
             className="text-white text-base mt-2 p-0"
             placeholder="What's on your mind?"
@@ -777,15 +765,15 @@ const CreatePost = () => {
               <Text className="text-gray-400 text-sm">Status</Text>
               <View
                 className={`px-3 py-1 rounded-full ${
-                  postText.trim() && (mediaTypeForDB && mediaPathForDB) ? "bg-violet-600" : "bg-white/10"
+                  (mediaTypeForDB && mediaPathForDB) ? "bg-violet-600" : "bg-white/10"
                 }`}
               >
                 <Text
                   className={`text-xs font-medium ${
-                    postText.trim() && (mediaTypeForDB && mediaPathForDB) ? "text-white" : "text-gray-400"
+                    (mediaTypeForDB && mediaPathForDB) ? "text-white" : "text-gray-400"
                   }`}
                 >
-                  {postText.trim() && (mediaTypeForDB && mediaPathForDB) ? "Ready" : "Not Ready"}
+                  {(mediaTypeForDB && mediaPathForDB) ? "Ready" : "Not Ready"}
                 </Text>
               </View>
             </View>
@@ -793,15 +781,92 @@ const CreatePost = () => {
         </View>
 
         {/* Tags */}
-        {/* ... (unchanged) ... */}
+        <View className="flex-row flex-wrap gap-2 mb-4">
+          {tags.map((tag, index) => (
+            <TouchableOpacity
+              key={index}
+              className="flex-row items-center bg-white/10 px-3 py-1 rounded-full"
+              onPress={() => removeTag(tag)}
+            >
+              <Text className="text-white text-xs">#{tag}</Text>
+              <Ionicons name="close" size={14} color="#fff" style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
+          ))}
+          {showTagInput ? (
+            <View className="flex-row items-center bg-white/5 border border-white/20 px-3 py-1 rounded-full">
+              <TextInput
+                ref={tagInputRef}
+                autoFocus
+                value={newTag}
+                onChangeText={setNewTag}
+                onSubmitEditing={handleAddTag}
+                onBlur={handleAddTag}
+                placeholder="Tag name..."
+                placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                className="text-white text-xs py-1 px-1 min-w-[80px]"
+                maxLength={20}
+                returnKeyType="done"
+              />
+              <TouchableOpacity onPress={handleAddTag} className="ml-1">
+                <Ionicons name="checkmark" size={16} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              className="border border-white/20 px-3 py-1 rounded-full flex-row items-center"
+              onPress={() => {
+                setShowTagInput(true);
+                setTimeout(() => tagInputRef.current?.focus(), 100);
+              }}
+            >
+              <Text className="text-white/60 text-xs">+ Add Tag</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Post Settings */}
-        {/* ... (unchanged) ... */}
+        <View className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-4">
+          <Text className="text-white font-medium mb-3">Post Settings</Text>
+
+          <View className="flex-row justify-between items-center mb-3 pb-3 border-b border-white/5">
+            <View>
+              <Text className="text-white text-sm">Allow Comments</Text>
+              <Text className="text-gray-400 text-xs">Let others comment on your post</Text>
+            </View>
+            <Switch
+              value={allowComments}
+              onValueChange={setAllowComments}
+              trackColor={{ false: "#3b3b3b", true: "#7c3aed" }}
+              thumbColor="#ffffff"
+            />
+          </View>
+
+          <View className="flex-row justify-between items-center">
+            <View>
+              <Text className="text-white text-sm">Allow Ratings & Reviews</Text>
+              <Text className="text-gray-400 text-xs">Let others rate and review your post</Text>
+            </View>
+            <Switch
+              value={allowRatings}
+              onValueChange={setAllowRatings}
+              trackColor={{ false: "#3b3b3b", true: "#7c3aed" }}
+              thumbColor="#ffffff"
+            />
+          </View>
+        </View>
 
         {/* Guidelines */}
-        {/* ... (unchanged) ... */}
+        <View className="bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
+          <View className="p-3">
+            <Text className="text-white font-medium mb-2">Community Guidelines</Text>
+            <View className="space-y-1">
+              <Text className="text-gray-400 text-sm">• Keep content relevant to language learning.</Text>
+              <Text className="text-gray-400 text-sm">• No inappropriate caption.</Text>
+            </View>
+          </View>
+        </View>
 
-        {/* Action Buttons */}
+        {/* Actions */}
         <View className="flex-row justify-between mt-5 mb-6 space-x-3">
           <TouchableOpacity
             className="flex-1 bg-white/30 border border-white/20 rounded-xl py-3 items-center justify-center"
@@ -812,7 +877,9 @@ const CreatePost = () => {
             {isDownloading ? (
               <ActivityIndicator color="#ffffff" size="small" />
             ) : (
-              <Text className="text-white text-[13px] font-semibold">Save to Device</Text>
+              <Text className="text-white text-[13px] font-semibold">
+                Save to Device
+              </Text>
             )}
           </TouchableOpacity>
 

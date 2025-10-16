@@ -21,6 +21,9 @@ import ProfileMenuNew from "@/components/ProfileModal/ProfileMenuNew";
 // ⬇️ your Supabase client
 import { supabase } from "@/lib/supabaseClient";
 
+// Unlock rule: set to 100 for perfect-only, or e.g. 80 to unlock at 80+
+const UNLOCK_THRESHOLD = 100;
+
 const TRANSPARENT_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
 
@@ -340,7 +343,7 @@ export default function BasicContents() {
 
     const doneSet = new Set(
       (progRows ?? [])
-        .filter((r) => (r.progress ?? 0) >= 100)
+        .filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD) // ← uses threshold
         .map((r) => r.module_id as string)
     );
 
@@ -366,7 +369,7 @@ export default function BasicContents() {
         const desc = (m.description as string) ?? meta?.desc ?? "";
 
         const type: Lesson["type"] =
-          rawProgress >= 100 ? "Review" : rawProgress > 0 ? "Continue" : "Start";
+          rawProgress >= UNLOCK_THRESHOLD ? "Review" : rawProgress > 0 ? "Continue" : "Start";
 
         return {
           id: displayId,
@@ -395,7 +398,7 @@ export default function BasicContents() {
 
     // header overall progress (% completed)
     const total = sorted.length;
-    const completedCount = (progRows ?? []).filter((r) => (r.progress ?? 0) >= 100).length;
+    const completedCount = (progRows ?? []).filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD).length; // ← uses threshold
     setOverallPct(total > 0 ? Math.round((completedCount / total) * 100) : 0);
 
     // seed filteredLessons with derived list
@@ -426,6 +429,33 @@ export default function BasicContents() {
   useEffect(() => {
     refreshLessons();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // realtime: refresh when student_progress changes for this user
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return;
+
+      channel = supabase
+        .channel("rt-basic-speaking-progress")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "student_progress", filter: `student_id=eq.${uid}` },
+          () => {
+            // re-pull modules + progress -> recalculates locks
+            refreshLessons();
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   // refresh when screen regains focus (returning from lessons/results)
@@ -660,10 +690,25 @@ export default function BasicContents() {
                         ) : (
                           <Pressable
                             onPress={() => {
-                              // 🔁 NEW NAV: use your LessonBasic route pattern
+                              // ✅ pass the real module_id so downstream pages can track progress/unlock logic
+                              const moduleId = moduleIdByDisplayId[lesson.id];
+                              if (!moduleId) {
+                                Alert.alert("Missing module", "Please refresh the page and try again.");
+                                return;
+                              }
+
+                              // optional: keep Recents fresh
+                              pushRecent(moduleId, lesson.title);
+
+                              // navigate with both display id and real module id
                               router.push({
                                 pathname: `/StudentScreen/SpeakingExercise/LessonBasic/basiclesson-${lesson.id}`,
-                                params: { id: String(lesson.id) },
+                                params: {
+                                  id: String(lesson.id),      // existing param your route expects
+                                  module_id: moduleId,        // ✅ used by student_progress
+                                  level: "basic",             // context
+                                  module_title: lesson.title, // optional UI helper
+                                },
                               });
                             }}
                             style={({ pressed }) => ({
