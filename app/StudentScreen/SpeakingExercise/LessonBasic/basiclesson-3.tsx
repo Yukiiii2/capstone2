@@ -23,6 +23,7 @@ const { width } = Dimensions.get('window');
 
 const lessonPrompt = "Tell the student to prepare a short speech outline with introduction, body, and conclusion";
 const topic = "Structuring a Speech";
+const criteria = "Provide feedback for (Introduction, Body, Conclusion), Logical Flow of ideas, Transition Markers";
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
@@ -737,7 +738,7 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
             <TouchableOpacity 
               onPress={() => router.push({
                 pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
-                params: { lessonPrompt, topic },
+                params: { lessonPrompt, topic, criteria },
               })}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}

@@ -549,7 +549,7 @@ const RecordingSection = ({ data, onBack, moduleId }: { data: LessonDetail; onBa
               onPress={() => router.push({
                 pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
                 // 🔗 Pass module_id so the recorder can forward it to FULL RESULT
-                params: { lessonPrompt, topic, module_id: moduleId },
+                params: { lessonPrompt, topic, criteria, module_id: moduleId },
               })}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}

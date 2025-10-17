@@ -81,7 +81,8 @@ class FeedbackAnalyzer:
                 f"Speech: {speech_text}\n\n"
                 f"Expected Text: {expected_text}\n\n"
                 f"spaCy Stats: {spacy_stats}\n\n"
-                f"Analyze this speech and provide feedback on {criteria} \n\n"
+                "{criteria} \n\n"
+                "Analyze this speech and provide feedback"
 
                 "Suggest areas for improvement and practical exercises.\n"
                 "The feedback should be elaborated but concise. \n\n"

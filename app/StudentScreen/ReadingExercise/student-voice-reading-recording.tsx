@@ -9,12 +9,17 @@ import {
   StatusBar,
   Image,
   ScrollView,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import CompletionModal from "@/components/StudentModal/CompletionModal";
+import { supabase } from "@/lib/supabaseClient";
+import axios from "axios";
+import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 
 const { width, height } = Dimensions.get("window");
 
@@ -27,6 +32,7 @@ export default function StudentVoiceReadingRecording() {
   }>();
   
   // State management
+  const content = params.content || "No content available";
   const [recording, setRecording] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [aiFeedback, setAiFeedback] = useState("");
@@ -34,10 +40,18 @@ export default function StudentVoiceReadingRecording() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [expectedText, setExpectedText] = useState<string | null>(content || null); // Store as expected text
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
+  const [selectedAudioFile, setSelectedAudioFile] = useState<{ uri: string; name: string; type: string } | null>(null);
+  const audioRecordingRef = useRef<Audio.Recording | null>(null);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null); // URI of the recorded audio
+  const [isRecording, setIsRecording] = useState(false); // Recording state
+  const [elapsedSec, setElapsedSec] = useState(0); // Timer for recording
+  const timerRef = useRef<any>(null);
+  const recordStartRef = useRef<number | null>(null);
   
   // Get content and title from params with defaults
-  const content = params.content || "No content available";
+  
   const title = params.title || "Reading Exercise";
   
   // Refs for animations and intervals
@@ -45,6 +59,52 @@ export default function StudentVoiceReadingRecording() {
   const pulse = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const waveformAnim = useRef(new Animated.Value(0)).current;
+  async function setAudioModeCompatRecording() {
+  const A: any = Audio as any;
+  const mode: any = {
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+    staysActiveInBackground: false,
+    shouldDuckAndroid: true,
+    playThroughEarpieceAndroid: false,
+  };
+  if (A?.InterruptionModeIOS?.DoNotMix != null) {
+    mode.interruptionModeIOS = A.InterruptionModeIOS.DoNotMix;
+  } else if (A?.INTERRUPTION_MODE_IOS_DO_NOT_MIX != null) {
+    mode.interruptionModeIOS = A.INTERRUPTION_MODE_IOS_DO_NOT_MIX;
+  }
+  if (A?.InterruptionModeAndroid?.DoNotMix != null) {
+    mode.interruptionModeAndroid = A.InterruptionModeAndroid.DoNotMix;
+  } else if (A?.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX != null) {
+    mode.interruptionModeAndroid = A.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX;
+  }
+  await Audio.setAudioModeAsync(mode);
+}
+
+const startTimer = () => {
+  recordStartRef.current = Date.now();
+  setElapsedSec(0);
+  if (timerRef.current) clearInterval(timerRef.current);
+  timerRef.current = setInterval(() => {
+    if (recordStartRef.current) {
+      const s = Math.floor((Date.now() - recordStartRef.current) / 1000);
+      setElapsedSec(s);
+    }
+  }, 500);
+};
+
+const stopTimer = () => {
+  if (timerRef.current) clearInterval(timerRef.current);
+  timerRef.current = null;
+  recordStartRef.current = null;
+};
+
+async function setAudioModeCompatIdle() {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: false,
+    playsInSilentModeIOS: true,
+  } as any);
+}
 
   // AI FEEDBACK ANALYSIS: Predefined messages for real-time user feedback
   const feedbackMessages = [
@@ -166,34 +226,126 @@ export default function StudentVoiceReadingRecording() {
   };
 
   // Start recording function
-  const startRecording = () => {
-    setRecording(true);
-  };
-
-  // Stop recording and initiate processing
-  const stopRecording = async () => {
-    try {
-      setRecording(false);
-      setShowCompletionPopup(true);
-      setIsProcessing(true);
-      setShowResultsPrompt(false);
-
-      // Simulate AI processing
-      setTimeout(() => {
-        setIsProcessing(false);
-        setShowResultsPrompt(true);
-        setAnalysisComplete(true);
-        setAiFeedback(
-          "Your pronunciation is good, but try to speak a bit slower for better clarity."
-        );
-      }, 3000);
-    } catch (err) {
-      console.error("Failed to stop recording", err);
-      setShowCompletionPopup(false);
-      setIsProcessing(false);
+  const startRecording = async () => {
+  try {
+    const { granted } = await Audio.requestPermissionsAsync();
+    if (!granted) {
+      Alert.alert("Permission Denied", "Audio recording permission is required.");
+      return;
     }
-  };
 
+    await setAudioModeCompatRecording();
+
+    const recording = new Audio.Recording();
+    await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+    await recording.startAsync();
+
+    audioRecordingRef.current = recording; // Save the recording instance
+    setRecordedUri(null);
+    setRecording(true); // Update the recording state
+    startTimer(); // Start the timer
+  } catch (err) {
+    console.error("Failed to start recording:", err);
+    Alert.alert("Error", "Failed to start recording. Please try again.");
+    setRecording(false);
+  }
+};
+
+ const stopRecording = async () => {
+  try {
+    setRecording(false); // Stop the recording animation
+    setShowCompletionPopup(true); // Show the completion modal immediately
+    setIsProcessing(true); // Indicate that processing is ongoing
+
+    const rec = audioRecordingRef.current;
+    if (!rec) {
+      Alert.alert("Error", "No recording found. Please record a session first.");
+      setIsProcessing(false);
+      setShowCompletionPopup(false); // Hide the modal if no recording is found
+      return;
+    }
+
+    // Stop and unload the recording
+    await rec.stopAndUnloadAsync();
+    const uri = rec.getURI();
+    audioRecordingRef.current = null;
+
+    if (!uri) {
+      Alert.alert("Error", "Failed to retrieve the audio file.");
+      setIsProcessing(false);
+      setShowCompletionPopup(false); // Hide the modal if no audio file is found
+      return;
+    }
+
+    // Save the recorded audio file
+    const audioFile = {
+      uri,
+      name: `recording-${Date.now()}.m4a`,
+      type: "audio/m4a",
+    };
+    setSelectedAudioFile(audioFile);
+
+    // Prepare the form data for the Llama3 AI API
+    const formData = new FormData();
+    formData.append("file", {
+      uri: audioFile.uri,
+      name: audioFile.name,
+      type: audioFile.type,
+    });
+    if (expectedText) formData.append("expected_text", expectedText); // Pass the expected text
+
+    // Get the user's session token from Supabase
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error("User is not logged in.");
+    }
+    const token = session.access_token;
+
+    // Call the /process-audio endpoint
+    const processAudioResponse = await axios.post(
+      "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-audio",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const { transcription, spacy_stats } = processAudioResponse.data;
+
+    // Call the /analyze-feedback endpoint
+    const analyzeFeedbackResponse = await axios.post(
+      "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-feedback",
+      {
+        speech_text: transcription,
+        spacy_stats,
+        expected_text: expectedText, // Include the expected text
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const { ai_feedback } = analyzeFeedbackResponse.data;
+
+    // Update the AI feedback and show the results prompt
+    setAiFeedback(ai_feedback);
+    setShowResultsPrompt(true); // Show the results prompt in the modal
+  } catch (error) {
+    console.error("Error processing audio or analyzing feedback:", error);
+    Alert.alert(
+      "Error",
+      "An error occurred while processing the audio or analyzing feedback. Please try again."
+    );
+    setShowCompletionPopup(false); // Hide the modal if an error occurs
+  } finally {
+    setIsProcessing(false); // Hide the processing state
+  }
+};
   // Handle later button press in modal
   const handleLater = () => {
     setShowCompletionPopup(false);
@@ -444,6 +596,7 @@ export default function StudentVoiceReadingRecording() {
         onClose={handleModalClose}
         onLater={handleLater}
         onSeeResults={handleSeeResults}
+        ai_feedback={aiFeedback} // Pass the AI feedback here
       />
     </ScrollView>
   );

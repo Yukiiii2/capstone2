@@ -16,6 +16,10 @@ import { useRouter, useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get('window');
 
+const lessonPrompt = "You are convincing your classmates to join a campus clean-up program. 60-Second Persuasive Pitch (with principles + objection handling)"
+const topic = "Advanced Persuasion Strategies";
+const criteria = "Give feedback base on: Use of Principles, Evidence and Objection Handling";
+
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -467,7 +471,9 @@ const RecordingSection = ({ data, onBack, moduleId }: { data: LessonDetail; onBa
             <TouchableOpacity 
               onPress={() => router.push({
                 pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
-                params: { module_id: moduleId },
+                params: { module_id: moduleId
+                  , lessonPrompt, topic, criteria
+                 },
               })}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
