@@ -1,4 +1,3 @@
-// app/TeacherScreen/TeacherCommunity/teacher-community.tsx
 import React, {
   useCallback,
   useEffect,
@@ -13,169 +12,169 @@ import {
   TouchableOpacity,
   Image,
   TextInput,
-  Modal,
   Animated,
   SafeAreaView,
-  Platform,
-  Alert,
-  StyleSheet,
   ActivityIndicator,
-  StatusBar,
 } from "react-native";
+import NavigationBar from "../../../components/NavigationBar/nav-bar-teacher";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
+import ProfileMenuTeacher from "../../../components/ProfileModal/ProfileMenuTeacher";
 
-// ✅ Teacher variants
-import NavigationBar from "@/components/NavigationBar/nav-bar-teacher";
-import ProfileMenuTeacher from "@/components/ProfileModal/ProfileMenuTeacher";
-
-// ⬇️ Supabase (same client used by student page)
+// Supabase
 import { supabase } from "@/lib/supabaseClient";
 
-/* =======================================================================================
- * Helpers (kept the same behavior/shape as the student `community-page.tsx`)
- * ======================================================================================= */
+// Media players
+import { Audio, Video, ResizeMode } from "expo-av";
+
+// ---------- helpers ----------
+const isAudioUrl = (uri?: string | null) =>
+  !!uri && /\.(m4a|mp3|aac|wav|ogg)(\?|#|$)/i.test(uri || "");
+
+const isVideoUrl = (uri?: string | null) =>
+  !!uri && /\.(mp4|mov|mkv|webm)(\?|#|$)/i.test(uri || "");
 
 async function resolveSignedAvatar(
   userId: string,
   storedPath?: string | null
 ): Promise<string | null> {
   try {
-    // absolute URL allowed as-is
     if (storedPath && /^https?:\/\//i.test(storedPath)) return storedPath;
-
-    // normalize to bucket object path
     const base = (storedPath ?? userId).toString().replace(/^avatars\//, "");
+    const hasFile = /\.[a-zA-Z0-9]+$/.test(base);
     let objectPath: string | null = null;
 
-    // file or folder?
-    if (/\.[a-zA-Z0-9]+$/.test(base)) {
+    if (hasFile) {
       objectPath = base;
     } else {
       const { data: files } = await supabase.storage
         .from("avatars")
-        .list(base, {
-          limit: 1,
-          sortBy: { column: "created_at", order: "desc" },
-        });
-      if (files && files.length > 0) {
-        objectPath = `${base}/${files[0].name}`;
-      }
+        .list(base, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+      if (files && files.length > 0) objectPath = `${base}/${files[0].name}`;
     }
 
     if (!objectPath) return null;
 
     const { data: signed } = await supabase.storage
       .from("avatars")
-      .createSignedUrl(objectPath, 60 * 60); // 1 hour
+      .createSignedUrl(objectPath, 60 * 60);
     return signed?.signedUrl ?? null;
   } catch {
     return null;
   }
 }
 
+async function resolveSignedRecording(mediaUrl?: string | null): Promise<string | null> {
+  if (!mediaUrl) return null;
+  if (/^https?:\/\//i.test(mediaUrl)) return mediaUrl;
+  // Normalize (allow both "recordings/..." and raw path)
+  const base = mediaUrl.replace(/^recordings\//, "");
+  const objectPath = base;
+  const { data: signed, error } = await supabase
+    .storage
+    .from("recordings")
+    .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
+  if (error) {
+    if (!String(error.message || "").toLowerCase().includes("object not found")) {
+      console.warn("[media] sign error:", error.message);
+    }
+    return null;
+  }
+  return signed?.signedUrl ?? null;
+}
+
 const timeAgo = (iso?: string | null) => {
   if (!iso) return "";
-  const s = Math.max(
-    1,
-    Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  );
+  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   const steps = [60, 60, 24, 7, 4.345, 12];
   const labels = ["s", "m", "h", "d", "w", "mo", "y"];
-  let i = 0,
-    acc = s;
-  while (i < steps.length && acc >= steps[i]) {
-    acc = Math.floor(acc / steps[i]);
-    i++;
-  }
+  let i = 0, acc = s;
+  while (i < steps.length && acc >= steps[i]) { acc = Math.floor(acc / steps[i]); i++; }
   return `${acc}${labels[i] || "s"} ago`;
 };
 
-const getInitials = (nameOrEmail: string) => {
-  if (!nameOrEmail) return "U";
-  const s = nameOrEmail.trim();
-  if (s.includes(" ")) {
-    const parts = s.split(/\s+/).filter(Boolean);
-    return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
-  }
-  const base = s.includes("@") ? s.split("@")[0] : s;
-  return base.slice(0, 2).toUpperCase();
-};
-
-const TRANSPARENT_PNG =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
-
-type Role = "Teacher" | "Student" | "Peer" | "Reviewer";
-
 interface Review {
   id: string;
-  role: Role;
-  name: string; // "Role • Name"
+  role: "Teacher" | "Student" | "Peer" | "Reviewer";
+  name: string; // this is what renders on the LEFT — we'll fill with "<Role> • <Name>"
   stars?: number;
   time: string;
   text: string;
   avatar?: string | null;
   initials?: string;
-
-  // ⬇️ ratings on each comment (pulled from student page)
   ratingDelivery?: number | null;
   ratingConfidence?: number | null;
-  ratingOverall?: number | null; // rounded avg of delivery + confidence
+  ratingOverall?: number | null;
 }
 
-// "More from community" sample (kept same structure for parity)
-const MORE_COMMUNITY_SAMPLE = [
+// role derivation from your profiles schema (has "role")
+const roleFromProfile = (p: any): "Teacher" | "Student" | "Peer" => {
+  const roleStr = (p?.role || "").toString().toLowerCase();
+  if (roleStr === "teacher") return "Teacher";
+  if (roleStr === "student") return "Student";
+  return "Peer";
+};
+
+// Helper function to generate unique IDs - only for React keys
+const generateUid = (prefix: string = ""): string =>
+  `${prefix}${Math.random().toString(36).slice(2, 9)}`;
+
+const MOCK_REVIEWS: Review[] = [
   {
-    id: "c1",
-    user: "https://randomuser.me/api/portraits/men/44.jpg",
-    title: "Interview Practice Session",
-    views: 130,
-    age: "3d",
+    id: generateUid("r_"),
+    role: "Teacher",
+    name: "Teacher • Michael Chen",
+    time: "1 hour ago",
+    text: "Excellent presentation. Your confidence shows, and the visuals are clear. Keep steadier eye contact in the opening.",
   },
   {
-    id: "c2",
-    user: "https://randomuser.me/api/portraits/men/47.jpg",
-    title: "Spanish Conversation Practice",
-    views: 64,
-    age: "6d",
+    id: generateUid("r_"),
+    role: "Teacher",
+    name: "Teacher • Anna Lee",
+    time: "12 hours ago",
+    text: "Very clear explanation and good pacing.",
   },
   {
-    id: "c3",
-    user: "https://randomuser.me/api/portraits/women/12.jpg",
-    title: "Pitch Deck Rehearsal",
-    views: 88,
-    age: "1w",
-  },
-  {
-    id: "c4",
-    user: "https://randomuser.me/api/portraits/women/68.jpg",
-    title: "Toastmasters-style Practice",
-    views: 200,
-    age: "2w",
-  },
-  {
-    id: "c5",
-    user: "https://randomuser.me/api/portraits/men/31.jpg",
-    title: "Product Demo Run",
-    views: 64,
-    age: "3w",
+    id: generateUid("r_"),
+    role: "Teacher",
+    name: "Teacher • John Park",
+    time: "1 day ago",
+    text: "Good pace and clear slides. Maybe slow down during Q&A.",
   },
 ];
 
-const formatCount = (count: number): string => {
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`.replace(".0", "");
-  return count.toString();
+const MORE_COMMUNITY_SAMPLE = [
+  { id: "c1", user: "https://randomuser.me/api/portraits/men/44.jpg", title: "Interview Practice Session", views: 130, age: "3d" },
+  { id: "c2", user: "https://randomuser.me/api/portraits/men/47.jpg", title: "Spanish Conversation Practice", views: 64, age: "6d" },
+  { id: "c3", user: "https://randomuser.me/api/portraits/women/12.jpg", title: "Pitch Deck Rehearsal", views: 88, age: "1w" },
+  { id: "c4", user: "https://randomuser.me/api/portraits/women/68.jpg", title: "Toastmasters-style Practice", views: 200, age: "2w" },
+  { id: "c5", user: "https://randomuser.me/api/portraits/men/31.jpg", title: "Product Demo Run", views: 64, age: "3w" },
+];
+
+const ReviewsService = {
+  store: [...MOCK_REVIEWS],
+  async list(): Promise<Review[]> {
+    await new Promise((res) => setTimeout(res, 220));
+    return [...this.store];
+  },
+  async post(rev: Omit<Review, "id" | "time">): Promise<Review> {
+    await new Promise((res) => setTimeout(res, 260));
+    const newRev: Review = { id: generateUid("r_"), time: "just now", ...rev };
+    this.store = [newRev, ...this.store];
+    return newRev;
+  },
+  async overall(): Promise<number> {
+    const reviewsWithStars = this.store.filter((r) => r.stars !== undefined);
+    if (reviewsWithStars.length === 0) return 0;
+    const avg =
+      reviewsWithStars.reduce((s, r) => s + (r.stars || 0), 0) /
+      reviewsWithStars.length;
+    return Math.round(avg * 10) / 10;
+  },
 };
 
-/* =======================================================================================
- * Smaller presentational blocks (kept consistent)
- * ======================================================================================= */
-
-const GlassContainer: React.FC<{
-  children: React.ReactNode;
-  className?: string;
-}> = ({ children, className = "" }) => (
+const GlassContainer: React.FC<{ children: React.ReactNode; className?: string; }> = ({ children, className = "", ...props }) => (
   <View
     className={`rounded-2xl overflow-hidden ${className}`}
     style={{
@@ -188,6 +187,7 @@ const GlassContainer: React.FC<{
       shadowRadius: 12,
       elevation: 6,
     }}
+    {...props}
   >
     {children}
   </View>
@@ -217,88 +217,97 @@ const Stars: React.FC<{
   </View>
 );
 
-/* =======================================================================================
- * PAGE
- * ======================================================================================= */
+const formatCount = (count: number): string => {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`.replace(".0", "");
+  }
+  return count.toString();
+};
 
-const TeacherCommunityPage: React.FC = () => {
+// ===================== PAGE =====================
+
+const CommunityPage: React.FC = () => {
   const router = useRouter?.() || { replace: () => {} };
   const pathname = usePathname?.() || "";
-
-  // Accept either postId or studentId, mirroring the student page fallback
-  const { postId, studentId } =
-    useLocalSearchParams<{ postId?: string; studentId?: string }>();
+  const { postId, studentId } = useLocalSearchParams<{ postId?: string; studentId?: string }>();
   const effectivePostId = (postId || studentId) as string | undefined;
 
-  // ===== teacher header/profile (dynamic via Supabase) =====
+  // Profile menu (Teacher)
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
+
+  // current user avatar + initials
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string>("");
-  const [initials, setInitials] = useState<string>("T");
-  const [userEmail, setUserEmail] = useState<string>("");
+  const [initials, setInitials] = useState<string>("");
 
-  // ===== post header data (author + post) =====
-  const [postAuthorName, setPostAuthorName] = useState<string>("Student");
+  // post header data
+  const [postAuthorName, setPostAuthorName] = useState<string>("Sarah Johnson");
   const [postAuthorAvatar, setPostAuthorAvatar] = useState<string | null>(null);
-  const [postAuthorInitials, setPostAuthorInitials] =
-    useState<string>("ST");
-  const [postCreatedAgo, setPostCreatedAgo] =
-    useState<string>("Posted …");
-  const [postTitle, setPostTitle] =
-    useState<string>("Shared to Community");
-  const [postContent, setPostContent] =
-    useState<string>("Community submission");
+  const [postAuthorInitials, setPostAuthorInitials] = useState<string>("SJ");
+  const [postCreatedAgo, setPostCreatedAgo] = useState<string>("Posted 2 hours ago");
+  const [postTitle, setPostTitle] = useState<string>("Quarterly Sales Presentation");
+  const [postContent, setPostContent] = useState<string>("This is a focused practice session to refine delivery, structure, and slide flow.");
   const [postMediaUrl, setPostMediaUrl] = useState<string | null>(null);
 
-  // NEW: owner for notifications
+  // post owner id (notifications)
   const [postOwnerId, setPostOwnerId] = useState<string | null>(null);
 
-  // ===== likes =====
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(0);
+  // media type
+  const [postMediaType, setPostMediaType] = useState<"audio" | "video" | "none">("none");
 
-  // ===== reviews/comments =====
-  const [reviews, setReviews] = useState<Review[]>([]);
+  // likes
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(24);
+
+  // reviews/comments
+  const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
   const [loadingReviews, setLoadingReviews] = useState(false);
 
-  // ===== other states — parity with student page =====
-  const [activeTab] = useState("Community");
+  // other state
+  const [activeTab, setActiveTab] = useState("Community");
+  const [showLevelModal, setShowLevelModal] = useState(false);
   const [level, setLevel] = useState<"Basic" | "Advanced">("Basic");
   const [submitting, setSubmitting] = useState(false);
   const [ratingDelivery, setRatingDelivery] = useState(0);
   const [ratingConfidence, setRatingConfidence] = useState(0);
   const [typed, setTyped] = useState("");
+  const [commentEntered, setCommentEntered] = useState("");
   const [localOverall, setLocalOverall] = useState(0);
   const [canSubmit, setCanSubmit] = useState(false);
-
-  // overall computed from comments (matches student logic; UI unchanged)
   const [overall, setOverall] = useState<number | null>(null);
 
-  // current user id cache (for like/comment authoring)
+  // user id
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // Derived state (match student page behavior)
+  // audio player state
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioPosition, setAudioPosition] = useState(0);
+  const [audioLoading, setAudioLoading] = useState(false);
+
+  const fmt = (ms: number) => {
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
   useEffect(() => {
-    const ov = (ratingDelivery + ratingConfidence) / 2;
-    setLocalOverall(ov);
-    setCanSubmit(
-      typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0
-    );
+    setCommentEntered(typed.trim().length > 0 ? "y" : "");
+    const rounded = Math.round(((ratingDelivery + ratingConfidence) / 2) * 10) / 10;
+    setLocalOverall(rounded);
+    setCanSubmit(typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0);
   }, [typed, ratingDelivery, ratingConfidence]);
 
-  /* -----------------------------------------------------------------------------
-   * Boot: auth + teacher header avatar (same flow as student page's header)
-   * ---------------------------------------------------------------------------*/
+  // boot: auth + header avatar
   useEffect(() => {
     let mounted = true;
-
     (async () => {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (mounted) setCurrentUserId(user?.id ?? null);
       if (!user || !mounted) return;
-
-      setUserEmail(user.email ?? "");
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -306,43 +315,28 @@ const TeacherCommunityPage: React.FC = () => {
         .eq("id", user.id)
         .single();
 
-      const name =
-        (profile?.name ??
-          user.user_metadata?.full_name ??
-          user.email ??
-          "Teacher").trim();
+      const name = (profile?.name ?? user.user_metadata?.full_name ?? user.email ?? "Teacher").trim();
       const parts = name.split(/\s+/).filter(Boolean);
-      const inits =
-        (parts[0]?.[0] ?? "T").toUpperCase() +
-        (parts[1]?.[0] ?? "").toUpperCase();
+      const inits = (parts[0]?.[0] ?? "T").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase();
 
       if (!mounted) return;
       setFullName(name);
-      setInitials(inits || getInitials(name || user.email || "Teacher"));
+      setInitials(inits || "T");
 
-      const url = await resolveSignedAvatar(
-        user.id,
-        profile?.avatar_url ?? undefined
-      );
+      const url = await resolveSignedAvatar(user.id, profile?.avatar_url ?? undefined);
       if (!mounted) return;
       setAvatarUri(url);
     })();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
-  /* -----------------------------------------------------------------------------
-   * Fetch post + author (kept identical to student, only module path differs)
-   * ---------------------------------------------------------------------------*/
+  // fetch post + author
   const loadPost = useCallback(async () => {
     if (!effectivePostId) return;
 
     const { data, error } = await supabase
       .from("posts")
-      .select(
-        `
+      .select(`
         id,
         user_id,
         title,
@@ -353,115 +347,105 @@ const TeacherCommunityPage: React.FC = () => {
           name,
           avatar_url
         )
-      `
-      )
+      `)
       .eq("id", effectivePostId)
       .single();
 
     if (error || !data) return;
 
     const author = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
-    const name = author?.name || "Student";
-    setPostOwnerId(data.user_id); // NEW
-    setPostAuthorName(name);
-    setPostAuthorInitials(getInitials(name));
+    const authorName = author?.name ?? "User";
+    const initials = (() => {
+      const s = (authorName || "User").trim();
+      const parts = s.split(/\s+/).filter(Boolean);
+      return ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+    })();
+
+    setPostOwnerId(data.user_id);
+    setPostAuthorName(authorName);
+    setPostAuthorInitials(initials);
     setPostCreatedAgo(`Posted ${timeAgo(data.created_at)}`);
-    setPostTitle(data.title || "Shared to Community");
-    setPostContent(data.content || "Community submission");
-    setPostMediaUrl(data.media_url || null);
+    setPostTitle(data.title || postTitle);
+    setPostContent(data.content || postContent);
 
-    const signed = await resolveSignedAvatar(
-      data.user_id,
-      author?.avatar_url ?? null
-    );
+    let signedMedia: string | null = null;
+    if (data.media_url) signedMedia = await resolveSignedRecording(data.media_url);
+    setPostMediaUrl(signedMedia);
+    if (signedMedia) {
+      setPostMediaType(isAudioUrl(signedMedia) ? "audio" : (isVideoUrl(signedMedia) ? "video" : "video"));
+    } else {
+      setPostMediaType("none");
+    }
+
+    const signed = await resolveSignedAvatar(data.user_id, author?.avatar_url ?? null);
     setPostAuthorAvatar(signed);
-  }, [effectivePostId]);
+  }, [effectivePostId, postTitle, postContent]);
 
-  /* -----------------------------------------------------------------------------
-   * Likes: count + "did I like?" + realtime (same as student page)
-   * ---------------------------------------------------------------------------*/
+  // likes
   const loadLikes = useCallback(async () => {
     if (!effectivePostId) return;
-
     try {
       const { count: totalCount, error: totalErr } = await supabase
         .from("likes")
         .select("id", { head: true, count: "exact" })
         .eq("post_id", effectivePostId);
-
       if (totalErr) throw totalErr;
 
-      let mine = false;
-      if (currentUserId) {
-        const { data: mineRows, error: mineErr } = await supabase
-          .from("likes")
-          .select("id")
-          .eq("post_id", effectivePostId)
-          .eq("user_id", currentUserId);
-        if (mineErr) throw mineErr;
-        mine = Boolean(mineRows && mineRows.length > 0);
-      }
+      const { data: mineRows, error: mineErr } = currentUserId
+        ? await supabase
+            .from("likes")
+            .select("id")
+            .eq("post_id", effectivePostId)
+            .eq("user_id", currentUserId)
+        : { data: null, error: null };
+      if (mineErr) throw mineErr;
 
-      setLikeCount(typeof totalCount === "number" ? totalCount : 0);
-      setIsLiked(mine);
+      setLikeCount(typeof totalCount === "number" ? totalCount : 24);
+      setIsLiked(Boolean(mineRows && mineRows.length > 0));
     } catch (e) {
       console.warn("[likes] load error:", e);
     }
   }, [effectivePostId, currentUserId]);
 
-  // realtime: likes channel
+  useEffect(() => { loadLikes(); }, [loadLikes]);
+
   useEffect(() => {
     if (!effectivePostId) return;
     const channel = supabase
       .channel(`likes-${effectivePostId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "likes",
-          filter: `post_id=eq.${effectivePostId}`,
-        },
-        () => {
-          loadLikes();
-        }
-      )
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "likes",
+        filter: `post_id=eq.${effectivePostId}`,
+      }, () => {
+        loadLikes();
+      })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [effectivePostId, loadLikes]);
 
-  // notify post owner (don’t notify self)
-  const insertNotification = useCallback(
-    async (type: "like" | "comment") => {
-      try {
-        if (!effectivePostId || !currentUserId || !postOwnerId) return;
-        if (postOwnerId === currentUserId) return;
-        await supabase.from("notifications").insert({
-          recipient_id: postOwnerId,
-          actor_id: currentUserId,
-          post_id: effectivePostId,
-          type,
-          is_read: false,
-        });
-      } catch (e) {
-        console.log("[notifications] insert error:", e);
-      }
-    },
-    [effectivePostId, currentUserId, postOwnerId]
-  );
+  const insertNotification = useCallback(async (type: "like" | "comment") => {
+    try {
+      if (!effectivePostId || !currentUserId || !postOwnerId) return;
+      if (postOwnerId === currentUserId) return;
+      await supabase.from("notifications").insert({
+        recipient_id: postOwnerId,
+        actor_id: currentUserId,
+        post_id: effectivePostId,
+        type,
+        is_read: false,
+      });
+    } catch (e) {
+      console.log("[notifications] insert error:", e);
+    }
+  }, [effectivePostId, currentUserId, postOwnerId]);
 
   const toggleLike = useCallback(async () => {
     if (!effectivePostId || !currentUserId) return;
-
     const next = !isLiked;
-
-    // optimistic UI
     setIsLiked(next);
-    setLikeCount((prev) => (next ? prev + 1 : Math.max(0, prev - 1)));
-
+    setLikeCount(prev => (next ? prev + 1 : Math.max(0, prev - 1)));
     try {
       if (next) {
         const { error } = await supabase.from("likes").insert({
@@ -469,7 +453,7 @@ const TeacherCommunityPage: React.FC = () => {
           user_id: currentUserId,
         });
         if (error) throw error;
-        insertNotification("like"); // NEW
+        insertNotification("like");
       } else {
         const { error } = await supabase
           .from("likes")
@@ -479,27 +463,22 @@ const TeacherCommunityPage: React.FC = () => {
         if (error) throw error;
       }
     } catch (e) {
-      // revert optimistic
       setIsLiked(!next);
-      setLikeCount((prev) => (next ? Math.max(0, prev - 1) : prev + 1));
+      setLikeCount(prev => (next ? Math.max(0, prev - 1) : prev + 1));
       console.warn("[likes] toggle error:", e);
       return;
     }
-
     loadLikes();
   }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]);
 
-  /* -----------------------------------------------------------------------------
-   * Comments/Reviews: list + add + realtime + rating fields
-   * ---------------------------------------------------------------------------*/
+  // comments/reviews
   const loadComments = useCallback(async () => {
     if (!effectivePostId) return;
     setLoadingReviews(true);
 
     const { data, error } = await supabase
       .from("comments")
-      .select(
-        `
+      .select(`
         id,
         content,
         created_at,
@@ -508,17 +487,16 @@ const TeacherCommunityPage: React.FC = () => {
         rating_confidence,
         profiles!comments_user_id_fkey (
           name,
-          role,
-          avatar_url
+          avatar_url,
+          role
         )
-      `
-      )
+      `)
       .eq("post_id", effectivePostId)
       .order("created_at", { ascending: false });
 
     if (error || !data) {
       console.warn("[comments] load error:", error);
-      setReviews([]);
+      setReviews(MOCK_REVIEWS);
       setOverall(null);
       setLoadingReviews(false);
       return;
@@ -527,26 +505,23 @@ const TeacherCommunityPage: React.FC = () => {
     const mapped: Review[] = await Promise.all(
       data.map(async (row: any) => {
         const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-        const name = p?.name || "User";
-        const role = (p?.role as Role) || "Student";
-        const parts = name.trim().split(/\s+/).filter(Boolean);
-        const initials =
-          ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+        const humanRole = roleFromProfile(p);
+        const nameBase = p?.name || "User";
+        const displayName = `${humanRole} • ${nameBase}`; // <<< LEFT-LINE NAME WITH ROLE
+        const parts = nameBase.trim().split(/\s+/).filter(Boolean);
+        const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
 
         let avatar: string | null = null;
-        if (p?.avatar_url) {
-          avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
-        }
+        if (p?.avatar_url) avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
 
         const rd = row.rating_delivery ?? null;
         const rc = row.rating_confidence ?? null;
-        const ro =
-          rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+        const ro = rd != null && rc != null ? Math.round(((rd + rc) / 2) * 10) / 10 : null;
 
         return {
           id: row.id,
-          role,
-          name: `${role} • ${name}`,
+          role: humanRole,
+          name: displayName,                 // <<< shows "Teacher • Michael Chen"
           time: timeAgo(row.created_at),
           text: row.content || "",
           avatar,
@@ -558,14 +533,12 @@ const TeacherCommunityPage: React.FC = () => {
       })
     );
 
-    // compute overall rounded from rated comments
-    const rated = mapped.filter(
-      (r) => r.ratingOverall != null
-    ) as Array<Review & { ratingOverall: number }>;
+    const rated = mapped
+      .map(r => r.ratingOverall)
+      .filter((n): n is number => typeof n === "number");
+
     const postAvgRounded = rated.length
-      ? Math.round(
-          rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length
-        )
+      ? Math.round((rated.reduce((s, n) => s + n, 0) / rated.length) * 10) / 10
       : null;
 
     setReviews(mapped);
@@ -578,76 +551,66 @@ const TeacherCommunityPage: React.FC = () => {
     if (!effectivePostId) return;
     const channel = supabase
       .channel(`comments-${effectivePostId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "comments",
-          filter: `post_id=eq.${effectivePostId}`,
-        },
-        async (payload) => {
-          try {
-            const row: any = payload.new;
-            const { data: prof } = await supabase
-              .from("profiles")
-              .select("name, role, avatar_url")
-              .eq("id", row.user_id)
-              .single();
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "comments",
+        filter: `post_id=eq.${effectivePostId}`,
+      }, async (payload) => {
+        try {
+          const row: any = payload.new;
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("name, avatar_url, role")
+            .eq("id", row.user_id)
+            .single();
 
-            const name = prof?.name || "User";
-            const role = (prof?.role as Role) || "Student";
-            const parts = name.trim().split(/\s+/).filter(Boolean);
-            const initials =
-              ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
+          const humanRole = roleFromProfile(prof);
+          const nameBase = prof?.name || "User";
+          const displayName = `${humanRole} • ${nameBase}`; // <<< LEFT-LINE NAME WITH ROLE
+          const parts = nameBase.trim().split(/\s+/).filter(Boolean);
+          const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
 
-            let avatar: string | null = null;
-            if (prof?.avatar_url)
-              avatar = await resolveSignedAvatar(row.user_id, prof.avatar_url);
+          let avatar: string | null = null;
+          if (prof?.avatar_url) avatar = await resolveSignedAvatar(row.user_id, prof.avatar_url);
 
-            const rd = row.rating_delivery ?? null;
-            const rc = row.rating_confidence ?? null;
-            const ro =
-              rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+          const rd = row.rating_delivery ?? null;
+          const rc = row.rating_confidence ?? null;
+          const ro = rd != null && rc != null ? Math.round(((rd + rc) / 2) * 10) / 10 : null;
 
-            const review: Review = {
-              id: String(row.id),
-              role,
-              name: `${role} • ${name}`,
-              time: timeAgo(row.created_at),
-              text: row.content || "",
-              avatar,
-              initials,
-              ratingDelivery: rd,
-              ratingConfidence: rc,
-              ratingOverall: ro,
-            };
+          const review: Review = {
+            id: String(row.id),
+            role: humanRole,
+            name: displayName,               // <<< shows "Student • Rockford Dagohoy" etc.
+            time: timeAgo(row.created_at),
+            text: row.content || "",
+            avatar,
+            initials,
+            ratingDelivery: rd,
+            ratingConfidence: rc,
+            ratingOverall: ro,
+          };
 
-            setReviews((prev) => {
-              const next = [review, ...prev];
-              const rated = next.filter(
-                (r) => r.ratingOverall != null
-              ) as Array<Review & { ratingOverall: number }>;
-              const postAvgRounded = rated.length
-                ? Math.round(
-                    rated.reduce((s, r) => s + r.ratingOverall!, 0) /
-                      rated.length
-                  )
+          setReviews(prev => {
+            const next = [review, ...prev];
+            const rated = next
+              .map(r => r.ratingOverall)
+              .filter((n): n is number => typeof n === "number");
+            const avg =
+              rated.length
+                ? Math.round((rated.reduce((s, n) => s + n, 0) / rated.length) * 10) / 10
                 : null;
-              setOverall(postAvgRounded);
-              return next;
-            });
-          } catch (e) {
-            console.log("[comments realtime] hydrate error:", e);
-            loadComments();
-          }
+            setOverall(avg);
+            return next;
+          });
+        } catch (e) {
+          console.log("[comments realtime] hydrate error:", e);
+          loadComments(); // fallback refresh
         }
-      )
+      })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [effectivePostId, loadComments]);
 
   const postReview = useCallback(async () => {
@@ -662,7 +625,6 @@ const TeacherCommunityPage: React.FC = () => {
         post_id: effectivePostId,
         user_id: currentUserId,
         content: typed.trim(),
-        // ratings like student page
         rating_delivery: ratingDelivery,
         rating_confidence: ratingConfidence,
       });
@@ -673,29 +635,18 @@ const TeacherCommunityPage: React.FC = () => {
         return;
       }
 
-      // notify post owner
       await insertNotification("comment");
 
       setTyped("");
       setRatingDelivery(0);
       setRatingConfidence(0);
-      await loadComments(); // keep consistent with realtime
+      await loadComments();
     } finally {
       setSubmitting(false);
     }
-  }, [
-    effectivePostId,
-    currentUserId,
-    typed,
-    ratingDelivery,
-    ratingConfidence,
-    insertNotification,
-    loadComments,
-  ]);
+  }, [effectivePostId, currentUserId, typed, insertNotification, loadComments, ratingDelivery, ratingConfidence]);
 
-  /* -----------------------------------------------------------------------------
-   * boot: load everything when param changes
-   * ---------------------------------------------------------------------------*/
+  // boot: load all
   useEffect(() => {
     (async () => {
       await loadPost();
@@ -704,20 +655,94 @@ const TeacherCommunityPage: React.FC = () => {
     })();
   }, [loadPost, loadLikes, loadComments]);
 
-  /* =======================================================================================
-   * UI
-   * ======================================================================================= */
+  const handleIconPress = (iconName: string) => {
+    if (iconName === "log-out-outline") router.replace("/login-page");
+    else if (iconName === "add-student") router.push("/ButtonIcon/add-student");
+    else if (iconName === "settings") router.push("/settings");
+  };
 
+  const handleLevelSelect = (selectedLevel: "Basic" | "Advanced") => {
+    setLevel(selectedLevel);
+    setShowLevelModal(false);
+  };
+
+  // audio load/unload
+  useEffect(() => {
+    let mounted = true;
+    const loadAudio = async () => {
+      if (postMediaType !== "audio" || !postMediaUrl) return;
+      setAudioLoading(true);
+      try {
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+          soundRef.current = null;
+        }
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: postMediaUrl },
+          { shouldPlay: false },
+          (status) => {
+            if (!status.isLoaded) return;
+            setAudioPlaying(status.isPlaying);
+            setAudioDuration(status.durationMillis ?? 0);
+            setAudioPosition(status.positionMillis ?? 0);
+            if ((status as any).didJustFinish) {
+              setAudioPlaying(false);
+              setAudioPosition(0);
+              try { soundRef.current?.setPositionAsync(0); } catch {}
+            }
+          }
+        );
+        if (!mounted) { await sound.unloadAsync(); return; }
+        soundRef.current = sound;
+        const st = await sound.getStatusAsync();
+        setAudioLoaded(st.isLoaded);
+        setAudioDuration(st.isLoaded ? st.durationMillis ?? 0 : 0);
+        setAudioPosition(st.isLoaded ? st.positionMillis ?? 0 : 0);
+      } catch (e) {
+        console.warn("[audio] load error:", e);
+        setAudioLoaded(false);
+      } finally {
+        setAudioLoading(false);
+      }
+    };
+    loadAudio();
+    return () => {
+      mounted = false;
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+    };
+  }, [postMediaType, postMediaUrl]);
+
+  const toggleAudioPlay = async () => {
+    if (!soundRef.current || !audioLoaded) return;
+    const s = soundRef.current;
+    const st = await s.getStatusAsync();
+    if (!st.isLoaded) return;
+    const RESTART_EPS = 800;
+    const atEnd =
+      (st.durationMillis ?? 0) > 0 &&
+      Math.abs((st.positionMillis ?? 0) - (st.durationMillis ?? 0)) < RESTART_EPS;
+    if (st.isPlaying) {
+      await s.pauseAsync();
+      setAudioPlaying(false);
+    } else {
+      if (atEnd) {
+        await s.setPositionAsync(0);
+        setAudioPosition(0);
+      }
+      await s.playAsync();
+      setAudioPlaying(true);
+    }
+  };
+
+  // ===================== UI (Teacher header style) =====================
   return (
     <View className="flex-1 bg-slate-900">
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-
       {/* Background with gradient and decorative circles */}
       <View className="absolute top-0 left-0 right-0 bottom-0">
-        <LinearGradient
-          colors={["#0F172A", "#1E293B", "#0F172A"]}
-          className="flex-1"
-        />
+        <LinearGradient colors={["#0F172A", "#1E293B", "#0F172A"]} className="flex-1" />
         <View className="absolute top-[-60px] left-[-50px] w-40 h-40 bg-[#a78bfa]/10 rounded-full" />
         <View className="absolute top-[100px] right-[-40px] w-[90px] h-[90px] bg-[#a78bfa]/10 rounded-full" />
         <View className="absolute bottom-[100px] left-[50px] w-9 h-9 bg-[#a78bfa]/10 rounded-full" />
@@ -728,60 +753,48 @@ const TeacherCommunityPage: React.FC = () => {
       <SafeAreaView className="flex-1">
         <ScrollView
           className="flex-1"
-          contentContainerStyle={{ paddingBottom: 70 }}
+          contentContainerStyle={{ paddingBottom: 90 }}
           showsVerticalScrollIndicator={false}
           bounces={true}
           overScrollMode="always"
         >
-          {/* ========================== Header ========================== */}
           <View className="w-full max-w-[400px] self-center px-4">
-            <View className="flex-row justify-between top-2 items-center mt-4 mb-3 w-full">
-              <TouchableOpacity
-                className="flex-row items-center"
-                onPress={() => router.back()}
-                activeOpacity={0.7}
-              >
+            {/* Header (teacher style like selection) */}
+            <View className="flex-row justify-between items-center mt-8 mb-3 w-full">
+              <View className="flex-row items-center">
                 <Image
                   source={require("../../../assets/Speaksy.png")}
-                  className="w-12 h-12 rounded-full right-1"
+                  className="w-12 h-12 rounded-full right-2"
                   resizeMode="contain"
                 />
-                <Text className="text-white font-bold text-2xl ml-2 -left-4">
+                <Text className="text-white font-bold text-2xl ml-2 -left-5">
                   Voclaria
                 </Text>
-              </TouchableOpacity>
+              </View>
 
-              <View className="flex-row items-center -right-1 space-x-2">
-                {/* Header avatar uses real teacher avatar & opens ProfileMenuTeacher */}
+              <View className="flex-row items-center right-2">
                 <TouchableOpacity
-                  className="p-1 rounded-full bg-white/10"
+                  onPress={() => handleIconPress("add-student")}
+                  activeOpacity={0.7}
+                  className="p-2 bg-white/10 rounded-full mr-4"
+                >
+                  <Image
+                    source={require("../../../assets/add-student.png")}
+                    className="w-5 h-5"
+                    resizeMode="contain"
+                    tintColor="white"
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
                   onPress={() => setIsProfileMenuVisible(true)}
                   activeOpacity={0.7}
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 17,
-                    borderWidth: 1,
-                    borderColor: "rgba(255,255,255,0.6)",
-                    overflow: "hidden",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
+                  className="w-9 h-9 rounded-full border-2 border-white/80 overflow-hidden"
                 >
                   {avatarUri ? (
-                    <Image source={{ uri: avatarUri }} style={{ width: 32, height: 32 }} />
+                    <Image source={{ uri: avatarUri }} className="w-9 h-9" />
                   ) : (
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor: "rgba(167,139,250,0.25)",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>
+                    <View className="w-9 h-9 bg-violet-600 items-center justify-center">
+                      <Text className="text-white text-xs font-bold">
                         {initials || "T"}
                       </Text>
                     </View>
@@ -791,7 +804,6 @@ const TeacherCommunityPage: React.FC = () => {
             </View>
           </View>
 
-          {/* ========================== Post Card ========================== */}
           <Animated.ScrollView
             className="flex-1"
             contentContainerStyle={{
@@ -802,10 +814,10 @@ const TeacherCommunityPage: React.FC = () => {
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
           >
-            <GlassContainer className="mb-5 -bottom- overflow-hidden">
+            {/* Body card with media */}
+            <GlassContainer className="mb-1 -bottom-1.5 overflow-hidden">
               <View className="relative">
                 <View className="flex-row right-2 items-center mb-1 ml-4">
-                  {/* Author avatar (signed) or initials fallback */}
                   {postAuthorAvatar ? (
                     <Image
                       source={{ uri: postAuthorAvatar }}
@@ -838,19 +850,86 @@ const TeacherCommunityPage: React.FC = () => {
                   {postContent}
                 </Text>
 
-                {/* Media (image thumbnail while not playing) */}
-                <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
-                  <Image
-                    source={{
-                      uri:
-                        postMediaUrl ||
-                        "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
-                    }}
-                    className="w-full h-full"
-                    resizeMode="cover"
-                  />
-                  <View className="absolute inset-0 bg-black/30" />
-                </View>
+                {postMediaType === "audio" && postMediaUrl ? (
+                  <View className="mx-4 mb-3 bg-white/10 border border-white/10 rounded-xl p-4">
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-white font-medium">Audio Preview</Text>
+                      <TouchableOpacity
+                        onPress={toggleAudioPlay}
+                        className="bg-black/40 rounded-full px-3 py-1.5"
+                        disabled={!audioLoaded || audioLoading}
+                      >
+                        <Text className="text-white text-sm">
+                          {audioLoading ? "Loading…" : audioPlaying ? "Pause" : "Play"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View className="mt-2">
+                      <View className="w-full bg-white/20 rounded-full h-1.5">
+                        <View
+                          className="bg-white h-full rounded-full"
+                          style={{
+                            width: `${audioDuration ? Math.min(100, (audioPosition / audioDuration) * 100) : 0}%`,
+                          }}
+                        />
+                      </View>
+                      <View className="flex-row justify-between mt-1">
+                        <Text className="text-gray-300 text-xs">{fmt(audioPosition)}</Text>
+                        <Text className="text-gray-300 text-xs">{fmt(audioDuration)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : postMediaType === "video" && postMediaUrl ? (
+                  <View className="mx-4 mb-3 rounded-xl overflow-hidden bg-black">
+                    <Video
+                      source={{ uri: postMediaUrl }}
+                      style={{ width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" }}
+                      resizeMode={ResizeMode.CONTAIN}
+                      useNativeControls
+                      isLooping
+                      shouldPlay={false}
+                    />
+                  </View>
+                ) : (
+                  <View className="h-64 bg-gray-800 overflow-hidden relative rounded-t-2xl">
+                    <Image
+                      source={{
+                        uri:
+                          postMediaUrl ||
+                          "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?auto=format&fit=crop&w=900&q=80",
+                      }}
+                      className="w-full h-full"
+                      resizeMode="cover"
+                    />
+                    <View className="absolute top-3 left-3 rounded-full px-2 py-1 flex-row items-center z-10">
+                      <Ionicons name="time-outline" size={16} color="white" />
+                      <Text className="text-white text-sm ml-2 font-medium">5:24 min</Text>
+                    </View>
+                    <View className="absolute top-3 right-3 bg-black/50 rounded-full px-2 py-1 flex-row items-center z-10">
+                      <Ionicons name="eye-outline" size={14} color="#9ca3af" />
+                      <Text className="text-gray-200 text-xs ml-1 font-medium">127 views</Text>
+                    </View>
+                    <View className="absolute inset-0 bg-black/30" />
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: [{ translateX: -40 }, { translateY: -40 }],
+                        width: 80,
+                        height: 80,
+                        backgroundColor: "rgba(255, 255, 255, 0.3)",
+                        borderRadius: 40,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderWidth: 1,
+                        borderColor: "rgba(255, 255, 255, 0.2)",
+                      }}
+                    >
+                      <Ionicons name="play" size={36} color="#fff" />
+                    </View>
+                  </View>
+                )}
 
                 {/* Icons below media */}
                 <View className="p-2 bg-white/5 rounded-b-2xl">
@@ -866,9 +945,7 @@ const TeacherCommunityPage: React.FC = () => {
                           color={isLiked ? "#ef4444" : "#9ca3af"}
                         />
                         <Text
-                          className={`text-sm ml-1 right-0.1 font-medium ${
-                            isLiked ? "text-red-500" : "text-gray-400"
-                          }`}
+                          className={`text-sm ml-1 right-0.1 font-medium ${isLiked ? "text-red-500" : "text-gray-400"}`}
                         >
                           {likeCount} {likeCount === 1 ? "like" : "likes"}
                         </Text>
@@ -884,7 +961,7 @@ const TeacherCommunityPage: React.FC = () => {
               </View>
             </GlassContainer>
 
-            {/* ====================== Comment + Rating Composer ====================== */}
+            {/* Feedback composer */}
             <View className="-mt-2">
               <GlassContainer className="p-2">
                 <View className="flex-row justify-between items-start mb-4">
@@ -899,20 +976,17 @@ const TeacherCommunityPage: React.FC = () => {
 
                   <View className="right-1 top-1 items-center px-3 py-2 ml-4">
                     <Text className="text-white text-2xl font-bold">
-                      {Math.round((overall ?? localOverall) * 10) / 10}
+                      {overall ?? localOverall}
                       <Text className="text-gray-400 text-base">/5</Text>
                     </Text>
                     <Text className="text-gray-300 text-xs">Overall</Text>
                   </View>
                 </View>
 
-                {/* Combined Comment and Rating Section */}
                 <View className="bg-white/10 rounded-xl p-4 border border-white/20">
-                  {/* Comment Input */}
+                  {/* Comment */}
                   <View className="mb-3">
-                    <Text className="text-white font-bold text-xl -mb-1">
-                      Your Comment
-                    </Text>
+                    <Text className="text-white font-bold text-xl -mb-1">Your Comment</Text>
                     <View className="bottom-1.5 border-b border-white/20 pb-2">
                       <TextInput
                         value={typed}
@@ -926,73 +1000,49 @@ const TeacherCommunityPage: React.FC = () => {
                       />
                     </View>
                   </View>
-
-                  {typed.trim().length === 0 && (
+                  {!commentEntered && (
                     <Text className="text-amber-400 text-xs mt-2 bottom-3">
                       Please write a comment before rating
                     </Text>
                   )}
 
-                  {/* Rating Section */}
+                  {/* Ratings */}
                   <View className="space-y-4">
                     <View className="flex-row justify-between">
                       <View className="flex-1 pr-2">
-                        <Text className="text-white font-medium mb-2">
-                          Delivery
-                        </Text>
+                        <Text className="text-white font-medium mb-2">Delivery</Text>
                         <Stars
                           value={ratingDelivery}
-                          onPress={
-                            typed.trim().length > 0 ? setRatingDelivery : undefined
-                          }
-                          disabled={typed.trim().length === 0}
+                          onPress={commentEntered ? setRatingDelivery : undefined}
+                          disabled={!commentEntered}
                         />
                       </View>
 
                       <View className="flex-1 pl-2">
-                        <Text className="text-white font-medium mb-2">
-                          Confidence
-                        </Text>
+                        <Text className="text-white font-medium mb-2">Confidence</Text>
                         <Stars
                           value={ratingConfidence}
-                          onPress={
-                            typed.trim().length > 0 ? setRatingConfidence : undefined
-                          }
-                          disabled={typed.trim().length === 0}
+                          onPress={commentEntered ? setRatingConfidence : undefined}
+                          disabled={!commentEntered}
                         />
                       </View>
                     </View>
 
-                    {/* Overall Rating quick setter */}
+                    {/* Overall */}
                     <View className="pt-2">
-                      <Text className="text-white font-medium mb-2">
-                        Overall Rating
-                      </Text>
-                      <View className="flex-row">
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <TouchableOpacity
-                            key={`overall-${i}`}
-                            disabled={typed.trim().length === 0}
-                            onPress={() => {
-                              setRatingDelivery(i);
-                              setRatingConfidence(i);
-                            }}
-                            className="p-0.5"
-                          >
-                            <Ionicons
-                              name={
-                                i <= Math.round((overall ?? localOverall))
-                                  ? "star"
-                                  : "star-outline"
+                      <Text className="text-white font-medium mb-2">Overall Rating</Text>
+                      <Stars
+                        value={Math.round(localOverall)}
+                        onPress={
+                          commentEntered
+                            ? (val) => {
+                                setRatingDelivery(val);
+                                setRatingConfidence(val);
                               }
-                              size={22}
-                              color={
-                                typed.trim().length > 0 ? "#FFD700" : "#d1d5db"
-                              }
-                            />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
+                            : undefined
+                        }
+                        disabled={!commentEntered}
+                      />
                       <Text className="text-gray-400 text-xs mt-1">
                         Average of Delivery & Confidence
                       </Text>
@@ -1002,9 +1052,7 @@ const TeacherCommunityPage: React.FC = () => {
                   <TouchableOpacity
                     onPress={postReview}
                     disabled={!canSubmit || submitting}
-                    className={`py-3 rounded-xl items-center justify-center mt-4 ${
-                      canSubmit ? "bg-violet-600" : "bg-gray-600"
-                    }`}
+                    className={`py-3 rounded-xl items-center justify-center mt-4 ${canSubmit ? "bg-violet-600" : "bg-gray-600"}`}
                   >
                     <Text className="text-white font-bold text-base">
                       {submitting ? "Posting..." : "Post Feedback"}
@@ -1014,26 +1062,20 @@ const TeacherCommunityPage: React.FC = () => {
               </GlassContainer>
             </View>
 
-            {/* ====================== Reviews list ====================== */}
+            {/* Reviews list */}
             <GlassContainer className="mb-8 top-4">
               <View className="p-1">
                 <View className="flex-row justify-between items-center mb-4">
                   <View>
-                    <Text className="text-white text-xl font-bold">
-                      Community Reviews
-                    </Text>
-                    <Text className="text-gray-300 text-sm">
-                      Feedback from teachers and students
-                    </Text>
+                    <Text className="text-white text-xl font-bold">Community Reviews</Text>
+                    <Text className="text-gray-300 text-sm">Feedback from teachers</Text>
                   </View>
                 </View>
 
                 {loadingReviews ? (
                   <View className="py-8 items-center">
                     <ActivityIndicator color="#8B5CF6" />
-                    <Text className="text-gray-400 mt-2">
-                      Loading reviews...
-                    </Text>
+                    <Text className="text-gray-400 mt-2">Loading reviews...</Text>
                   </View>
                 ) : reviews.length > 0 ? (
                   <View className="space-y-4">
@@ -1052,15 +1094,12 @@ const TeacherCommunityPage: React.FC = () => {
                             ) : (
                               <View className="w-10 h-10 bg-violet-500/20 rounded-full items-center justify-center mr-3">
                                 <Text className="text-white font-bold">
-                                  {review.initials ||
-                                    review.name.charAt(0).toUpperCase()}
+                                  {review.initials || review.name.charAt(0).toUpperCase()}
                                 </Text>
                               </View>
                             )}
                             <View>
-                              <Text className="text-white font-medium">
-                                {review.name}
-                              </Text>
+                              <Text className="text-white font-medium">{review.name}</Text>
                               <Text className="text-gray-400 text-xs">
                                 {review.time} • {review.role}
                               </Text>
@@ -1072,17 +1111,9 @@ const TeacherCommunityPage: React.FC = () => {
                         </Text>
                         <View className="flex-row justify-start items-center mt-3 pt-3 border-t border-white/5">
                           <TouchableOpacity className="flex-row items-center">
-                            <Ionicons
-                              name="heart-outline"
-                              size={18}
-                              color="#9CA3AF"
-                            />
-                            <Text className="text-gray-400 text-xs ml-1">
-                              Helpful
-                            </Text>
-                            <Text className="text-gray-500 text-xs ml-1">
-                              • {Math.floor(Math.random() * 15) + 1}
-                            </Text>
+                            <Ionicons name="heart-outline" size={18} color="#9CA3AF" />
+                            <Text className="text-gray-400 text-xs ml-1">Helpful</Text>
+                            <Text className="text-gray-500 text-xs ml-1">• {Math.floor(Math.random() * 15) + 1}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1090,11 +1121,7 @@ const TeacherCommunityPage: React.FC = () => {
                   </View>
                 ) : (
                   <View className="py-8 items-center">
-                    <Ionicons
-                      name="chatbubbles-outline"
-                      size={48}
-                      color="#4B5563"
-                    />
+                    <Ionicons name="chatbubbles-outline" size={48} color="#4B5563" />
                     <Text className="text-gray-400 mt-3 text-center">
                       No reviews yet. Be the first to share your feedback!
                     </Text>
@@ -1103,22 +1130,16 @@ const TeacherCommunityPage: React.FC = () => {
               </View>
             </GlassContainer>
 
-            {/* ====================== More from community ====================== */}
+            {/* More from community */}
             <GlassContainer className="mb-2 bottom-1">
               <View className="p-1">
                 <View className="flex-row justify-between items-center mb-4">
                   <View>
-                    <Text className="text-white text-lg font-bold">
-                      More from Community
-                    </Text>
-                    <Text className="text-gray-400 text-xs">
-                      Discover trending practice sessions
-                    </Text>
+                    <Text className="text-white text-lg font-bold">More from Community</Text>
+                    <Text className="text-gray-400 text-xs">Discover trending practice sessions</Text>
                   </View>
                   <TouchableOpacity className="bg-white/10 px-3 py-1 rounded-full">
-                    <Text className="text-white text-xs font-medium">
-                      View All
-                    </Text>
+                    <Text className="text-white text-xs font-medium">View All</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1134,32 +1155,19 @@ const TeacherCommunityPage: React.FC = () => {
                       className="w-48 bg-white/5 rounded-xl p-3 mr-3 border border-white/5"
                     >
                       <View className="aspect-video bg-gray-800 rounded-lg overflow-hidden mb-3">
-                        <Image
-                          source={{ uri: c.user }}
-                          className="w-full h-full"
-                          resizeMode="cover"
-                        />
+                        <Image source={{ uri: c.user }} className="w-full h-full" resizeMode="cover" />
                         <View className="absolute inset-0 bg-black/30" />
                         <View className="absolute bottom-2 right-2 bg-black/60 px-1.5 py-0.5 rounded">
                           <Text className="text-white text-[10px]">2:45</Text>
                         </View>
                       </View>
-                      <Text
-                        className="text-white font-medium text-sm mb-1"
-                        numberOfLines={1}
-                      >
+                      <Text className="text-white font-medium text-sm mb-1" numberOfLines={1}>
                         {c.title}
                       </Text>
                       <View className="flex-row items-center">
                         <View className="flex-row items-center">
-                          <Ionicons
-                            name="eye-outline"
-                            size={12}
-                            color="#9ca3af"
-                          />
-                          <Text className="text-gray-400 text-xs ml-1">
-                            {formatCount(c.views)}
-                          </Text>
+                          <Ionicons name="eye-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">{formatCount(c.views)}</Text>
                         </View>
                         <View className="w-1 h-1 bg-gray-600 rounded-full mx-2" />
                         <Text className="text-gray-400 text-xs">{c.age}</Text>
@@ -1173,21 +1181,21 @@ const TeacherCommunityPage: React.FC = () => {
         </ScrollView>
       </SafeAreaView>
 
-      {/* ====================== Bottom Navigation (Teacher) ====================== */}
+      {/* Bottom Navigation (teacher) */}
       <NavigationBar defaultActiveTab="Community" />
 
-      {/* ====================== Profile Menu (Teacher) ====================== */}
+      {/* Profile Menu — only Settings + Sign out handled internally by component */}
       <ProfileMenuTeacher
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
         user={{
           name: fullName || "Teacher",
-          email: userEmail || "",
-          image: { uri: avatarUri || TRANSPARENT_PNG },
+          email: "",
+          image: { uri: avatarUri || "" },
         }}
       />
     </View>
   );
 };
 
-export default TeacherCommunityPage;
+export default CommunityPage;

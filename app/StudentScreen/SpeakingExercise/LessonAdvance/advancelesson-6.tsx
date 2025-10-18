@@ -17,6 +17,12 @@ import { useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get("window");
 
+/* 🔹 Minimal additions for consistent param forwarding */
+const lessonPrompt = "List a one-sentence script for the users to read, about the topic";
+const topic = "Speaking Without Notes";
+const criteria = "";
+const displayDefault = "Lesson 6";
+
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -322,7 +328,8 @@ const TaskSection = ({
 
 // Recording Section
 const RecordingSection = ({ onBack }: { onBack: () => void }) => {
-  const params = useLocalSearchParams(); // forward whatever we received (module_id, module_title, level, display)
+  // Read incoming params (module_id, module_title, level, display) and forward with safe defaults.
+  const params = useLocalSearchParams<{ module_id?: string; module_title?: string; level?: string; display?: string }>();
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
@@ -338,6 +345,22 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
     ]).start();
   }, []);
 
+  const handleStart = () => {
+    router.push({
+      pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+      params: {
+        module_id: params.module_id ?? "",
+        module_title: params.module_title ?? encodeURIComponent("Speaking Without Notes"),
+        level: params.level ?? "advanced",
+        display: params.display ?? displayDefault,
+        // Script generation context for live-vid-selection
+        lessonPrompt,
+        topic,
+        criteria,
+      },
+    });
+  };
+
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
@@ -348,6 +371,9 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
 
           <View className="mb-10">
             <Text className="text-white text-sm top-4 leading-5">Task: Deliver a 4-min talk using only anchor phrases.</Text>
+            <Text className="text-white/60 text-xs mt-3">
+              Advanced progress will be updated to 100% on the full-results page.
+            </Text>
           </View>
 
           <View className="mb-5">
@@ -423,12 +449,7 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() =>
-                router.push({
-                  pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
-                  params, // forward module_id, module_title, level, display, etc.
-                })
-              }
+              onPress={handleStart}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >

@@ -520,7 +520,7 @@ export default function FullResultReading() {
               <TouchableOpacity
                 className="flex-row items-center bg-violet-500/80 border border-white/30 px-6 py-2.5 rounded-xl w-[45%] justify-center"
                 activeOpacity={0.9}
-                onPress={() => router.replace("/live-vid-selection")}
+                onPress={() => router.replace("/student-voice-reading-recording")}
               >
                 <Text className="text-white font-semibold text-base">Retake</Text>
               </TouchableOpacity>

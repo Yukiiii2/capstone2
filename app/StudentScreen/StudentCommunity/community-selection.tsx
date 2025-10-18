@@ -361,6 +361,38 @@ function StudentPresentation() {
     // cast once to the union-typed shape that matches Supabase behavior
     const rows = (data as unknown) as JoinedRow[];
 
+    // --------- NEW: pull ratings per post from comments in a single query ---------
+    const postIds = rows.map(r => r.id);
+    const ratingMap: Record<string, number | null> = {};
+    try {
+      const { data: comments, error: cErr } = await supabase
+        .from("comments")
+        .select("post_id, rating_delivery, rating_confidence")
+        .in("post_id", postIds);
+
+      if (cErr) {
+        console.warn("[community-selection] ratings load error:", cErr);
+      } else if (comments && comments.length > 0) {
+        const acc: Record<string, { sum: number; count: number }> = {};
+        for (const c of comments as any[]) {
+          const rd = typeof c.rating_delivery === "number" ? c.rating_delivery : null;
+          const rc = typeof c.rating_confidence === "number" ? c.rating_confidence : null;
+          if (rd != null && rc != null) {
+            const avg = (rd + rc) / 2;
+            if (!acc[c.post_id]) acc[c.post_id] = { sum: 0, count: 0 };
+            acc[c.post_id].sum += avg;
+            acc[c.post_id].count += 1;
+          }
+        }
+        for (const pid of Object.keys(acc)) {
+          const { sum, count } = acc[pid];
+          ratingMap[pid] = count > 0 ? Math.round((sum / count) * 10) / 10 : null;
+        }
+      }
+    } catch (e) {
+      console.warn("[community-selection] ratings compute error:", e);
+    }
+
     const signAvatar = async (userId: string, avatar_url?: string | null) => {
       const stored = (avatar_url ?? userId).toString().replace(/^avatars\//, "");
       let objectPath: string | null = null;
@@ -395,7 +427,7 @@ function StudentPresentation() {
           name,
           avatar: avatar || null,
           lastPractice: timeAgo(p.created_at) || "Posted",
-          rating: null,
+          rating: ratingMap[p.id] ?? null, // <-- NEW: real community rating
           lesson: {
             id: idx + 1000,
             title: p.title || "Shared to Community",
@@ -426,7 +458,7 @@ function StudentPresentation() {
   useFocusEffect(
     useCallback(() => {
       loadUser();
-      fetchPostsAsStudents(); // <-- NEW: refresh posts on focus
+      fetchPostsAsStudents(); // <-- NEW: refresh posts + ratings on focus
     }, [loadUser, fetchPostsAsStudents])
   );
 

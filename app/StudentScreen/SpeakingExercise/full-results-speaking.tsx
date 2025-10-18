@@ -1,5 +1,5 @@
 // app/StudentScreen/SpeakingExercise/full-results-speaking.tsx
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -31,6 +31,63 @@ type MetricBlock = {
   change: number;
 };
 
+/* ─────────── progress rule (INLINE) ───────────
+   - advanced: force 100% and completed=true
+   - basic: if an existing row has progress >= 50 and < 100 -> set to 100
+            (or 0.5–<1 if DB uses 0–1 scale). We do not create a new row for basic. */
+async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "advanced") {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const user = auth?.user;
+    if (!user || !moduleId) return;
+
+    if (level === "advanced") {
+      // Always complete advanced on full results (upsert handles existing/missing rows)
+      const payload = {
+        student_id: user.id,
+        module_id: moduleId,
+        progress: 100,
+        completed: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      await supabase.from("student_progress").upsert(payload, {
+        onConflict: "student_id,module_id",
+        ignoreDuplicates: false,
+      });
+      return;
+    }
+
+    // BASIC RULE:
+    // Only update existing rows that are already at the mid-gate but not 100 yet.
+    const updates = {
+      progress: 100,
+      completed: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    // 0–100 scale branch: progress >= 50 and < 100
+    await supabase
+      .from("student_progress")
+      .update(updates)
+      .eq("student_id", user.id)
+      .eq("module_id", moduleId)
+      .gte("progress", 50)
+      .lt("progress", 100);
+
+    // 0–1 scale branch: progress >= 0.5 and < 1
+    await supabase
+      .from("student_progress")
+      .update(updates)
+      .eq("student_id", user.id)
+      .eq("module_id", moduleId)
+      .gte("progress", 0.5)
+      .lt("progress", 1);
+  } catch {
+    // swallow errors to avoid UX interruption
+  }
+}
+
 export default function FullResultsSpeaking() {
   const router = useRouter();
 
@@ -60,7 +117,7 @@ export default function FullResultsSpeaking() {
     order_index: number | null;
   }>({
     id: module_id ?? null,
-    title: module_title ?? null,
+    title: (module_title as string) ?? null,
     level: level === "advanced" ? "advanced" : "basic",
     order_index: null,
   });
@@ -92,6 +149,8 @@ export default function FullResultsSpeaking() {
       (data ?? []).forEach((row: any) => {
         const ev = row?.evaluation;
         if (!ev) return;
+
+        // Prefer final_score, then score. Both are 0–100.
         const s =
           typeof ev?.final_score === "number"
             ? ev.final_score
@@ -100,6 +159,7 @@ export default function FullResultsSpeaking() {
             : null;
         if (s != null && latestScore == null) latestScore = clampPct(s);
 
+        // Tips/summaries
         if (typeof ev?.summary === "string" && ev.summary.trim()) newTips.push(ev.summary.trim());
         if (Array.isArray(ev?.tips)) {
           ev.tips.forEach((t: any) => {
@@ -172,25 +232,8 @@ export default function FullResultsSpeaking() {
   /* ─────────── resolve module + next module ─────────── */
   const resolveModule = useCallback(async () => {
     try {
-      if (!currentModule.id || !currentModule.title) {
-        const { data } = await supabase
-          .from("modules")
-          .select("id, title, level, order_index")
-          .eq("category", "speaking")
-          .eq("level", currentModule.level)
-          .eq("active", true)
-          .order("order_index", { ascending: true })
-          .limit(1);
-        if (data && data.length) {
-          const m = data[0];
-          setCurrentModule({
-            id: m.id,
-            title: m.title,
-            level: m.level === "advanced" ? "advanced" : "basic",
-            order_index: m.order_index ?? null,
-          });
-        }
-      } else {
+      // If we already have an id, hydrate title/order and exit
+      if (currentModule.id) {
         const { data } = await supabase
           .from("modules")
           .select("id, title, order_index")
@@ -203,6 +246,48 @@ export default function FullResultsSpeaking() {
             title: prev.title ?? data.title,
           }));
         }
+        return;
+      }
+
+      // If id missing, try resolve by title + level
+      if (currentModule.title) {
+        const { data } = await supabase
+          .from("modules")
+          .select("id, title, level, order_index")
+          .eq("category", "speaking")
+          .eq("level", currentModule.level)
+          .eq("active", true)
+          .ilike("title", currentModule.title)
+          .limit(1);
+        if (data && data.length) {
+          const m = data[0];
+          setCurrentModule({
+            id: m.id,
+            title: m.title,
+            level: m.level === "advanced" ? "advanced" : "basic",
+            order_index: m.order_index ?? null,
+          });
+          return;
+        }
+      }
+
+      // Fallback: first active module for this level
+      const { data: first } = await supabase
+        .from("modules")
+        .select("id, title, level, order_index")
+        .eq("category", "speaking")
+        .eq("level", currentModule.level)
+        .eq("active", true)
+        .order("order_index", { ascending: true })
+        .limit(1);
+      if (first && first.length) {
+        const m = first[0];
+        setCurrentModule({
+          id: m.id,
+          title: m.title,
+          level: m.level === "advanced" ? "advanced" : "basic",
+          order_index: m.order_index ?? null,
+        });
       }
     } catch {
       // no-op
@@ -297,48 +382,6 @@ export default function FullResultsSpeaking() {
     [currentModule.id, currentModule.level, session_id, computeNextAttemptNumber]
   );
 
-  /**
-   * Progress rule on full results:
-   * - basic: +50 (cap at 100)
-   * - advanced: set to 100
-   * Never downgrade; create row if missing.
-   */
-  const upsertProgressOnFullResult = useCallback(
-    async (studentId: string) => {
-      if (!currentModule.id) return;
-
-      const { data: existing } = await supabase
-        .from("student_progress")
-        .select("id, progress")
-        .eq("student_id", studentId)
-        .eq("module_id", currentModule.id)
-        .maybeSingle();
-
-      const prev = clampPct(existing?.progress ?? 0);
-      const isAdvanced = currentModule.level === "advanced";
-      const proposed = isAdvanced ? 100 : Math.min(100, prev + 50);
-
-      // never downgrade
-      const next = Math.max(prev, proposed);
-      if (next === prev) return;
-
-      const payload: any = {
-        student_id: studentId,
-        module_id: currentModule.id,
-        progress: next,
-        completed: next >= 100,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (existing?.id) {
-        await supabase.from("student_progress").update(payload).eq("id", existing.id);
-      } else {
-        await supabase.from("student_progress").insert(payload);
-      }
-    },
-    [currentModule.id, currentModule.level]
-  );
-
   /* ─────────── metrics derived from score ─────────── */
   const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
   const deriveMetricsFromScore = (s: number): MetricBlock[] => {
@@ -383,7 +426,12 @@ export default function FullResultsSpeaking() {
   useEffect(() => {
     (async () => {
       if (savedOnceRef.current) return;
-      if (!currentModule.id) return; // wait for module to resolve
+
+      // Ensure module is resolved before writing progress
+      if (!currentModule.id) {
+        await resolveModule();
+      }
+      if (!currentModule.id) return;
 
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
@@ -395,11 +443,13 @@ export default function FullResultsSpeaking() {
       const finalScore = await fetchFinalScore();
       await logAttempt(user.id, finalScore);
 
-      // progress rule (basic +50 / advanced = 100)
-      await upsertProgressOnFullResult(user.id);
+      // 🔑 PROGRESS RULE on full-results:
+      // - basic: if quiz set 50 (>=50 & <100), bump to 100
+      // - advanced: set 100
+      await applyFullResultsRuleInline(currentModule.id, currentModule.level);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiScore, currentModule.level, currentModule.id]);
+  }, [currentModule.id, currentModule.level]);
 
   /* ─────────── nav actions ─────────── */
   const goRetake = async () => {
@@ -409,7 +459,7 @@ export default function FullResultsSpeaking() {
       if (user && currentModule.id) {
         const finalScore = await fetchFinalScore();
         await logAttempt(user.id, finalScore);
-        await upsertProgressOnFullResult(user.id);
+        await applyFullResultsRuleInline(currentModule.id, currentModule.level);
       }
     } catch {}
     router.replace("StudentScreen/SpeakingExercise/live-vid-selection");
@@ -422,13 +472,13 @@ export default function FullResultsSpeaking() {
       if (user && currentModule.id) {
         const finalScore = await fetchFinalScore();
         await logAttempt(user.id, finalScore);
-        await upsertProgressOnFullResult(user.id);
+        await applyFullResultsRuleInline(currentModule.id, currentModule.level);
       }
     } catch {}
     router.replace("StudentScreen/HomePage/home-page");
   };
 
-  /* ─────────── UI (unchanged) ─────────── */
+  /* ─────────── UI (unchanged core) ─────────── */
   const BackgroundDecor = () => (
     <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
       <View className="absolute inset-0">

@@ -23,7 +23,7 @@ const { width } = Dimensions.get('window');
 
 const lessonPrompt = "List an instruction sentence so that the student states their name, grade level, and hobby.";
 const topic = "Effective Non-Verbal Communication";
-const criteria = "Give feedback about the Pronounciation, Tone, Clarity";
+const criteria = "Pronounciation, Tone, Clarity";
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">

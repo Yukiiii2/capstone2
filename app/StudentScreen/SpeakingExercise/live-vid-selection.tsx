@@ -14,7 +14,6 @@ import {
   Platform,
   Modal,
   ActivityIndicator,
-  
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
@@ -22,7 +21,35 @@ import { LinearGradient } from "expo-linear-gradient";
 import ProfileMenu from "../../../components/ProfileModal/ProfileMenuNew";
 import { supabase } from "@/lib/supabaseClient";
 
-// ===== Constants & Types =====
+// ===== Helpers =====
+const pick = (v: any) => (Array.isArray(v) ? v[0] : v);
+const normalize = (v: any) => (Array.isArray(v) ? v[0] : v);
+
+const safeDecode = (v?: string) => {
+  if (!v) return "";
+  try {
+    // Only decode if it looks URL-encoded
+    return /%[0-9A-Fa-f]{2}/.test(v) ? decodeURIComponent(v) : v;
+  } catch {
+    return v;
+  }
+};
+
+const readErrorMessage = async (res: Response) => {
+  try {
+    const data = await res.json();
+    const d = data?.detail ?? data;
+    return typeof d === "string" ? d : JSON.stringify(d);
+  } catch {
+    try {
+      return await res.text();
+    } catch {
+      return "Unknown error";
+    }
+  }
+};
+
+// ===== Types =====
 type FeatureType = {
   title: string;
   desc: string;
@@ -30,64 +57,68 @@ type FeatureType = {
   iconLib?: typeof Ionicons | typeof MaterialCommunityIcons;
 };
 
-const normalize = (v: string | string[] | undefined) =>
-  Array.isArray(v) ? v[0] : v;
-
-
-
-
-
-
 export default function LiveVidSelection() {
   const router = useRouter();
   const pathname = usePathname();
-  const params = useLocalSearchParams();
-  const lessonPrompt = params.lessonPrompt as string; // Retrieve lessonPrompt
-  const topic = params.topic as string; // Retrieve topic
-  const criteria = params.criteria as string; // Retrieve criteria
-
-
-  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showLevelModal, setShowLevelModal] = useState(false);
-  const [showCommunityModal, setShowCommunityModal] = useState(false);
-  const { width, height } = useWindowDimensions();
-  const statusBarHeight = StatusBar.currentHeight || 0;
-  const slideAnim = useRef(new Animated.Value(-50)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-
-  // ⬇️ READ module context forwarded from lessons-basic/lessons-advanced
   const raw = useLocalSearchParams<{
     module_id?: string | string[];
     module_title?: string | string[];
-    level?: string | string[];   // "basic" | "advanced"
-    display?: string | string[]; // display lesson # if you passed it
+    level?: string | string[]; // "basic" | "advanced"
+    display?: string | string[];
+    lessonPrompt?: string | string[];
+    topic?: string | string[];
+    criteria?: string | string[];
   }>();
 
-  // Build normalized context (keep everything as strings)
+  // Build normalized module context (strings only)
   const moduleCtx = {
-    ...(normalize(raw.module_id) ? { module_id: normalize(raw.module_id)! } : {}),
-    ...(normalize(raw.module_title) ? { module_title: normalize(raw.module_title)! } : {}),
-    ...(normalize(raw.level) ? { level: normalize(raw.level)! } : {}),
-    ...(normalize(raw.display) ? { display: normalize(raw.display)! } : {}),
+    module_id: normalize(raw.module_id) ?? "",
+    module_title: safeDecode(normalize(raw.module_title) ?? ""),
+    level: normalize(raw.level) ?? "advanced",
+    display: normalize(raw.display) ?? "",
   };
 
-  // Tiny helper so every navigation forwards the same context
-  const pushWithCtx = (pathname: string, extra?: Record<string, any>) => {
-    const safeTitle =
-      moduleCtx.module_title ? encodeURIComponent(moduleCtx.module_title) : undefined;
+  // Derive inputs used by the script generation calls
+  const lessonPrompt =
+    (pick(raw.lessonPrompt)?.toString().trim() ||
+      moduleCtx.module_title ||
+      "").trim();
 
+  const topic =
+    (pick(raw.topic)?.toString().trim() ||
+      moduleCtx.display ||
+      moduleCtx.module_title ||
+      "").trim();
+
+  const criteria =
+    (pick(raw.criteria)?.toString().trim() || "").trim();
+
+  // Small utility: forward ctx + any extras, without double-encoding module_title
+  const pushWithCtx = (toPath: string, extra?: Record<string, any>) => {
     router.push({
-      pathname,
+      pathname: toPath,
       params: {
-        ...moduleCtx,
-        ...(safeTitle ? { module_title: safeTitle } : {}),
+        // pass through exactly as we received/normalized
+        module_id: moduleCtx.module_id,
+        module_title: moduleCtx.module_title, // already decoded if needed
+        level: moduleCtx.level,
+        display: moduleCtx.display,
+        lessonPrompt,
+        topic,
+        criteria,
         ...(extra || {}),
       },
     });
   };
 
-  // ===== dynamic user profile (replaces hard-coded userProfile) =====
+  // ===== UI + profile state =====
+  const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const { width, height } = useWindowDimensions();
+  const statusBarHeight = StatusBar.currentHeight || 0;
+  const slideAnim = useRef(new Animated.Value(-50)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
   const [fullName, setFullName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -99,7 +130,7 @@ export default function LiveVidSelection() {
     return (a + b) || a || "U";
   }, [fullName]);
 
-  // Load Supabase user + signed avatar (matches Home page logic)
+  // Load Supabase user + signed avatar
   useEffect(() => {
     let mounted = true;
 
@@ -162,23 +193,6 @@ export default function LiveVidSelection() {
     };
   }, []);
 
-  // Build the user object for ProfileMenu (same shape as before, just dynamic)
-  const userProfile = {
-    name: fullName || "Student",
-    email: userEmail || "",
-    image: { uri: avatarUri || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==" },
-  };
-
-  const handleIconPress = (iconName: string) => {
-    if (iconName === "log-out-outline") {
-      router.replace("/login-page");
-    } else if (iconName === "chatbot") {
-      router.push("/ButtonIcon/chatbot");
-    } else if (iconName === "notifications") {
-      router.push("/ButtonIcon/notification");
-    }
-  };
-
   useEffect(() => {
     const toValue = isProfileMenuVisible ? 0 : -50;
     const opacityValue = isProfileMenuVisible ? 1 : 0;
@@ -197,16 +211,31 @@ export default function LiveVidSelection() {
     ]).start();
   }, [isProfileMenuVisible]);
 
+  const userProfile = {
+    name: fullName || "Student",
+    email: userEmail || "",
+    image: {
+      uri:
+        avatarUri ||
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==",
+    },
+  };
+
+  const handleIconPress = (iconName: string) => {
+    if (iconName === "log-out-outline") {
+      router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/ButtonIcon/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/ButtonIcon/notification");
+    }
+  };
+
+  // ===== Render =====
   return (
     <View className="flex-1 bg-gray-900" style={{ width, height }}>
-      
       {/* Loading Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={isLoading}
-        onRequestClose={() => setIsLoading(false)} // Allow closing the modal if needed
-      >
+      <Modal animationType="fade" transparent visible={isLoading} onRequestClose={() => setIsLoading(false)}>
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white p-6 rounded-lg shadow-lg items-center">
             <ActivityIndicator size="large" color="#8F00FF" />
@@ -215,51 +244,29 @@ export default function LiveVidSelection() {
         </View>
       </Modal>
 
-      <StatusBar
-        translucent
-        backgroundColor="transparent"
-        barStyle="light-content"
-      />
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <View className="flex-1">
         <LinearGradient
           colors={["#0F172A", "#1E293B", "#0F172A"]}
-          style={{
-            flex: 1,
-            paddingTop: Platform.OS === "android" ? statusBarHeight : 0,
-          }}
+          style={{ flex: 1, paddingTop: Platform.OS === "android" ? statusBarHeight : 0 }}
         >
-          {/* Decorative Circles */}
-          <View className="absolute w-40 h-40 bg-[#a78bfa]/10 rounded-full -top-20 -left-20" />
-          <View className="absolute w-24 h-24 bg-[#a78bfa]/10 rounded-full top-1/4 -right-12" />
-          <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full top-1/3 -left-16" />
-          <View className="absolute w-48 h-48 bg-[#a78bfa]/5 rounded-full bottom-1/4 -right-24" />
-          <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full bottom-2 right-8" />
-          <View className="absolute w-28 h-28 bg-[#a78bfa]/5 rounded-full top-15 right-12" />
-          <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full bottom-24 left-1/6" />
+          {/* Decorative circles omitted for brevity (keep your originals) */}
 
           <View
             className="flex-1 -top- px-4"
-            style={{
-              paddingTop: Platform.OS === "ios" ? 50 : statusBarHeight + 10,
-            }}
+            style={{ paddingTop: Platform.OS === "ios" ? 50 : statusBarHeight + 10 }}
           >
             <View className="w-full max-w-[400px] self-center">
               {/* Header */}
               <View className="flex-row justify-between bottom-10 items-center mt-4 mb-3 w-full">
                 <View className="flex-row items-center">
-                  <TouchableOpacity
-                    className="flex-row items-center"
-                    onPress={() => router.back()}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity className="flex-row items-center" onPress={() => router.back()} activeOpacity={0.7}>
                     <Image
                       source={require("../../../assets/Speaksy.png")}
                       className="w-12 h-12 rounded-full right-2"
                       resizeMode="contain"
                     />
-                    <Text className="text-white font-bold text-2xl ml-2 -left-5">
-                      Voclaria
-                    </Text>
+                    <Text className="text-white font-bold text-2xl ml-2 -left-5">Voclaria</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -284,7 +291,7 @@ export default function LiveVidSelection() {
                     <Ionicons name="notifications-outline" size={20} color="white" />
                   </TouchableOpacity>
 
-                  {/* Avatar (unchanged size/position), now dynamic */}
+                  {/* Avatar */}
                   <TouchableOpacity
                     onPress={() => setIsProfileMenuVisible(true)}
                     activeOpacity={0.7}
@@ -312,38 +319,30 @@ export default function LiveVidSelection() {
                           justifyContent: "center",
                         }}
                       >
-                        <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>
-                          {initials}
-                        </Text>
+                        <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>{initials}</Text>
                       </View>
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
-            </View> 
+            </View>
 
-            {/* Main Content Container */}
+            {/* Main Card */}
             <View className=" top-1 mx-1  mb-5 bg-white/5 backdrop-blur-xl -top-10 rounded-3xl p-3 -px-2 border border-white/20">
-              {/* Title Section */}
+              {/* Title */}
               <View className="items-center mb-6">
                 <View className="relative">
                   <View className="absolute -inset-2 bg-purple-500/20 rounded-2xl" />
-                  <Image
-                    source={require("../../../assets/Live.png")}
-                    style={{ width: 60, height: 60 }}
-                    resizeMode="contain"
-                  />
+                  <Image source={require("../../../assets/Live.png")} style={{ width: 60, height: 60 }} resizeMode="contain" />
                 </View>
 
-                <Text className="text-white text-2xl font-bold mt-6 -top-3 mb-2 text-center">
-                  Interactive Live Session
-                </Text>
+                <Text className="text-white text-2xl font-bold mt-6 -top-3 mb-2 text-center">Interactive Live Session</Text>
                 <Text className="text-gray-200 px-2 text-center text-sm -top-4">
                   Stream live and get real-time feedback from your audience
                 </Text>
               </View>
 
-              {/* Features List */}
+              {/* Features */}
               <View className="space-y-3 mb-6 items-center">
                 {[
                   {
@@ -359,25 +358,16 @@ export default function LiveVidSelection() {
                     iconLib: Ionicons,
                   },
                 ].map((feature, idx) => (
-                  <View
-                    key={idx}
-                    className="flex-row items-center p-3 -top-7 rounded-lg"
-                  >
+                  <View key={idx} className="flex-row items-center p-3 -top-7 rounded-lg">
                     <View className="bg-white/10 p-2 rounded-lg mr-3 flex items-center justify-center ">
                       {feature.iconLib ? (
-                        <feature.iconLib
-                          name={feature.icon as any}
-                          size={20}
-                          color="#FFFFFF"
-                        />
+                        <feature.iconLib name={feature.icon as any} size={20} color="#FFFFFF" />
                       ) : (
                         <Ionicons name={feature.icon as any} size={20} color="#FF0000" />
                       )}
                     </View>
                     <View className="flex-1">
-                      <Text className="text-white font-semibold text-base mb-0.5">
-                        {feature.title}
-                      </Text>
+                      <Text className="text-white font-semibold text-base mb-0.5">{feature.title}</Text>
                       <Text className="text-white/70 text-xs">{feature.desc}</Text>
                     </View>
                   </View>
@@ -387,86 +377,96 @@ export default function LiveVidSelection() {
               {/* Action Buttons */}
               <View className="px-3 -mt-8 mb-5">
                 <View className="flex-row justify-center items-center space-x-6 w-full">
+                  {/* Practice Live */}
                   <TouchableOpacity
                     className="flex-row items-center bg-violet-500/90 border border-white/30 px-6 py-2.5 rounded-lg w-[45%] justify-center"
                     activeOpacity={0.8}
                     onPress={async () => {
                       try {
-                        setIsLoading(true); // Show the loading modal
-                        const response = await fetch("https://unbalanceable-lyman-microstomatous.ngrok-free.dev/generate-script", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            lessonPrompt,
-                            topic,
-                          }),
-                        });
+                        setIsLoading(true);
 
-                        const data = await response.json();
+                        if (!lessonPrompt || !topic) {
+                          Alert.alert("Error", "Lesson prompt and topic are required. Please try again.");
+                          return;
+                        }
+
+                        const response = await fetch(
+                          "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/generate-script",
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ lessonPrompt, topic }),
+                          }
+                        );
 
                         if (!response.ok) {
-                          throw new Error(data.detail || "Failed to generate script.");
+                          const msg = await readErrorMessage(response);
+                          throw new Error(msg);
+                        }
+
+                        const data = await response.json();
+                        if (!data?.script) {
+                          Alert.alert("Error", "Failed to generate a valid script. Please try again.");
+                          return;
                         }
 
                         pushWithCtx("StudentScreen/SpeakingExercise/live-video-recording", {
-                          level: moduleCtx.level || "basic",
-                          generatedScript: data.script, // Pass the generated script
+                          generatedScript: data.script,
                         });
-                      } catch (error) {
-                        console.error("Error generating script:", error);
+                      } catch (error: any) {
+                        const msg = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+                        console.error("Error generating script (live):", msg);
+                        Alert.alert("Error generating script", msg);
                       } finally {
-                        setIsLoading(false); // Hide the loading modal
+                        setIsLoading(false);
                       }
                     }}
                   >
                     <Text className="text-white font-bold text-sm">Practice Live</Text>
                   </TouchableOpacity>
+
+                  {/* Practice Solo */}
                   <TouchableOpacity
                     className="flex-row items-center bg-white/30 border border-white/20 px-6 py-2.5 rounded-lg w-[47%] justify-center"
                     activeOpacity={0.8}
                     onPress={async () => {
                       try {
-                        setIsLoading(true); // Show the loading modal
-                        console.log("Lesson Prompt:", lessonPrompt);
-                        console.log("Topic:", topic);
+                        setIsLoading(true);
 
                         if (!lessonPrompt || !topic) {
-                          Alert.alert("Error", "Lesson prompt or topic is missing. Please try again.");
-                          setIsLoading(false); // Hide the loading modal
+                          Alert.alert("Error", "Lesson prompt and topic are required. Please try again.");
                           return;
                         }
 
-                        const response = await fetch("https://unbalanceable-lyman-microstomatous.ngrok-free.dev/generate-script", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            lessonPrompt,
-                            topic,
-                          }),
-                        });
-
-                        const data = await response.json();
+                        const response = await fetch(
+                          "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/generate-script",
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ lessonPrompt, topic }),
+                          }
+                        );
 
                         if (!response.ok) {
-                          throw new Error(data.detail || "Failed to generate script.");
+                          const msg = await readErrorMessage(response);
+                          throw new Error(msg);
                         }
 
-                        if (!data.script) {
+                        const data = await response.json();
+                        if (!data?.script) {
                           Alert.alert("Error", "Failed to generate a valid script. Please try again.");
-                          setIsLoading(false); // Hide the loading modal
                           return;
                         }
 
                         pushWithCtx("StudentScreen/SpeakingExercise/private-video-recording", {
-                          level: moduleCtx.level || "basic",
                           generatedScript: data.script,
-                          criteria: criteria || "",
                         });
                       } catch (error: any) {
-                        console.error("Error generating script:", error.message || error);
-                        Alert.alert("Error", error.message || "Failed to generate script. Please try again.");
+                        const msg = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+                        console.error("Error generating script (solo):", msg);
+                        Alert.alert("Error", msg);
                       } finally {
-                        setIsLoading(false); // Hide the loading modal
+                        setIsLoading(false);
                       }
                     }}
                   >
@@ -475,7 +475,7 @@ export default function LiveVidSelection() {
                 </View>
               </View>
 
-              {/* Quick Tips */}
+              {/* Quick Tips (unchanged) */}
               <View className="bg-white/10 backdrop-blur-md rounded-xl p-5 mb-2 border border-white/20 shadow-sm">
                 <View className="flex-row items-center mb-3">
                   <Ionicons name="bulb-outline" size={16} color="#FFFFFF" />
@@ -491,12 +491,7 @@ export default function LiveVidSelection() {
                     "Choose a quiet, well-lit environment",
                   ].map((tip, idx) => (
                     <View key={idx} className="flex-row items-start">
-                      <Ionicons
-                        name="checkmark"
-                        size={14}
-                        color="white"
-                        style={{ marginTop: 2, marginRight: 8 }}
-                      />
+                      <Ionicons name="checkmark" size={14} color="white" style={{ marginTop: 2, marginRight: 8 }} />
                       <Text className="text-white text-xs flex-1">{tip}</Text>
                     </View>
                   ))}
@@ -513,16 +508,16 @@ export default function LiveVidSelection() {
         onDismiss={() => setIsProfileMenuVisible(false)}
         onSignOut={async () => {
           await supabase.auth.signOut();
-          router.replace('/(auth)/logout');
+          router.replace("/(auth)/logout");
         }}
         user={{
           name: fullName || "Student",
           email: userEmail,
-          image: avatarUri ? { uri: avatarUri } : require('@/assets/student.png'),
+          image: avatarUri ? { uri: avatarUri } : require("@/assets/student.png"),
         }}
       />
 
-      {/* Shared NavigationBar added with defaultActiveTab="Speaking" */}
+      {/* Shared NavigationBar */}
       <NavigationBar defaultActiveTab="Speaking" />
     </View>
   );

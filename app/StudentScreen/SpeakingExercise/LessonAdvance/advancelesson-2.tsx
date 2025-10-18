@@ -16,9 +16,11 @@ import { useRouter, useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get('window');
 
-const lessonPrompt = "You are convincing your classmates to join a campus clean-up program. 60-Second Persuasive Pitch (with principles + objection handling)"
+/* 🔹 Minimal additions for param passing (same as Lesson 1) */
+const lessonPrompt = "List a one-sentence script for the users to read, about the topic";
 const topic = "Advanced Persuasion Strategies";
-const criteria = "Give feedback base on: Use of Principles, Evidence and Objection Handling";
+const criteria = "";
+const display = "Lesson 2"; // shown in live-vid-selection
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
@@ -368,7 +370,7 @@ const TaskSection = ({ data, onBack, onNext }: { data: LessonDetail; onBack: () 
   );
 };
 
-// Recording Section Component
+// Recording Section Component (UNCHANGED UI)
 const RecordingSection = ({ data, onBack, moduleId }: { data: LessonDetail; onBack: () => void; moduleId: string }) => {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
@@ -467,13 +469,19 @@ const RecordingSection = ({ data, onBack, moduleId }: { data: LessonDetail; onBa
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
 
-            {/* 🔗 Pass module_id forward so recorder -> full-result-advanced can mark 100% */}
+            {/* 🔗 Start Recording → pass same params as Lesson 1; NOTHING ELSE CHANGED */}
             <TouchableOpacity 
               onPress={() => router.push({
                 pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
-                params: { module_id: moduleId
-                  , lessonPrompt, topic, criteria
-                 },
+                params: { 
+                  module_id: moduleId,
+                  module_title: encodeURIComponent(data.title), // safe title
+                  level: "advanced",
+                  display,
+                  lessonPrompt,
+                  topic,
+                  criteria,
+                },
               })}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}

@@ -17,6 +17,12 @@ import { useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get("window");
 
+/* 🔹 Minimal additions for consistent param forwarding (matches lessons 2–4) */
+const lessonPrompt = "List a one-sentence script for the users to read, about the topic";
+const topic = "Building Credibility on Stage";
+const criteria = "";
+const displayDefault = "Lesson 5";
+
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -309,7 +315,7 @@ const TaskSection = ({
             </View>
           </View>
 
-          <View className="bg-white/10 p-4 rounded-lg mb-6">
+        <View className="bg-white/10 p-4 rounded-lg mb-6">
             <Text className="text-white/90 text-sm font-medium mb-2">Tips for Success:</Text>
             <View className="space-y-2">
               <View className="flex-row items-start">
@@ -346,7 +352,8 @@ const TaskSection = ({
 
 // Recording Section
 const RecordingSection = ({ onBack }: { onBack: () => void }) => {
-  const params = useLocalSearchParams(); // forward everything we got (module_id, etc.)
+  // We read any incoming params (module_id, module_title, level, display) and ensure defaults.
+  const params = useLocalSearchParams<{ module_id?: string; module_title?: string; level?: string; display?: string }>();
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(50));
 
@@ -362,6 +369,22 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
     ]).start();
   }, []);
 
+  const handleStart = () => {
+    // 🔗 Forward consistent context to live-vid-selection (no progress change here).
+    router.push({
+      pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+      params: {
+        module_id: params.module_id ?? "",
+        module_title: params.module_title ?? encodeURIComponent("Building Credibility on Stage"),
+        level: params.level ?? "advanced",
+        display: params.display ?? displayDefault,
+        lessonPrompt,
+        topic,
+        criteria,
+      },
+    });
+  };
+
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="flex-1">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 30 }}>
@@ -373,6 +396,9 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
           <View className="mb-10">
             <Text className="text-white text-sm top-4 leading-5">
               Task: Deliver a 2-min informative talk using at least 3 credibility techniques.
+            </Text>
+            <Text className="text-white/60 text-xs mt-3">
+              Advanced progress will be updated to 100% on the full-results page.
             </Text>
           </View>
 
@@ -398,7 +424,6 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
                 </View>
               </View>
 
-              {/** You can expand rubric rows here or keep as-is */}
               {[
                 {
                   label: "Accuracy",
@@ -466,12 +491,7 @@ const RecordingSection = ({ onBack }: { onBack: () => void }) => {
               <Text className="text-white font-medium text-sm">Back to Task</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() =>
-                router.push({
-                  pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
-                  params, // forward module_id, module_title, level, display
-                })
-              }
+              onPress={handleStart}
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >

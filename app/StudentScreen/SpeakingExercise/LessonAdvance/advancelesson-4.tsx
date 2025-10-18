@@ -1,3 +1,4 @@
+// app/StudentScreen/SpeakingExercise/advancelesson-4.tsx
 import React, { useState, useRef, useEffect } from "react";
 import { 
   View, 
@@ -15,6 +16,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, router } from "expo-router";
 
 const { width } = Dimensions.get('window');
+
+/* 🔹 Minimal additions for consistent param forwarding */
+const lessonPrompt = "List a one-sentence script for the users to read, about the topic";
+const topic = "Handling Q&A Sessions";
+const criteria = "";
+const displayDefault = "Lesson 4";
 
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
@@ -388,18 +395,20 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
 
   const startRecording = () => {
     const module_id = (params.module_id as string) || "";
-    const display = (params.display as string) || String(data.id);
+    const display = (params.display as string) || displayDefault;
 
-    // Advanced rule: do NOT set progress here.
-    // We forward module context; the full-result page will upsert 100%.
+    // 🔗 Forward the same context we used in lessons 2 & 3.
+    // Advanced: progress is handled on the full-results page.
     router.push({
       pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
       params: {
         module_id,
+        module_title: encodeURIComponent(data.title),
         level: "advanced",
         display,
-        // where your recorder should send the user after they finish
-        returnTo: "/StudentScreen/SpeakingExercise/full-result",
+        lessonPrompt,
+        topic,
+        criteria,
       },
     });
   };
@@ -529,7 +538,7 @@ export default function LessonScreen() {
       key="lesson" 
       data={lesson} 
       onNext={() => setCurrentSection(1)}
-      // 🔁 Back to ADVANCED contents (fixed)
+      // 🔁 Back to ADVANCED contents (kept)
       onBack={() => router.push('/StudentScreen/SpeakingExercise/advanced-contents')}
     />,
     <TaskSection 

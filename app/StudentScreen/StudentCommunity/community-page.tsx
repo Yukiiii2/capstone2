@@ -45,6 +45,14 @@ const isAudioUrl = (uri?: string | null) =>
 const isVideoUrl = (uri?: string | null) =>
   !!uri && /\.(mp4|mov|mkv|webm)(\?|#|$)/i.test(uri || "");
 
+// Map profiles.role -> UI label
+const roleFromProfile = (p: any): "Teacher" | "Student" | "Peer" => {
+  const r = (p?.role || "").toString().toLowerCase();
+  if (r === "teacher") return "Teacher";
+  if (r === "student") return "Student";
+  return "Peer";
+};
+
 async function resolveSignedAvatar(
   userId: string,
   storedPath?: string | null
@@ -94,7 +102,10 @@ async function resolveSignedRecording(mediaUrl?: string | null): Promise<string 
     .from("recordings")
     .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
   if (error) {
-    console.warn("[media] sign error:", error.message);
+    // avoid noisy logs for missing optional media
+    if (!String(error.message || "").toLowerCase().includes("object not found")) {
+      console.warn("[media] sign error:", error.message);
+    }
     return null;
   }
   return signed?.signedUrl ?? null;
@@ -473,7 +484,7 @@ const CommunityPage: React.FC = () => {
 
   useEffect(() => {
     setCommentEntered(typed.trim().length > 0 ? "y" : "");
-    const rounded = Math.round((ratingDelivery + ratingConfidence) / 2);
+    const rounded = Math.round(((ratingDelivery + ratingConfidence) / 2) * 10) / 10;
     setLocalOverall(rounded);
     setCanSubmit(typed.trim().length > 0 && ratingDelivery > 0 && ratingConfidence > 0);
   }, [typed, ratingDelivery, ratingConfidence]);
@@ -572,7 +583,6 @@ const CommunityPage: React.FC = () => {
   }, [effectivePostId, postTitle, postContent]);
 
   // ===== likes: count + current user's like =====
-  // efficient like loader: count via HEAD + row check for current user
   const loadLikes = useCallback(async () => {
     if (!effectivePostId) return;
 
@@ -601,34 +611,33 @@ const CommunityPage: React.FC = () => {
     } catch (e) {
       console.warn("[likes] load error:", e);
     }
-  }, [effectivePostId, currentUserId]); // NEW
+  }, [effectivePostId, currentUserId]);
 
   useEffect(() => {
     loadLikes();
-  }, [loadLikes]); // NEW
+  }, [loadLikes]);
 
   // realtime: likes
   useEffect(() => {
     if (!effectivePostId) return;
     const channel = supabase
-      .channel(`likes-${effectivePostId}`) // NEW
+      .channel(`likes-${effectivePostId}`)
       .on("postgres_changes", {
         event: "*",
         schema: "public",
         table: "likes",
         filter: `post_id=eq.${effectivePostId}`,
       }, () => {
-        loadLikes(); // NEW
+        loadLikes();
       })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel); // NEW
+      supabase.removeChannel(channel);
     };
-  }, [effectivePostId, loadLikes]); // NEW
+  }, [effectivePostId, loadLikes]);
 
   const insertNotification = useCallback(async (type: "like" | "comment") => {
-    // NEW
     try {
       if (!effectivePostId || !currentUserId || !postOwnerId) return;
       if (postOwnerId === currentUserId) return; // don't notify myself
@@ -642,7 +651,7 @@ const CommunityPage: React.FC = () => {
     } catch (e) {
       console.log("[notifications] insert error:", e);
     }
-  }, [effectivePostId, currentUserId, postOwnerId]); // NEW
+  }, [effectivePostId, currentUserId, postOwnerId]);
 
   const toggleLike = useCallback(async () => {
     if (!effectivePostId || !currentUserId) return;
@@ -660,7 +669,7 @@ const CommunityPage: React.FC = () => {
           user_id: currentUserId,
         });
         if (error) throw error;
-        insertNotification("like"); // NEW
+        insertNotification("like");
       } else {
         const { error } = await supabase
           .from("likes")
@@ -676,8 +685,8 @@ const CommunityPage: React.FC = () => {
       return;
     }
 
-    loadLikes(); // NEW ensure consistency
-  }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]); // CHANGED deps
+    loadLikes(); // ensure consistency
+  }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]);
 
   // ===== comments/reviews: list + add =====
   const loadComments = useCallback(async () => {
@@ -695,7 +704,8 @@ const CommunityPage: React.FC = () => {
         rating_confidence,
         profiles!comments_user_id_fkey (
           name,
-          avatar_url
+          avatar_url,
+          role
         )
       `)
       .eq("post_id", effectivePostId)
@@ -712,8 +722,10 @@ const CommunityPage: React.FC = () => {
     const mapped: Review[] = await Promise.all(
       data.map(async (row: any) => {
         const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-        const name = p?.name || "User";
-        const parts = name.trim().split(/\s+/).filter(Boolean);
+        const humanRole = roleFromProfile(p);
+        const nameBase = p?.name || "User";
+        const displayName = `${humanRole} • ${nameBase}`;
+        const parts = nameBase.trim().split(/\s+/).filter(Boolean);
         const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
 
         let avatar: string | null = null;
@@ -723,12 +735,15 @@ const CommunityPage: React.FC = () => {
 
         const rd = row.rating_delivery ?? null;
         const rc = row.rating_confidence ?? null;
-        const ro = rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+        const ro =
+          rd != null && rc != null
+            ? Math.round(((rd + rc) / 2) * 10) / 10
+            : null;
 
         return {
           id: row.id,
-          role: "Student",
-          name: `Student • ${name}`,
+          role: humanRole,
+          name: displayName, // LEFT line shows "<Role> • <Name>"
           time: timeAgo(row.created_at),
           text: row.content || "",
           avatar,
@@ -740,21 +755,24 @@ const CommunityPage: React.FC = () => {
       })
     );
 
-    const rated = mapped.filter(r => r.ratingOverall != null) as Array<Review & {ratingOverall: number}>;
+    const rated = mapped
+      .map(r => r.ratingOverall)
+      .filter((n): n is number => typeof n === "number");
+
     const postAvgRounded = rated.length
-      ? Math.round(rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length)
+      ? Math.round((rated.reduce((s, n) => s + n, 0) / rated.length) * 10) / 10
       : null;
 
     setReviews(mapped);
     setOverall(postAvgRounded);
     setLoadingReviews(false);
-  }, [effectivePostId]); // NEW
+  }, [effectivePostId]);
 
   // realtime: comments INSERT
   useEffect(() => {
     if (!effectivePostId) return;
     const channel = supabase
-      .channel(`comments-${effectivePostId}`) // NEW
+      .channel(`comments-${effectivePostId}`)
       .on("postgres_changes", {
         event: "INSERT",
         schema: "public",
@@ -765,12 +783,14 @@ const CommunityPage: React.FC = () => {
           const row: any = payload.new;
           const { data: prof } = await supabase
             .from("profiles")
-            .select("name, avatar_url")
+            .select("name, avatar_url, role")
             .eq("id", row.user_id)
             .single();
 
-          const name = prof?.name || "User";
-          const parts = name.trim().split(/\s+/).filter(Boolean);
+          const humanRole = roleFromProfile(prof);
+          const nameBase = prof?.name || "User";
+          const displayName = `${humanRole} • ${nameBase}`;
+          const parts = nameBase.trim().split(/\s+/).filter(Boolean);
           const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
 
           let avatar: string | null = null;
@@ -778,12 +798,15 @@ const CommunityPage: React.FC = () => {
 
           const rd = row.rating_delivery ?? null;
           const rc = row.rating_confidence ?? null;
-          const ro = rd != null && rc != null ? Math.round((rd + rc) / 2) : null;
+          const ro =
+            rd != null && rc != null
+              ? Math.round(((rd + rc) / 2) * 10) / 10
+              : null;
 
           const review: Review = {
             id: String(row.id),
-            role: "Student",
-            name: `Student • ${name}`,
+            role: humanRole,
+            name: displayName,
             time: timeAgo(row.created_at),
             text: row.content || "",
             avatar,
@@ -795,10 +818,12 @@ const CommunityPage: React.FC = () => {
 
           setReviews(prev => {
             const next = [review, ...prev];
-            const rated = next.filter(r => r.ratingOverall != null) as Array<Review & {ratingOverall: number}>;
+            const rated = next
+              .map(r => r.ratingOverall)
+              .filter((n): n is number => typeof n === "number");
             const postAvgRounded =
               rated.length
-                ? Math.round(rated.reduce((s, r) => s + r.ratingOverall!, 0) / rated.length)
+                ? Math.round((rated.reduce((s, n) => s + n, 0) / rated.length) * 10) / 10
                 : null;
             setOverall(postAvgRounded);
             return next;
@@ -811,9 +836,9 @@ const CommunityPage: React.FC = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel); // NEW
+      supabase.removeChannel(channel);
     };
-  }, [effectivePostId, loadComments]); // NEW
+  }, [effectivePostId, loadComments]);
 
   const postReview = useCallback(async () => {
     setSubmitting(true);
@@ -839,7 +864,7 @@ const CommunityPage: React.FC = () => {
       }
 
       // notify post owner
-      await insertNotification("comment"); // NEW
+      await insertNotification("comment");
 
       setTyped("");
       setRatingDelivery(0);
@@ -848,7 +873,7 @@ const CommunityPage: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [effectivePostId, currentUserId, typed, insertNotification, loadComments, ratingDelivery, ratingConfidence]); // CHANGED deps
+  }, [effectivePostId, currentUserId, typed, insertNotification, loadComments, ratingDelivery, ratingConfidence]);
 
   // boot: when param changes, load everything
   useEffect(() => {
@@ -857,7 +882,7 @@ const CommunityPage: React.FC = () => {
       await loadLikes();
       await loadComments();
     })();
-  }, [loadPost, loadLikes, loadComments]); // NEW
+  }, [loadPost, loadLikes, loadComments]);
 
   const handleCommunityPress = () => {
     console.log(`Pressed on Community`);
