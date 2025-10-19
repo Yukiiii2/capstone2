@@ -20,6 +20,7 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
+  Share, // ← NEW: for Android fallback text share
 } from "react-native";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 import { LinearGradient } from "expo-linear-gradient";
@@ -35,7 +36,14 @@ import { supabase } from "@/lib/supabaseClient";
 // NEW: media players
 import { Audio, Video, ResizeMode } from "expo-av";
 
+// NEW: downloads
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
+
 // ---------- helpers (preserved style) ----------
+
+// If DB triggers create notifications (recommended), keep this true to avoid RLS on client inserts
+const NOTIFY_VIA_TRIGGER = true;
 
 // NEW: detect audio by extension
 const isAudioUrl = (uri?: string | null) =>
@@ -482,6 +490,68 @@ const CommunityPage: React.FC = () => {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  // ---------- NEW: comment "Helpful" state ----------
+  const [helpfulCounts, setHelpfulCounts] = useState<Record<string, number>>({});
+  const [helpfulMine, setHelpfulMine] = useState<Set<string>>(new Set());
+
+  // ---------- NEW: downloads ----------
+  const filenameFromUrl = (url: string) => {
+    try {
+      const u = new URL(url);
+      const last = u.pathname.split("/").pop() || "media";
+      return last.includes(".") ? last : `${last}.bin`;
+    } catch {
+      return "media.bin";
+    }
+  };
+  const downloadMedia = useCallback(async () => {
+    if (!postMediaUrl) return;
+    try {
+      const localUri = FileSystem.documentDirectory + filenameFromUrl(postMediaUrl);
+      const res = await FileSystem.downloadAsync(postMediaUrl, localUri);
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(res.uri);
+      } else {
+        Alert.alert("Downloaded", `Saved to: ${res.uri}`);
+      }
+    } catch (e) {
+      Alert.alert("Download failed", "Please try again.");
+    }
+  }, [postMediaUrl]);
+
+  // ---------- NEW: ensure local file + share (Android-friendly) ----------
+  const ensureLocalMediaFile = useCallback(async (remoteUrl?: string | null) => {
+    if (!remoteUrl) return null;
+    if (remoteUrl.startsWith("file://")) return remoteUrl;
+    try {
+      const filename = filenameFromUrl(remoteUrl);
+      const dest = FileSystem.documentDirectory + `shared_${Date.now()}_${filename}`;
+      const res = await FileSystem.downloadAsync(remoteUrl, dest);
+      if (res.status !== 200) return null;
+      return res.uri;
+    } catch (e) {
+      console.warn("[share] download failed:", e);
+      return null;
+    }
+  }, []);
+
+  const shareMedia = useCallback(async () => {
+    if (!postMediaUrl) return;
+    try {
+      const localUri = await ensureLocalMediaFile(postMediaUrl);
+      // Prefer expo-sharing (shows Android share sheet with file)
+      if (localUri && (await Sharing.isAvailableAsync())) {
+        await Sharing.shareAsync(localUri);
+        return;
+      }
+      // Fallback to RN Share with URL as text
+      await Share.share({ message: postMediaUrl, url: postMediaUrl });
+    } catch (e) {
+      console.warn("[share] error:", e);
+    }
+  }, [postMediaUrl, ensureLocalMediaFile]);
+
   useEffect(() => {
     setCommentEntered(typed.trim().length > 0 ? "y" : "");
     const rounded = Math.round(((ratingDelivery + ratingConfidence) / 2) * 10) / 10;
@@ -638,6 +708,9 @@ const CommunityPage: React.FC = () => {
   }, [effectivePostId, loadLikes]);
 
   const insertNotification = useCallback(async (type: "like" | "comment") => {
+    // If triggers are creating notifications, do nothing here.
+    if (NOTIFY_VIA_TRIGGER) return;
+
     try {
       if (!effectivePostId || !currentUserId || !postOwnerId) return;
       if (postOwnerId === currentUserId) return; // don't notify myself
@@ -649,7 +722,8 @@ const CommunityPage: React.FC = () => {
         is_read: false,
       });
     } catch (e) {
-      console.log("[notifications] insert error:", e);
+      // Keep quiet to avoid noisy logs; UI shouldn't bounce on notif errors
+      // console.log("[notifications] insert error:", e);
     }
   }, [effectivePostId, currentUserId, postOwnerId]);
 
@@ -664,12 +738,18 @@ const CommunityPage: React.FC = () => {
 
     try {
       if (next) {
-        const { error } = await supabase.from("likes").insert({
-          post_id: effectivePostId,
-          user_id: currentUserId,
-        });
+        // idempotent write avoids unique constraint error for (post_id,user_id)
+        const { error } = await supabase
+          .from("likes")
+          .upsert(
+            { post_id: effectivePostId, user_id: currentUserId },
+            { onConflict: "post_id,user_id" }
+          );
         if (error) throw error;
-        insertNotification("like");
+
+        if (!NOTIFY_VIA_TRIGGER) {
+          try { await insertNotification("like"); } catch {}
+        }
       } else {
         const { error } = await supabase
           .from("likes")
@@ -689,6 +769,37 @@ const CommunityPage: React.FC = () => {
   }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]);
 
   // ===== comments/reviews: list + add =====
+  const loadHelpful = useCallback(async (commentIds: string[]) => {
+    if (!commentIds.length) {
+      setHelpfulCounts({});
+      setHelpfulMine(new Set());
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("comment_helpful")
+        .select("comment_id, user_id")
+        .in("comment_id", commentIds);
+
+      if (error) throw error;
+
+      const counts: Record<string, number> = {};
+      const mine = new Set<string>();
+      for (const row of (data || []) as { comment_id: string; user_id: string }[]) {
+        counts[row.comment_id] = (counts[row.comment_id] || 0) + 1;
+        if (row.user_id === currentUserId) mine.add(row.comment_id);
+      }
+      commentIds.forEach((id) => {
+        if (counts[id] == null) counts[id] = 0;
+      });
+
+      setHelpfulCounts(counts);
+      setHelpfulMine(mine);
+    } catch (e) {
+      // silently ignore, UI still works
+    }
+  }, [currentUserId]);
+
   const loadComments = useCallback(async () => {
     if (!effectivePostId) return;
     setLoadingReviews(true);
@@ -763,10 +874,13 @@ const CommunityPage: React.FC = () => {
       ? Math.round((rated.reduce((s, n) => s + n, 0) / rated.length) * 10) / 10
       : null;
 
+    // NEW: load helpful counts after we know the comment ids
+    await loadHelpful(mapped.map(r => r.id));
+
     setReviews(mapped);
     setOverall(postAvgRounded);
     setLoadingReviews(false);
-  }, [effectivePostId]);
+  }, [effectivePostId, loadHelpful]);
 
   // realtime: comments INSERT
   useEffect(() => {
@@ -828,6 +942,9 @@ const CommunityPage: React.FC = () => {
             setOverall(postAvgRounded);
             return next;
           });
+
+          // NEW: initialize helpful for the new comment
+          setHelpfulCounts((c) => ({ ...c, [String(row.id)]: 0 }));
         } catch (e) {
           console.log("[comments realtime] hydrate error:", e);
           loadComments(); // fallback
@@ -863,8 +980,10 @@ const CommunityPage: React.FC = () => {
         return;
       }
 
-      // notify post owner
-      await insertNotification("comment");
+      // notify post owner (only if DB triggers are off)
+      if (!NOTIFY_VIA_TRIGGER) {
+        await insertNotification("comment");
+      }
 
       setTyped("");
       setRatingDelivery(0);
@@ -874,6 +993,58 @@ const CommunityPage: React.FC = () => {
       setSubmitting(false);
     }
   }, [effectivePostId, currentUserId, typed, insertNotification, loadComments, ratingDelivery, ratingConfidence]);
+
+  // NEW: toggle Helpful on a comment
+  const toggleHelpful = useCallback(async (commentId: string) => {
+    if (!currentUserId) return;
+
+    const isMine = helpfulMine.has(commentId);
+    const nextMine = new Set(helpfulMine);
+    const nextCounts = { ...helpfulCounts };
+
+    // optimistic
+    if (isMine) {
+      nextMine.delete(commentId);
+      nextCounts[commentId] = Math.max(0, (nextCounts[commentId] || 0) - 1);
+    } else {
+      nextMine.add(commentId);
+      nextCounts[commentId] = (nextCounts[commentId] || 0) + 1;
+    }
+    setHelpfulMine(nextMine);
+    setHelpfulCounts(nextCounts);
+
+    try {
+      if (isMine) {
+        const { error } = await supabase
+          .from("comment_helpful")
+          .delete()
+          .eq("comment_id", commentId)
+          .eq("user_id", currentUserId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("comment_helpful")
+          .upsert(
+            { comment_id: commentId, user_id: currentUserId },
+            { onConflict: "comment_id,user_id" }
+          );
+        if (error) throw error;
+      }
+    } catch (e) {
+      // revert on failure
+      const revertMine = new Set(helpfulMine);
+      const revertCounts = { ...helpfulCounts };
+      if (isMine) {
+        revertMine.add(commentId);
+        revertCounts[commentId] = (revertCounts[commentId] || 0) + 1;
+      } else {
+        revertMine.delete(commentId);
+        revertCounts[commentId] = Math.max(0, (revertCounts[commentId] || 0) - 1);
+      }
+      setHelpfulMine(revertMine);
+      setHelpfulCounts(revertCounts);
+    }
+  }, [currentUserId, helpfulMine, helpfulCounts]);
 
   // boot: when param changes, load everything
   useEffect(() => {
@@ -1263,7 +1434,8 @@ const CommunityPage: React.FC = () => {
                       </TouchableOpacity>
                     </View>
                     <View className="flex-row items-center right-1 space-x-3">
-                      <TouchableOpacity className="p-2 rounded-full bg-white/10">
+                      {/* ⬇️ Removed download icon as requested */}
+                      <TouchableOpacity className="p-2 rounded-full bg-white/10" onPress={shareMedia}>
                         <Ionicons
                           name="share-outline"
                           size={20}
@@ -1445,17 +1617,20 @@ const CommunityPage: React.FC = () => {
                           {review.text}
                         </Text>
                         <View className="flex-row justify-start items-center mt-3 pt-3 border-t border-white/5">
-                          <TouchableOpacity className="flex-row items-center">
+                          <TouchableOpacity
+                            className="flex-row items-center"
+                            onPress={() => toggleHelpful(review.id)}
+                          >
                             <Ionicons
-                              name="heart-outline"
+                              name={helpfulMine.has(review.id) ? "heart" : "heart-outline"}
                               size={18}
-                              color="#9CA3AF"
+                              color={helpfulMine.has(review.id) ? "#ef4444" : "#9CA3AF"}
                             />
                             <Text className="text-gray-400 text-xs ml-1">
                               Helpful
                             </Text>
                             <Text className="text-gray-500 text-xs ml-1">
-                              • {Math.floor(Math.random() * 15) + 1}
+                              • {helpfulCounts[review.id] ?? 0}
                             </Text>
                           </TouchableOpacity>
                         </View>
