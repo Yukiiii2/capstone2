@@ -98,6 +98,8 @@ export default function CreateAccountStudent() {
 
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // 👇 visibility toggles
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
 
@@ -346,8 +348,6 @@ export default function CreateAccountStudent() {
       }
 
       // If email confirmations are ON, there will be NO session yet.
-      // Instead of trying to sign in (which causes the "Email not confirmed" error),
-      // we end the flow here and show the COMPLETE step. The email was already sent.
       if (!sign.session) {
         setActiveStep(2);
         setLoading(false);
@@ -616,6 +616,14 @@ export default function CreateAccountStudent() {
                     </View>
                   ) : (
                     <TextInput
+                      // 👇 force remount on visibility change (Android secureTextEntry fix)
+                      key={
+                        field.key === "password"
+                          ? `pw-${passwordVisible}`
+                          : field.key === "confirmPassword"
+                          ? `cpw-${confirmPasswordVisible}`
+                          : String(field.key)
+                      }
                       className="flex-1 text-white text-[15px]"
                       placeholder={`Enter your ${field.label.toLowerCase()}`}
                       placeholderTextColor="#9CA3AF"
@@ -633,7 +641,26 @@ export default function CreateAccountStudent() {
                       keyboardType={
                         field.type === "email" ? "email-address" : "default"
                       }
-                      autoCapitalize={field.key === "email" ? "none" : "words"}
+                      autoCapitalize={
+                        field.key === "email" ? "none" : "words"
+                      }
+                      // 👇 make password masking reliable across Android OEM keyboards
+                      autoCorrect={false}
+                      autoComplete={
+                        field.key === "password" || field.key === "confirmPassword"
+                          ? (Platform.OS === "android" ? "password" : "off")
+                          : (field.key === "email" ? "email" : "off")
+                      }
+                      textContentType={
+                        field.key === "password"
+                          ? (Platform.OS === "ios" ? "newPassword" : "password")
+                          : field.key === "confirmPassword"
+                          ? (Platform.OS === "ios" ? "newPassword" : "password")
+                          : (field.key === "email" ? "emailAddress" : "none")
+                      }
+                      {...(Platform.OS === "android"
+                        ? { importantForAutofill: "no" as const }
+                        : {})}
                     />
                   )}
                   {(field.key === "password" ||
@@ -1062,6 +1089,7 @@ export default function CreateAccountStudent() {
                 )}
               </TouchableOpacity>
 
+              {/* Keep THIS one */}
               <View className="bottom-6">
                 <Text className="text-gray-400 text-xs text-center mt-2">
                   Already have an account?{" "}
@@ -1111,19 +1139,7 @@ export default function CreateAccountStudent() {
             </View>
           )}
 
-          {activeStep === 0 && (
-            <View className="mt-6">
-              <Text className="text-gray-400 text-xs text-center mt-2">
-                Already have an account?{" "}
-                <Text
-                  className="text-violet-300 font-medium"
-                  onPress={() => router.push("/login")}
-                >
-                  Sign in
-                </Text>
-              </Text>
-            </View>
-          )}
+          {/* Removed the extra duplicate "Already have an account?" block at the very bottom */}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

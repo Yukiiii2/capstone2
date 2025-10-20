@@ -71,13 +71,8 @@ const VERIFICATION_OPTIONS = [
   },
 ];
 
-// Use your storage bucket (we're not uploading now)
+// Use your storage bucket
 const BUCKET = "verify-docs";
-
-// ⚙️ If your table/column names differ, adjust here
-const ASSIGNED_TABLE = "assigned";
-const ASSIGNED_TEACHER_ID_COL = "teacher_id";
-const ASSIGNED_CLASS_CODE_COL = "class_code";
 
 // Types
 type FormData = {
@@ -108,25 +103,17 @@ export default function CreateAccountTeacher() {
   const [showVerificationDropdown, setShowVerificationDropdown] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-
+  
   // UI state
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
-
+  
   // Refs and other hooks
   const scrollViewRef = useRef<ScrollView>(null);
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  // Keep payload so we can finalize after email confirmation (SIGNED_IN)
-  const pendingFinalizeRef = useRef<null | {
-    full_name: string;
-    phoneE164: string;
-    verification_type: string;
-    school_university: string;
-  }>(null);
 
   // Form field type for rendering form inputs
   type FormField = {
@@ -147,20 +134,6 @@ export default function CreateAccountTeacher() {
       useNativeDriver: true,
     }).start();
   }, [fadeAnim, activeStep]);
-
-  // 🔔 When the user returns from email confirmation and gets signed in, finish setup
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session?.user && pendingFinalizeRef.current) {
-        await finalizeTeacherSetup(session.user.id, pendingFinalizeRef.current);
-        setActiveStep(2);
-        pendingFinalizeRef.current = null;
-      }
-    });
-    return () => {
-      sub?.subscription?.unsubscribe();
-    };
-  }, []);
 
   const pickVerificationDocument = async () => {
     try {
@@ -245,12 +218,14 @@ export default function CreateAccountTeacher() {
         return false;
       }
 
-      // PH mobiles: allow 9xxxxxxxxx or 09xxxxxxxxx
-      const cleaned = formData.mobileNumber.replace(/\D/g, "");
-      if (!/^9\d{9}$/.test(cleaned) && !/^09\d{9}$/.test(cleaned)) {
+      // Check mobile number format (should be 10 digits for PH numbers without +63)
+      if (
+        formData.mobileNumber.length !== 10 ||
+        !/^9\d{9}$/.test(formData.mobileNumber)
+      ) {
         showCustomAlert(
           "Invalid Mobile Number",
-          "Please enter a valid PH mobile (e.g., 9xxxxxxxxx or 09xxxxxxxxx)."
+          "Please enter a valid 11-digit Philippine mobile number starting with 9."
         );
         return false;
       }
@@ -308,6 +283,7 @@ export default function CreateAccountTeacher() {
     }
   };
 
+
   // Check if all required fields are filled
   const isFormComplete = () => {
     const requiredFields = [
@@ -331,99 +307,61 @@ export default function CreateAccountTeacher() {
     return isBasicInfoValid && isPasswordValid && isVerificationValid;
   };
 
-  // ---------- class code helpers (no UI changes) ----------
-  const generateClassCode = () => {
-    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let code = "";
-    for (let i = 0; i < 6; i++) {
-      code += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
-    return code;
-  };
+  // ⬅️ added — upload to Storage if we have a session
+  const uploadVerificationIfAny = async (
+    userId: string
+  ): Promise<string | null> => {
+    if (!verificationFile) return null;
 
-  const createClassCodeIfMissing = async (teacherId: string): Promise<string | null> => {
     try {
-      const { data: existing, error: findErr } = await supabase
-        .from(ASSIGNED_TABLE)
-        .select(`${ASSIGNED_CLASS_CODE_COL}`)
-        .eq(ASSIGNED_TEACHER_ID_COL, teacherId)
-        .limit(1);
-
-      if (findErr) throw findErr;
-      if (existing && existing.length > 0) {
-        return existing[0][ASSIGNED_CLASS_CODE_COL] as string;
+      let uploadUri = verificationFile;
+      if (uploadUri.startsWith("content://")) {
+        const tmpDest = `${FileSystem.cacheDirectory}verify_${Date.now()}.jpg`;
+        await FileSystem.copyAsync({ from: uploadUri, to: tmpDest });
+        uploadUri = tmpDest;
       }
 
-      let lastErr: any = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const code = generateClassCode();
-        const { error: insertErr } = await supabase.from(ASSIGNED_TABLE).insert({
-          [ASSIGNED_TEACHER_ID_COL]: teacherId,
-          [ASSIGNED_CLASS_CODE_COL]: code,
-        });
-        if (!insertErr) return code;
-        lastErr = insertErr;
+      const ext = (
+        uploadUri.split("?")[0].split(".").pop() || "jpg"
+      ).toLowerCase();
+      const contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
+      const objectPath = `verifications/teachers/${userId}/${Date.now()}.${ext}`;
+
+      const { data: sess } = await supabase.auth.getSession();
+      const token =
+        sess?.session?.access_token ||
+        (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
+      if (!token) throw new Error("Not authenticated");
+
+      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
+      if (!SUPABASE_URL) throw new Error("Missing EXPO_PUBLIC_SUPABASE_URL");
+
+      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(objectPath)}`;
+      const res = await FileSystem.uploadAsync(uploadUrl, uploadUri, {
+        httpMethod: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: token,
+          "Content-Type": contentType,
+          "x-upsert": "false",
+        },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      });
+
+      if (res.status !== 200 && res.status !== 201) {
+        throw new Error(
+          `Upload failed (${res.status}): ${res.body?.slice(0, 160)}`
+        );
       }
-      if (lastErr) throw lastErr;
-      return null;
+
+      return objectPath;
     } catch (e: any) {
-      console.log("createClassCodeIfMissing error:", e?.message || e);
+      console.log("Upload verification error:", e?.message || e);
       return null;
     }
   };
 
-  const finalizeTeacherSetup = async (
-    userId: string,
-    payload: {
-      full_name: string;
-      phoneE164: string;
-      verification_type: string;
-      school_university: string;
-    }
-  ) => {
-    try {
-      setLoading(true);
-
-      // Minimal profile upsert
-      const { error: profErr } = await supabase.from("profiles").upsert({
-        id: userId,
-        name: payload.full_name,
-        phone: payload.phoneE164,
-        role: "teacher",
-        avatar_url: null,
-      });
-      if (profErr) {
-        showCustomAlert("Profile save failed", profErr.message);
-        return;
-      }
-
-      // Create verification request (skip Storage now)
-      const { error: vrErr } = await supabase.from("verification_requests").insert({
-        user_id: userId,
-        role: "teacher",
-        doc_type: payload.verification_type,
-        doc_url: null,
-        status: "pending",
-        notes: payload.school_university ? `School/University: ${payload.school_university}` : null,
-      });
-      if (vrErr) {
-        showCustomAlert("Verification save failed", vrErr.message);
-        return;
-      }
-
-      // Ensure class code exists
-      const code = await createClassCodeIfMissing(userId);
-      if (!code) {
-        showCustomAlert("Class Code", "Could not generate a class code yet. You can retry after login.");
-      }
-    } catch (e: any) {
-      showCustomAlert("Error", e?.message || "Something went wrong.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ⬅️ replaced with Supabase sign-up flow (no Storage upload, proceed to step 3 if confirmations ON)
+  // ⬅️ replaced with Supabase sign-up flow (no UI changes)
   const handleSignUp = async () => {
     if (!isFormComplete()) {
       showCustomAlert(
@@ -442,14 +380,6 @@ export default function CreateAccountTeacher() {
       const noZero = cleaned.replace(/^0+/, "");
       const phoneE164 = `+63${noZero.startsWith("63") ? noZero.slice(2) : noZero}`;
 
-      // Save for post-confirmation finalize
-      pendingFinalizeRef.current = {
-        full_name,
-        phoneE164,
-        verification_type: selectedVerificationType,
-        school_university: formData.schoolUniversity.trim(),
-      };
-
       // 1) Create Auth user
       const { data: sign, error: signErr } = await supabase.auth.signUp({
         email: formData.email.trim(),
@@ -462,7 +392,7 @@ export default function CreateAccountTeacher() {
             verification_type: selectedVerificationType,
             school_university: formData.schoolUniversity,
           },
-          // emailRedirectTo: 'yourapp://auth-callback', // set if you wired deep links
+          // emailRedirectTo: 'yourapp://auth-callback', // optional
         },
       });
       if (signErr) {
@@ -471,17 +401,20 @@ export default function CreateAccountTeacher() {
         return;
       }
 
-      // If confirmations ON: no session yet -> show COMPLETE; finalize after SIGNED_IN
+      // If confirmations ON: no session yet -> just show COMPLETE; email already sent
       if (!sign.session) {
         setActiveStep(2);
         setLoading(false);
         return;
       }
 
-      // 2) With session (confirmations OFF): finish now (no Storage upload)
+      // 2) With session (confirmations OFF): continue to Storage + DB
       const userId = sign.session.user.id;
 
-      // Upsert profile
+      // 3) Upload doc
+      const verification_path = await uploadVerificationIfAny(userId);
+
+      // 4) Upsert profile (minimal safe columns)
       const { error: profErr } = await supabase.from("profiles").upsert({
         id: userId,
         name: full_name,
@@ -495,28 +428,25 @@ export default function CreateAccountTeacher() {
         return;
       }
 
-      // Create verification_request (doc_url null for now)
-      const { error: vrErr } = await supabase.from("verification_requests").insert({
-        user_id: userId,
-        role: "teacher",
-        doc_type: selectedVerificationType,
-        doc_url: null,
-        status: "pending",
-        notes: formData.schoolUniversity ? `School/University: ${formData.schoolUniversity}` : null,
-      });
+      // 5) Create verification_requests (store school in notes)
+      const { error: vrErr } = await supabase
+        .from("verification_requests")
+        .insert({
+          user_id: userId,
+          role: "teacher",
+          doc_type: selectedVerificationType,
+          doc_url: verification_path,
+          status: "pending",
+          notes: formData.schoolUniversity
+            ? `School/University: ${formData.schoolUniversity}`
+            : null,
+        });
       if (vrErr) {
         showCustomAlert("Verification save failed", vrErr.message);
         setLoading(false);
         return;
       }
 
-      // Create class code in assigned table
-      const code = await createClassCodeIfMissing(userId);
-      if (!code) {
-        showCustomAlert("Class Code", "Could not generate a class code yet. You can retry after login.");
-      }
-
-      // success — go to complete step
       setActiveStep(2);
     } catch (error: any) {
       showCustomAlert(
@@ -668,29 +598,56 @@ export default function CreateAccountTeacher() {
                 icon: "phone-iphone",
                 label: "Mobile Number",
                 value: formData.mobileNumber,
-                key: "mobileNumber" as const,
-                type: "tel" as const,
+                key: "mobileNumber",
+                type: "tel",
+                secure: false,
+                maxLength: 13,
+                format: (text: string) => {
+                  // Format the phone number
+                  const cleaned = ("" + text).replace(/\D/g, "");
+                  let formatted = "";
+                  if (cleaned.startsWith("09")) {
+                    formatted = cleaned.slice(0, 11);
+                    if (formatted.length > 4) {
+                      formatted = formatted.replace(
+                        /(\d{4})(\d{3})(\d{1,4})/,
+                        "$1 $2 $3"
+                      );
+                    } else if (formatted.length > 3) {
+                      formatted = formatted.replace(
+                        /(\d{4})(\d{1,3})/,
+                        "$1 $2"
+                      );
+                    }
+                  } else {
+                    formatted = cleaned;
+                  }
+                  return formatted.trim();
+                },
               },
               {
                 icon: "mail-outline",
                 label: "Email Address",
                 value: formData.email,
-                key: "email" as const,
-                type: "email" as const,
+                key: "email",
+                type: "email",
+                secure: false,
               },
               {
                 icon: "lock-outline",
                 label: "Password",
                 value: formData.password,
-                key: "password" as const,
-                type: "password" as const,
+                key: "password",
+                type: "password",
+                secure: true,
               },
               {
                 icon: "lock-outline",
                 label: "Confirm Password",
                 value: formData.confirmPassword,
-                key: "confirmPassword" as const,
-                type: "password" as const,
+                key: "confirmPassword",
+                type: "password",
+                secure: true,
               },
             ].map((field) => (
               <View key={field.key} className="bottom-2 space-y-0.5">
@@ -727,6 +684,7 @@ export default function CreateAccountTeacher() {
                         placeholderTextColor="#9CA3AF"
                         value={field.value.replace(/^\+?63/, "")}
                         onChangeText={(text) => {
+                          // Remove any non-digit characters and leading zeros
                           const cleaned = text
                             .replace(/\D/g, "")
                             .replace(/^0+/, "");
@@ -735,16 +693,25 @@ export default function CreateAccountTeacher() {
                         keyboardType="phone-pad"
                         maxLength={13}
                         autoCapitalize="none"
+                        secureTextEntry={false}
                       />
                     </View>
                   ) : (
+                    // ⬇️ Updated input to ensure password masking toggles properly (Android remount trick)
                     <TextInput
+                      key={
+                        field.key === "password"
+                          ? `pw-${passwordVisible}`
+                          : field.key === "confirmPassword"
+                          ? `cpw-${confirmPasswordVisible}`
+                          : String(field.key)
+                      }
                       className="flex-1 text-white text-[15px]"
                       placeholder={`Enter your ${field.label.toLowerCase()}`}
                       placeholderTextColor="#9CA3AF"
                       value={field.value}
                       onChangeText={(text) => {
-                        setFormData({ ...formData, [field.key]: text } as any);
+                        setFormData({ ...formData, [field.key]: text });
                       }}
                       secureTextEntry={
                         field.key === "password"
@@ -756,7 +723,21 @@ export default function CreateAccountTeacher() {
                       keyboardType={
                         field.type === "email" ? "email-address" : "default"
                       }
-                      autoCapitalize={field.key === "email" ? "none" : "words"}
+                      autoCapitalize={
+                        field.key === "email"
+                          ? "none"
+                          : field.key === "password" || field.key === "confirmPassword"
+                          ? "none"
+                          : "words"
+                      }
+                      autoCorrect={!(field.key === "password" || field.key === "confirmPassword")}
+                      textContentType={
+                        field.key === "password" || field.key === "confirmPassword"
+                          ? "password"
+                          : field.key === "email"
+                          ? "emailAddress"
+                          : "none"
+                      }
                     />
                   )}
                   {field.key === "password" && (
@@ -1203,7 +1184,7 @@ export default function CreateAccountTeacher() {
           {activeStep === 0 && (
             <View className="mt-6">
               <TouchableOpacity
-                className="py-3 rounded-lg items-center justify-center w/full max-w-[320px] bottom-10 mx-auto bg-violet-600/80 active:bg-violet-700/80"
+                className="py-3 rounded-lg items-center justify-center w-full max-w-[320px] bottom-10 mx-auto bg-violet-600/80 active:bg-violet-700/80"
                 onPress={handleNext}
                 disabled={loading}
               >
