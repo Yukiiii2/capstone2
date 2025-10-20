@@ -15,6 +15,8 @@ import {
   Animated,
   SafeAreaView,
   ActivityIndicator,
+  Alert,
+  Share,
 } from "react-native";
 import NavigationBar from "../../../components/NavigationBar/nav-bar-teacher";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,6 +29,10 @@ import { supabase } from "@/lib/supabaseClient";
 
 // Media players
 import { Audio, Video, ResizeMode } from "expo-av";
+
+// Downloads & native share (same as student page)
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
 
 // ---------- helpers ----------
 const isAudioUrl = (uri?: string | null) =>
@@ -97,7 +103,7 @@ const timeAgo = (iso?: string | null) => {
 interface Review {
   id: string;
   role: "Teacher" | "Student" | "Peer" | "Reviewer";
-  name: string; // this is what renders on the LEFT — we'll fill with "<Role> • <Name>"
+  name: string;
   stars?: number;
   time: string;
   text: string;
@@ -108,7 +114,6 @@ interface Review {
   ratingOverall?: number | null;
 }
 
-// role derivation from your profiles schema (has "role")
 const roleFromProfile = (p: any): "Teacher" | "Student" | "Peer" => {
   const roleStr = (p?.role || "").toString().toLowerCase();
   if (roleStr === "teacher") return "Teacher";
@@ -116,7 +121,6 @@ const roleFromProfile = (p: any): "Teacher" | "Student" | "Peer" => {
   return "Peer";
 };
 
-// Helper function to generate unique IDs - only for React keys
 const generateUid = (prefix: string = ""): string =>
   `${prefix}${Math.random().toString(36).slice(2, 9)}`;
 
@@ -142,14 +146,6 @@ const MOCK_REVIEWS: Review[] = [
     time: "1 day ago",
     text: "Good pace and clear slides. Maybe slow down during Q&A.",
   },
-];
-
-const MORE_COMMUNITY_SAMPLE = [
-  { id: "c1", user: "https://randomuser.me/api/portraits/men/44.jpg", title: "Interview Practice Session", views: 130, age: "3d" },
-  { id: "c2", user: "https://randomuser.me/api/portraits/men/47.jpg", title: "Spanish Conversation Practice", views: 64, age: "6d" },
-  { id: "c3", user: "https://randomuser.me/api/portraits/women/12.jpg", title: "Pitch Deck Rehearsal", views: 88, age: "1w" },
-  { id: "c4", user: "https://randomuser.me/api/portraits/women/68.jpg", title: "Toastmasters-style Practice", views: 200, age: "2w" },
-  { id: "c5", user: "https://randomuser.me/api/portraits/men/31.jpg", title: "Product Demo Run", views: 64, age: "3w" },
 ];
 
 const ReviewsService = {
@@ -263,6 +259,10 @@ const CommunityPage: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS);
   const [loadingReviews, setLoadingReviews] = useState(false);
 
+  // helpful (same working logic as student)
+  const [helpfulCounts, setHelpfulCounts] = useState<Record<string, number>>({});
+  const [helpfulMine, setHelpfulMine] = useState<Set<string>>(new Set());
+
   // other state
   const [activeTab, setActiveTab] = useState("Community");
   const [showLevelModal, setShowLevelModal] = useState(false);
@@ -292,6 +292,136 @@ const CommunityPage: React.FC = () => {
     const s = Math.floor((ms % 60000) / 1000);
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
+
+  // >>> NEW: views state/logic
+  const [viewsCount, setViewsCount] = useState<number>(0);
+  const [viewInserted, setViewInserted] = useState<boolean>(false);
+
+  const loadViews = useCallback(async () => {
+    if (!effectivePostId) return;
+    try {
+      const { count, error } = await supabase
+        .from("post_views")
+        .select("id", { head: true, count: "exact" })
+        .eq("post_id", effectivePostId);
+      if (error) throw error;
+      setViewsCount(typeof count === "number" ? count : 0);
+    } catch (e) {
+      // ignore
+    }
+  }, [effectivePostId]);
+
+  useEffect(() => {
+    (async () => {
+      if (!effectivePostId || viewInserted) return;
+      try {
+        await supabase.from("post_views").insert({
+          post_id: effectivePostId,
+          user_id: currentUserId ?? null,
+        });
+        setViewInserted(true);
+        await loadViews();
+      } catch {}
+    })();
+  }, [effectivePostId, currentUserId, viewInserted, loadViews]);
+
+  useEffect(() => {
+    if (!effectivePostId) return;
+
+    const ch = supabase
+      .channel(`views-${effectivePostId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "post_views",
+          filter: `post_id=eq.${effectivePostId}`,
+        },
+        (_payload) => {
+          void loadViews(); // run and ignore returned promise
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [effectivePostId, loadViews]);
+
+  // >>> NEW: More from Community (real posts)
+  type MiniPost = {
+    id: string;
+    title: string;
+    avatar: string | null;
+    created_at: string;
+    views: number;
+  };
+  const [morePosts, setMorePosts] = useState<MiniPost[]>([]);
+
+  const shortAge = (iso: string) => {
+    const secs = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d`;
+    const wks = Math.floor(days / 7);
+    if (wks < 4) return `${wks}w`;
+    const mos = Math.floor(days / 30);
+    if (mos < 12) return `${mos}mo`;
+    const yrs = Math.floor(days / 365);
+    return `${yrs}y`;
+  };
+
+  const loadMoreFromCommunity = useCallback(async () => {
+    try {
+      let q = supabase
+        .from("posts")
+        .select(`
+          id,
+          title,
+          created_at,
+          user_id,
+          profiles!posts_user_id_fkey(name, avatar_url)
+        `)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (effectivePostId) q = q.neq("id", effectivePostId);
+
+      const { data, error } = await q;
+      if (error || !data) {
+        setMorePosts([]);
+        return;
+      }
+
+      const mapped: MiniPost[] = await Promise.all(
+        data.map(async (row: any) => {
+          const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+          let avatar: string | null = null;
+          if (p?.avatar_url) {
+            avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
+          }
+          return {
+            id: String(row.id),
+            title: row.title || "Untitled",
+            avatar,
+            created_at: row.created_at,
+            views: Math.floor(Math.random() * 220) + 15,
+          };
+        })
+      );
+
+      const shuffled = mapped.sort(() => Math.random() - 0.5).slice(0, 5);
+      setMorePosts(shuffled);
+    } catch {
+      setMorePosts([]);
+    }
+  }, [effectivePostId]);
+  // <<< NEW
 
   useEffect(() => {
     setCommentEntered(typed.trim().length > 0 ? "y" : "");
@@ -471,6 +601,90 @@ const CommunityPage: React.FC = () => {
     loadLikes();
   }, [effectivePostId, currentUserId, isLiked, loadLikes, insertNotification]);
 
+  // >>> NEW: Helpful — load, realtime handled implicitly by UI updates
+  const loadHelpful = useCallback(async (commentIds: string[]) => {
+    if (!commentIds.length) {
+      setHelpfulCounts({});
+      setHelpfulMine(new Set());
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("comment_helpful")
+        .select("comment_id, user_id")
+        .in("comment_id", commentIds);
+
+      if (error) throw error;
+
+      const counts: Record<string, number> = {};
+      const mine = new Set<string>();
+      for (const row of (data || []) as { comment_id: string; user_id: string }[]) {
+        counts[row.comment_id] = (counts[row.comment_id] || 0) + 1;
+        if (row.user_id === currentUserId) mine.add(row.comment_id);
+      }
+      commentIds.forEach((id) => {
+        if (counts[id] == null) counts[id] = 0;
+      });
+
+      setHelpfulCounts(counts);
+      setHelpfulMine(mine);
+    } catch (e) {
+      // silent
+    }
+  }, [currentUserId]);
+
+  const toggleHelpful = useCallback(async (commentId: string) => {
+    if (!currentUserId) return;
+
+    const isMine = helpfulMine.has(commentId);
+    const nextMine = new Set(helpfulMine);
+    const nextCounts = { ...helpfulCounts };
+
+    // optimistic
+    if (isMine) {
+      nextMine.delete(commentId);
+      nextCounts[commentId] = Math.max(0, (nextCounts[commentId] || 0) - 1);
+    } else {
+      nextMine.add(commentId);
+      nextCounts[commentId] = (nextCounts[commentId] || 0) + 1;
+    }
+    setHelpfulMine(nextMine);
+    setHelpfulCounts(nextCounts);
+
+    try {
+      if (isMine) {
+        const { error } = await supabase
+          .from("comment_helpful")
+          .delete()
+          .eq("comment_id", commentId)
+          .eq("user_id", currentUserId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("comment_helpful")
+          .upsert(
+            { comment_id: commentId, user_id: currentUserId },
+            { onConflict: "comment_id,user_id" }
+          );
+        if (error) throw error;
+      }
+    } catch (e) {
+      // revert on failure
+      const revertMine = new Set(helpfulMine);
+      const revertCounts = { ...helpfulCounts };
+      if (isMine) {
+        revertMine.add(commentId);
+        revertCounts[commentId] = (revertCounts[commentId] || 0) + 1;
+      } else {
+        revertMine.delete(commentId);
+        revertCounts[commentId] = Math.max(0, (revertCounts[commentId] || 0) - 1);
+      }
+      setHelpfulMine(revertMine);
+      setHelpfulCounts(revertCounts);
+    }
+  }, [currentUserId, helpfulMine, helpfulCounts]);
+  // <<< NEW
+
   // comments/reviews
   const loadComments = useCallback(async () => {
     if (!effectivePostId) return;
@@ -507,7 +721,7 @@ const CommunityPage: React.FC = () => {
         const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
         const humanRole = roleFromProfile(p);
         const nameBase = p?.name || "User";
-        const displayName = `${humanRole} • ${nameBase}`; // <<< LEFT-LINE NAME WITH ROLE
+        const displayName = `${humanRole} • ${nameBase}`;
         const parts = nameBase.trim().split(/\s+/).filter(Boolean);
         const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
 
@@ -521,7 +735,7 @@ const CommunityPage: React.FC = () => {
         return {
           id: row.id,
           role: humanRole,
-          name: displayName,                 // <<< shows "Teacher • Michael Chen"
+          name: displayName,
           time: timeAgo(row.created_at),
           text: row.content || "",
           avatar,
@@ -541,10 +755,13 @@ const CommunityPage: React.FC = () => {
       ? Math.round((rated.reduce((s, n) => s + n, 0) / rated.length) * 10) / 10
       : null;
 
+    // load helpful counts for these comments
+    await loadHelpful(mapped.map(r => r.id));
+
     setReviews(mapped);
     setOverall(postAvgRounded);
     setLoadingReviews(false);
-  }, [effectivePostId]);
+  }, [effectivePostId, loadHelpful]);
 
   // realtime: comments INSERT
   useEffect(() => {
@@ -567,7 +784,7 @@ const CommunityPage: React.FC = () => {
 
           const humanRole = roleFromProfile(prof);
           const nameBase = prof?.name || "User";
-          const displayName = `${humanRole} • ${nameBase}`; // <<< LEFT-LINE NAME WITH ROLE
+          const displayName = `${humanRole} • ${nameBase}`;
           const parts = nameBase.trim().split(/\s+/).filter(Boolean);
           const initials = ((parts[0]?.[0] || "U") + (parts[1]?.[0] || "")).toUpperCase();
 
@@ -581,7 +798,7 @@ const CommunityPage: React.FC = () => {
           const review: Review = {
             id: String(row.id),
             role: humanRole,
-            name: displayName,               // <<< shows "Student • Rockford Dagohoy" etc.
+            name: displayName,
             time: timeAgo(row.created_at),
             text: row.content || "",
             avatar,
@@ -603,6 +820,9 @@ const CommunityPage: React.FC = () => {
             setOverall(avg);
             return next;
           });
+
+          // init helpful count for the new comment
+          setHelpfulCounts(c => ({ ...c, [String(row.id)]: 0 }));
         } catch (e) {
           console.log("[comments realtime] hydrate error:", e);
           loadComments(); // fallback refresh
@@ -652,8 +872,10 @@ const CommunityPage: React.FC = () => {
       await loadPost();
       await loadLikes();
       await loadComments();
+      await loadViews();
+      await loadMoreFromCommunity();
     })();
-  }, [loadPost, loadLikes, loadComments]);
+  }, [loadPost, loadLikes, loadComments, loadViews, loadMoreFromCommunity]);
 
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") router.replace("/login-page");
@@ -665,6 +887,63 @@ const CommunityPage: React.FC = () => {
     setLevel(selectedLevel);
     setShowLevelModal(false);
   };
+
+  // ===== Share/Download (same logic as student) =====
+  const filenameFromUrl = (url: string) => {
+    try {
+      const u = new URL(url);
+      const last = u.pathname.split("/").pop() || "media";
+      return last.includes(".") ? last : `${last}.bin`;
+    } catch {
+      return "media.bin";
+    }
+  };
+
+  const downloadMedia = useCallback(async () => {
+    if (!postMediaUrl) return;
+    try {
+      const localUri = FileSystem.documentDirectory + filenameFromUrl(postMediaUrl);
+      const res = await FileSystem.downloadAsync(postMediaUrl, localUri);
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(res.uri);
+      } else {
+        Alert.alert("Downloaded", `Saved to: ${res.uri}`);
+      }
+    } catch (e) {
+      Alert.alert("Download failed", "Please try again.");
+    }
+  }, [postMediaUrl]);
+
+  const ensureLocalMediaFile = useCallback(async (remoteUrl?: string | null) => {
+    if (!remoteUrl) return null;
+    if (remoteUrl.startsWith("file://")) return remoteUrl;
+    try {
+      const filename = filenameFromUrl(remoteUrl);
+      const dest = FileSystem.documentDirectory + `shared_${Date.now()}_${filename}`;
+      const res = await FileSystem.downloadAsync(remoteUrl, dest);
+      if (res.status !== 200) return null;
+      return res.uri;
+    } catch (e) {
+      console.warn("[share] download failed:", e);
+      return null;
+    }
+  }, []);
+
+  const shareMedia = useCallback(async () => {
+    if (!postMediaUrl) return;
+    try {
+      const localUri = await ensureLocalMediaFile(postMediaUrl);
+      if (localUri && (await Sharing.isAvailableAsync())) {
+        await Sharing.shareAsync(localUri);
+        return;
+      }
+      await Share.share({ message: postMediaUrl, url: postMediaUrl });
+    } catch (e) {
+      console.warn("[share] error:", e);
+    }
+  }, [postMediaUrl, ensureLocalMediaFile]);
+  // ================================================
 
   // audio load/unload
   useEffect(() => {
@@ -907,7 +1186,9 @@ const CommunityPage: React.FC = () => {
                     </View>
                     <View className="absolute top-3 right-3 bg-black/50 rounded-full px-2 py-1 flex-row items-center z-10">
                       <Ionicons name="eye-outline" size={14} color="#9ca3af" />
-                      <Text className="text-gray-200 text-xs ml-1 font-medium">127 views</Text>
+                      <Text className="text-gray-200 text-xs ml-1 font-medium">
+                        {viewsCount} views
+                      </Text>
                     </View>
                     <View className="absolute inset-0 bg-black/30" />
                     <View
@@ -951,8 +1232,14 @@ const CommunityPage: React.FC = () => {
                         </Text>
                       </TouchableOpacity>
                     </View>
+                    {/* Right-side actions: SHARE ONLY (tap = share, long-press = download) */}
                     <View className="flex-row items-center right-1 space-x-3">
-                      <TouchableOpacity className="p-2 rounded-full bg-white/10">
+                      <TouchableOpacity
+                        className="p-2 rounded-full bg-white/10"
+                        onPress={shareMedia}
+                        onLongPress={downloadMedia}
+                        delayLongPress={300}
+                      >
                         <Ionicons name="share-outline" size={20} color="#9ca3af" />
                       </TouchableOpacity>
                     </View>
@@ -1110,10 +1397,14 @@ const CommunityPage: React.FC = () => {
                           {review.text}
                         </Text>
                         <View className="flex-row justify-start items-center mt-3 pt-3 border-t border-white/5">
-                          <TouchableOpacity className="flex-row items-center">
-                            <Ionicons name="heart-outline" size={18} color="#9CA3AF" />
+                          <TouchableOpacity className="flex-row items-center" onPress={() => toggleHelpful(review.id)}>
+                            <Ionicons
+                              name={helpfulMine.has(review.id) ? "heart" : "heart-outline"}
+                              size={18}
+                              color={helpfulMine.has(review.id) ? "#ef4444" : "#9CA3AF"}
+                            />
                             <Text className="text-gray-400 text-xs ml-1">Helpful</Text>
-                            <Text className="text-gray-500 text-xs ml-1">• {Math.floor(Math.random() * 15) + 1}</Text>
+                            <Text className="text-gray-500 text-xs ml-1">• {helpfulCounts[review.id] ?? 0}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1138,7 +1429,11 @@ const CommunityPage: React.FC = () => {
                     <Text className="text-white text-lg font-bold">More from Community</Text>
                     <Text className="text-gray-400 text-xs">Discover trending practice sessions</Text>
                   </View>
-                  <TouchableOpacity className="bg-white/10 px-3 py-1 rounded-full">
+                  {/* View All → teacher can jump to the shared community list */}
+                  <TouchableOpacity
+                    className="bg-white/10 px-3 py-1 rounded-full"
+                    onPress={() => router.push("/StudentScreen/StudentCommunity/community-selection")}
+                  >
                     <Text className="text-white text-xs font-medium">View All</Text>
                   </TouchableOpacity>
                 </View>
@@ -1149,13 +1444,19 @@ const CommunityPage: React.FC = () => {
                   contentContainerStyle={{ paddingRight: 16 }}
                   className="-ml-2"
                 >
-                  {MORE_COMMUNITY_SAMPLE.map((c) => (
-                    <View
+                  {morePosts.map((c) => (
+                    <TouchableOpacity
                       key={c.id}
                       className="w-48 bg-white/5 rounded-xl p-3 mr-3 border border-white/5"
+                      activeOpacity={0.8}
+                      onPress={() => router.push(`/TeacherScreen/TeacherCommunity/teacher-community?postId=${c.id}`)}
                     >
                       <View className="aspect-video bg-gray-800 rounded-lg overflow-hidden mb-3">
-                        <Image source={{ uri: c.user }} className="w-full h-full" resizeMode="cover" />
+                        <Image
+                          source={{ uri: c.avatar || "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400&q=60&auto=format" }}
+                          className="w-full h-full"
+                          resizeMode="cover"
+                        />
                         <View className="absolute inset-0 bg-black/30" />
                         <View className="absolute bottom-2 right-2 bg-black/60 px-1.5 py-0.5 rounded">
                           <Text className="text-white text-[10px]">2:45</Text>
@@ -1170,9 +1471,9 @@ const CommunityPage: React.FC = () => {
                           <Text className="text-gray-400 text-xs ml-1">{formatCount(c.views)}</Text>
                         </View>
                         <View className="w-1 h-1 bg-gray-600 rounded-full mx-2" />
-                        <Text className="text-gray-400 text-xs">{c.age}</Text>
+                        <Text className="text-gray-400 text-xs">{shortAge(c.created_at)}</Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </ScrollView>
               </View>
@@ -1184,7 +1485,7 @@ const CommunityPage: React.FC = () => {
       {/* Bottom Navigation (teacher) */}
       <NavigationBar defaultActiveTab="Community" />
 
-      {/* Profile Menu — only Settings + Sign out handled internally by component */}
+      {/* Profile Menu */}
       <ProfileMenuTeacher
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}

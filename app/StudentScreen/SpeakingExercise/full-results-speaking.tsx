@@ -32,9 +32,9 @@ type MetricBlock = {
 };
 
 /* ─────────── progress rule (INLINE) ───────────
-   - advanced: force 100% and completed=true
+   - advanced: force 100% and completed=true (unchanged)
    - basic: if an existing row has progress >= 50 and < 100 -> set to 100
-            (or 0.5–<1 if DB uses 0–1 scale). We do not create a new row for basic. */
+            (handles both 0–100 and 0–1 scales). No new rows for basic. */
 async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "advanced") {
   try {
     const { data: auth } = await supabase.auth.getUser();
@@ -42,7 +42,7 @@ async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "ad
     if (!user || !moduleId) return;
 
     if (level === "advanced") {
-      // Always complete advanced on full results (upsert handles existing/missing rows)
+      // ✅ Keep advanced behavior: complete at 100%
       const payload = {
         student_id: user.id,
         module_id: moduleId,
@@ -58,15 +58,14 @@ async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "ad
       return;
     }
 
-    // BASIC RULE:
-    // Only update existing rows that are already at the mid-gate but not 100 yet.
+    // ✅ BASIC: bump quiz 50% to 100% on full results (cap to 100)
     const updates = {
       progress: 100,
       completed: true,
       updated_at: new Date().toISOString(),
     };
 
-    // 0–100 scale branch: progress >= 50 and < 100
+    // 0–100 scale: progress >= 50 and < 100
     await supabase
       .from("student_progress")
       .update(updates)
@@ -75,7 +74,7 @@ async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "ad
       .gte("progress", 50)
       .lt("progress", 100);
 
-    // 0–1 scale branch: progress >= 0.5 and < 1
+    // 0–1 scale: progress >= 0.5 and < 1
     await supabase
       .from("student_progress")
       .update(updates)

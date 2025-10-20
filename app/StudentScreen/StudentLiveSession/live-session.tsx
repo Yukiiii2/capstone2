@@ -27,6 +27,10 @@ const REACT_TABLE = "live_session_reactions";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/* avatar fallback identical to live-sessions-select */
+const TRANSPARENT_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
+
 async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   const stored = (storedPath ?? userId).toString();
   const normalized = stored.replace(/^avatars\//, "");
@@ -87,7 +91,7 @@ export default function LiveSession() {
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  // header avatar (home-page logic)
+  // header avatar (home-page logic) — kept, but now used in UI like live-sessions-select
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string>("Student");
   const [email, setEmail] = useState<string>("");
@@ -220,7 +224,7 @@ export default function LiveSession() {
   const togglePlayPause = () => setIsPlaying((p) => !p);
   const toggleControls = () => setShowControls((p) => !p);
 
-  // Load current user + avatar
+  // Load current user + avatar (kept as-is, just used in UI now)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -570,7 +574,7 @@ export default function LiveSession() {
               <View className="p-0.5 bg-white/10 rounded-full">
                 <Image
                   source={{
-                    uri: "https://randomuser.me/api/portraits/women/44.jpg"
+                    uri: avatarUri || TRANSPARENT_PNG, // <<< same as live-sessions-select
                   }}
                   className="w-8 h-8 rounded-full"
                 />
@@ -703,13 +707,14 @@ export default function LiveSession() {
 
         <NavigationBar defaultActiveTab="Community" />
 
+        {/* use the same state that the header toggles */}
         <ProfileMenuNew
-          visible={isProfileOpen}
-          onDismiss={() => setIsProfileOpen(false)}
+          visible={isProfileMenuVisible}
+          onDismiss={() => setIsProfileMenuVisible(false)}
           user={{
-            name: "Sarah Johnson",
-            email: "sarah@gmail.com",
-            image: { uri: "https://randomuser.me/api/portraits/women/44.jpg" },
+            name: fullName,
+            email: email,
+            image: { uri: avatarUri || TRANSPARENT_PNG },
           }}
         />
         <LivesessionCommunityModal

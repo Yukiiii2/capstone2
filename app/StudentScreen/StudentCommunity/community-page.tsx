@@ -1036,15 +1036,89 @@ const CommunityPage: React.FC = () => {
       const revertCounts = { ...helpfulCounts };
       if (isMine) {
         revertMine.add(commentId);
-        revertCounts[commentId] = (revertCounts[commentId] || 0) + 1;
+        revertCounts[commentId] = (nextCounts[commentId] || 0) + 1;
       } else {
         revertMine.delete(commentId);
-        revertCounts[commentId] = Math.max(0, (revertCounts[commentId] || 0) - 1);
+        revertCounts[commentId] = Math.max(0, (nextCounts[commentId] || 0) - 1);
       }
       setHelpfulMine(revertMine);
       setHelpfulCounts(revertCounts);
     }
   }, [currentUserId, helpfulMine, helpfulCounts]);
+
+  // >>> NEW: state + loader for "More from Community"
+  type MiniPost = {
+    id: string;
+    title: string;
+    avatar: string | null;
+    created_at: string;
+    views: number;
+  };
+  const [morePosts, setMorePosts] = useState<MiniPost[]>([]);
+
+  const shortAge = (iso: string) => {
+    const secs = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d`;
+    const wks = Math.floor(days / 7);
+    if (wks < 4) return `${wks}w`;
+    const mos = Math.floor(days / 30);
+    if (mos < 12) return `${mos}mo`;
+    const yrs = Math.floor(days / 365);
+    return `${yrs}y`;
+  };
+
+  const loadMoreFromCommunity = useCallback(async () => {
+    try {
+      let q = supabase
+        .from("posts")
+        .select(`
+          id,
+          title,
+          created_at,
+          user_id,
+          profiles!posts_user_id_fkey(name, avatar_url)
+        `)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (effectivePostId) q = q.neq("id", effectivePostId);
+
+      const { data, error } = await q;
+      if (error || !data) {
+        setMorePosts([]);
+        return;
+      }
+
+      const mapped: MiniPost[] = await Promise.all(
+        data.map(async (row: any) => {
+          const p = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+          let avatar: string | null = null;
+          if (p?.avatar_url) {
+            avatar = await resolveSignedAvatar(row.user_id, p.avatar_url);
+          }
+          return {
+            id: String(row.id),
+            title: row.title || "Untitled",
+            avatar,
+            created_at: row.created_at,
+            views: Math.floor(Math.random() * 220) + 15, // simple placeholder
+          };
+        })
+      );
+
+      const shuffled = mapped.sort(() => Math.random() - 0.5).slice(0, 5);
+      setMorePosts(shuffled);
+    } catch {
+      setMorePosts([]);
+    }
+  }, [effectivePostId]);
+  // <<< NEW
 
   // boot: when param changes, load everything
   useEffect(() => {
@@ -1052,8 +1126,9 @@ const CommunityPage: React.FC = () => {
       await loadPost();
       await loadLikes();
       await loadComments();
+      await loadMoreFromCommunity(); // >>> NEW
     })();
-  }, [loadPost, loadLikes, loadComments]);
+  }, [loadPost, loadLikes, loadComments, loadMoreFromCommunity]);
 
   const handleCommunityPress = () => {
     console.log(`Pressed on Community`);
@@ -1664,7 +1739,11 @@ const CommunityPage: React.FC = () => {
                       Discover trending practice sessions
                     </Text>
                   </View>
-                  <TouchableOpacity className="bg-white/10 px-3 py-1 rounded-full">
+                  {/* >>> NEW: View All navigates back to community-selection */}
+                  <TouchableOpacity
+                    className="bg-white/10 px-3 py-1 rounded-full"
+                    onPress={() => router.push("/StudentScreen/StudentCommunity/community-selection")}
+                  >
                     <Text className="text-white text-xs font-medium">
                       View All
                     </Text>
@@ -1677,14 +1756,17 @@ const CommunityPage: React.FC = () => {
                   contentContainerStyle={{ paddingRight: 16 }}
                   className="-ml-2"
                 >
-                  {MORE_COMMUNITY_SAMPLE.map((c) => (
-                    <View
+                  {/* >>> NEW: render real posts from Supabase (shuffled to 5) */}
+                  {morePosts.map((c) => (
+                    <TouchableOpacity
                       key={c.id}
                       className="w-48 bg-white/5 rounded-xl p-3 mr-3 border border-white/5"
+                      activeOpacity={0.8}
+                      onPress={() => router.push(`/StudentScreen/StudentCommunity/community-page?postId=${c.id}`)}
                     >
                       <View className="aspect-video bg-gray-800 rounded-lg overflow-hidden mb-3">
                         <Image
-                          source={{ uri: c.user }}
+                          source={{ uri: c.avatar || "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400&q=60&auto=format" }}
                           className="w-full h-full"
                           resizeMode="cover"
                         />
@@ -1711,9 +1793,9 @@ const CommunityPage: React.FC = () => {
                           </Text>
                         </View>
                         <View className="w-1 h-1 bg-gray-600 rounded-full mx-2" />
-                        <Text className="text-gray-400 text-xs">{c.age}</Text>
+                        <Text className="text-gray-400 text-xs">{shortAge(c.created_at)}</Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </ScrollView>
               </View>
