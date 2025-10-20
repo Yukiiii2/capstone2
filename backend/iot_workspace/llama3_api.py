@@ -5,6 +5,10 @@ from backend.iot_workspace.feedback_analyzer import FeedbackAnalyzer
 from supabase import create_client, Client
 from fastapi import Request
 from asyncio import CancelledError
+from typing import Dict, Any
+
+
+import statistics
 
 import pandas as pd
 import whisper
@@ -17,6 +21,7 @@ import difflib
 from textblob import TextBlob  # Import TextBlob for sentiment analysis
 import textstat  # Import textstat for readability analysis
 import subprocess
+
 
 
 
@@ -129,6 +134,64 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Invalid token")
     
     return {"user": user}
+
+@app.get("/analyze-confidence/{student_id}")
+async def analyze_confidence(student_id: str):
+    try:
+        # Use the existing supabase client instead of creating a new one
+        # Fetch feedback_ai data
+        feedback_response = supabase.table("feedback_ai").select("*").eq("student_id", student_id).execute()
+        feedback_data = feedback_response.data
+
+        # Fetch student_progress data
+        progress_response = supabase.table("student_progress").select("*").eq("student_id", student_id).execute()
+        progress_data = progress_response.data
+        if not feedback_data and not progress_data:
+            return {"confidence_score": 0}
+
+        # Calculate scores
+        feedback_scores = []
+        for feedback in feedback_data:
+            score = feedback.get("score", 0)
+            feedback_scores.append(score)
+
+        progress_scores = []
+        for progress in progress_data:
+            if progress.get("confidence"):
+                progress_scores.append(float(progress.get("confidence")))
+
+        # Calculate final confidence score
+        final_score = 0
+        if feedback_scores and progress_scores:
+            # Weight: 60% from feedback analysis, 40% from progress data
+            feedback_avg = sum(feedback_scores) / len(feedback_scores) if feedback_scores else 0
+            progress_avg = sum(progress_scores) / len(progress_scores) if progress_scores else 0
+            final_score = (feedback_avg * 0.6) + (progress_avg * 0.4)
+        elif feedback_scores:
+            final_score = sum(feedback_scores) / len(feedback_scores)
+        elif progress_scores:
+            final_score = sum(progress_scores) / len(progress_scores)
+
+        # Ensure score is between 0 and 100
+        final_score = max(0, min(100, round(final_score)))
+
+        return {
+            "confidence_score": final_score,
+            "details": {
+                "feedback_analysis": {
+                    "average_score": round(sum(feedback_scores) / len(feedback_scores)) if feedback_scores else 0,
+                    "total_attempts": len(feedback_scores)
+                },
+                "progress_data": {
+                    "average_confidence": round(sum(progress_scores) / len(progress_scores)) if progress_scores else 0,
+                    "total_entries": len(progress_scores)
+                }
+            }
+        }
+
+    except Exception as e:
+        print(f"ERROR: /analyze-confidence - {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze confidence: {str(e)}")
     
 @app.post("/analyze-feedback")
 async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
@@ -158,7 +221,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
         speech_text = request.speech_text
         expected_text = request.expected_text  # Retrieve the expected text
         spacy_stats = request.spacy_stats
-
+        category = request.category
         # Compare transcription with expected text if provided
         discrepancies = None
         if expected_text:
@@ -185,6 +248,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
             "attempt_id": attempt_id,
             "evaluation": ai_feedback,
             "transcription": speech_text,
+            "category": category,
         }
 
         # Step 4: Insert data into the `feedback_ai` table
