@@ -32,56 +32,41 @@ type MetricBlock = {
 };
 
 /* ─────────── progress rule (INLINE) ───────────
-   - advanced: force 100% and completed=true (unchanged)
-   - basic: if an existing row has progress >= 50 and < 100 -> set to 100
-            (handles both 0–100 and 0–1 scales). No new rows for basic. */
+   BASIC ONLY (do not touch advanced here):
+   On full-results, always mark the basic module as 100% complete,
+   creating or updating the row as needed. Advanced is handled elsewhere.
+*/
 async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "advanced") {
   try {
+    if (level !== "basic") return; // 🚫 never modify Advanced here
+
     const { data: auth } = await supabase.auth.getUser();
     const user = auth?.user;
     if (!user || !moduleId) return;
 
-    if (level === "advanced") {
-      // ✅ Keep advanced behavior: complete at 100%
-      const payload = {
-        student_id: user.id,
-        module_id: moduleId,
-        progress: 100,
-        completed: true,
-        updated_at: new Date().toISOString(),
-      };
+    const now = new Date().toISOString();
 
-      await supabase.from("student_progress").upsert(payload, {
-        onConflict: "student_id,module_id",
-        ignoreDuplicates: false,
-      });
-      return;
-    }
-
-    // ✅ BASIC: bump quiz 50% to 100% on full results (cap to 100)
-    const updates = {
-      progress: 100,
-      completed: true,
-      updated_at: new Date().toISOString(),
-    };
-
-    // 0–100 scale: progress >= 50 and < 100
+    // Always upsert the BASIC module to 100% on full-results.
     await supabase
       .from("student_progress")
-      .update(updates)
-      .eq("student_id", user.id)
-      .eq("module_id", moduleId)
-      .gte("progress", 50)
-      .lt("progress", 100);
+      .upsert(
+        {
+          student_id: user.id,
+          module_id: moduleId,
+          progress: 100,
+          completed: true,
+          updated_at: now,
+        },
+        { onConflict: "student_id,module_id", ignoreDuplicates: false }
+      );
 
-    // 0–1 scale: progress >= 0.5 and < 1
+    // Safety: hard-cap any rogue scales >100 (rare but cheap to enforce)
     await supabase
       .from("student_progress")
-      .update(updates)
+      .update({ progress: 100, updated_at: now })
       .eq("student_id", user.id)
       .eq("module_id", moduleId)
-      .gte("progress", 0.5)
-      .lt("progress", 1);
+      .gt("progress", 100);
   } catch {
     // swallow errors to avoid UX interruption
   }
@@ -100,6 +85,9 @@ export default function FullResultsSpeaking() {
       score?: string;
     }>();
 
+  // lock level strictly to the URL param (prevents any cross-over)
+  const levelParam: "basic" | "advanced" = level === "advanced" ? "advanced" : "basic";
+
   // ---------- score (param) with live override from feedback_ai ----------
   const initialScore = useMemo(() => {
     const n = Number(score);
@@ -117,7 +105,7 @@ export default function FullResultsSpeaking() {
   }>({
     id: module_id ?? null,
     title: (module_title as string) ?? null,
-    level: level === "advanced" ? "advanced" : "basic",
+    level: levelParam, // use locked param here
     order_index: null,
   });
 
@@ -306,7 +294,7 @@ export default function FullResultsSpeaking() {
         .order("order_index", { ascending: true })
         .limit(1);
 
-      if (data && data.length) setNextModule({ id: data[0].id, title: data[0].title });
+    if (data && data.length) setNextModule({ id: data[0].id, title: data[0].title });
       else setNextModule(null);
     } catch {
       setNextModule(null);
@@ -442,10 +430,8 @@ export default function FullResultsSpeaking() {
       const finalScore = await fetchFinalScore();
       await logAttempt(user.id, finalScore);
 
-      // 🔑 PROGRESS RULE on full-results:
-      // - basic: if quiz set 50 (>=50 & <100), bump to 100
-      // - advanced: set 100
-      await applyFullResultsRuleInline(currentModule.id, currentModule.level);
+      // 🔑 BASIC-ONLY PROGRESS RULE on full-results (locked to URL level)
+      await applyFullResultsRuleInline(currentModule.id, levelParam);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentModule.id, currentModule.level]);
@@ -458,7 +444,7 @@ export default function FullResultsSpeaking() {
       if (user && currentModule.id) {
         const finalScore = await fetchFinalScore();
         await logAttempt(user.id, finalScore);
-        await applyFullResultsRuleInline(currentModule.id, currentModule.level);
+        await applyFullResultsRuleInline(currentModule.id, levelParam); // basic only
       }
     } catch {}
     router.replace("StudentScreen/SpeakingExercise/live-vid-selection");
@@ -471,7 +457,7 @@ export default function FullResultsSpeaking() {
       if (user && currentModule.id) {
         const finalScore = await fetchFinalScore();
         await logAttempt(user.id, finalScore);
-        await applyFullResultsRuleInline(currentModule.id, currentModule.level);
+        await applyFullResultsRuleInline(currentModule.id, levelParam); // basic only
       }
     } catch {}
     router.replace("StudentScreen/HomePage/home-page");
@@ -501,8 +487,16 @@ export default function FullResultsSpeaking() {
     return [
       { skill: "Gestures", level: clampPct(Math.max(70, arr[0].value)), trend: "up" },
       { skill: "Pacing", level: clampPct(Math.max(65, arr[3].value)), trend: "up" },
-      { skill: "Grammar", level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))), trend: "up" },
-      { skill: "Engagement", level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))), trend: "up" },
+      {
+        skill: "Grammar",
+        level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))),
+        trend: "up",
+      },
+      {
+        skill: "Engagement",
+        level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))),
+        trend: "up",
+      },
     ];
   }, [metrics, uiScore]);
 
@@ -510,8 +504,16 @@ export default function FullResultsSpeaking() {
     const arr = metrics ?? deriveMetricsFromScore(uiScore);
     const sorted = [...arr].sort((a, b) => a.value - b.value).slice(0, 2);
     return [
-      { skill: sorted[0]?.label?.replace(" Score", "") || "Clarity", level: clampPct(sorted[0]?.value ?? 60), trend: "down" },
-      { skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone", level: clampPct(sorted[1]?.value ?? 62), trend: "down" },
+      {
+        skill: sorted[0]?.label?.replace(" Score", "") || "Clarity",
+        level: clampPct(sorted[0]?.value ?? 60),
+        trend: "down",
+      },
+      {
+        skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone",
+        level: clampPct(sorted[1]?.value ?? 62),
+        trend: "down",
+      },
       { skill: "Pronunciation", level: clampPct(Math.round(uiScore * 0.7)), trend: "down" },
     ];
   }, [metrics, uiScore]);
