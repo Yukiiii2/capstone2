@@ -5,7 +5,12 @@ from backend.iot_workspace.feedback_analyzer import FeedbackAnalyzer
 from supabase import create_client, Client
 from fastapi import Request
 from asyncio import CancelledError
+from typing import Dict, Any
 
+
+import statistics
+
+import pandas as pd
 import whisper
 import spacy
 import uuid
@@ -16,6 +21,7 @@ import difflib
 from textblob import TextBlob  # Import TextBlob for sentiment analysis
 import textstat  # Import textstat for readability analysis
 import subprocess
+
 
 
 
@@ -128,6 +134,64 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Invalid token")
     
     return {"user": user}
+
+@app.get("/analyze-confidence/{student_id}")
+async def analyze_confidence(student_id: str):
+    try:
+        # Use the existing supabase client instead of creating a new one
+        # Fetch feedback_ai data
+        feedback_response = supabase.table("feedback_ai").select("*").eq("student_id", student_id).execute()
+        feedback_data = feedback_response.data
+
+        # Fetch student_progress data
+        progress_response = supabase.table("student_progress").select("*").eq("student_id", student_id).execute()
+        progress_data = progress_response.data
+        if not feedback_data and not progress_data:
+            return {"confidence_score": 0}
+
+        # Calculate scores
+        feedback_scores = []
+        for feedback in feedback_data:
+            score = feedback.get("score", 0)
+            feedback_scores.append(score)
+
+        progress_scores = []
+        for progress in progress_data:
+            if progress.get("confidence"):
+                progress_scores.append(float(progress.get("confidence")))
+
+        # Calculate final confidence score
+        final_score = 0
+        if feedback_scores and progress_scores:
+            # Weight: 60% from feedback analysis, 40% from progress data
+            feedback_avg = sum(feedback_scores) / len(feedback_scores) if feedback_scores else 0
+            progress_avg = sum(progress_scores) / len(progress_scores) if progress_scores else 0
+            final_score = (feedback_avg * 0.6) + (progress_avg * 0.4)
+        elif feedback_scores:
+            final_score = sum(feedback_scores) / len(feedback_scores)
+        elif progress_scores:
+            final_score = sum(progress_scores) / len(progress_scores)
+
+        # Ensure score is between 0 and 100
+        final_score = max(0, min(100, round(final_score)))
+
+        return {
+            "confidence_score": final_score,
+            "details": {
+                "feedback_analysis": {
+                    "average_score": round(sum(feedback_scores) / len(feedback_scores)) if feedback_scores else 0,
+                    "total_attempts": len(feedback_scores)
+                },
+                "progress_data": {
+                    "average_confidence": round(sum(progress_scores) / len(progress_scores)) if progress_scores else 0,
+                    "total_entries": len(progress_scores)
+                }
+            }
+        }
+
+    except Exception as e:
+        print(f"ERROR: /analyze-confidence - {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze confidence: {str(e)}")
     
 @app.post("/analyze-feedback")
 async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
@@ -157,7 +221,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
         speech_text = request.speech_text
         expected_text = request.expected_text  # Retrieve the expected text
         spacy_stats = request.spacy_stats
-
+        category = request.category
         # Compare transcription with expected text if provided
         discrepancies = None
         if expected_text:
@@ -184,6 +248,7 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
             "attempt_id": attempt_id,
             "evaluation": ai_feedback,
             "transcription": speech_text,
+            "category": category,
         }
 
         # Step 4: Insert data into the `feedback_ai` table
@@ -219,6 +284,82 @@ async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
     except Exception as e:
         print(f"ERROR: /analyze-feedback - {e}")
         raise HTTPException(status_code=500, detail="An error occurred while processing the feedback")
+    
+@app.post("/process-video")
+async def process_video(file: UploadFile = File(...)):
+    """
+    Process uploaded video file → Extract facial features using OpenFace → Return analysis results.
+    """
+    print("START: /process-video endpoint")  # Log start of endpoint
+
+    temp_video_path = None
+    output_dir = None
+    try:
+        # --- Validate File Type ---
+        print(f"Uploaded file: {file.filename}")
+        if not file.filename.endswith((".mp4", ".avi", ".mov", ".mkv")):
+            raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid video file.")
+
+        # --- Save Uploaded File ---
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            temp_video_path = tmp.name
+            tmp.write(await file.read())
+
+        print(f"Temporary video file path: {temp_video_path}")
+
+        # --- Create Temporary Output Directory ---
+        output_dir = tempfile.mkdtemp()
+        print(f"Temporary output directory: {output_dir}")
+
+        # --- Run OpenFace FeatureExtraction ---
+        try:
+            command = [
+                r"C:\OpenFace_2.2.0_win_x64\FeatureExtraction.exe",  # Path to OpenFace FeatureExtraction
+                "-f", temp_video_path,  # Input video file
+                "-out_dir", output_dir,  # Output directory
+                "-2Dfp",  # Extract 2D facial landmarks
+                "-3Dfp",  # Extract 3D facial landmarks
+                "-pose",  # Extract head pose
+                "-aus",  # Extract Action Units (facial expressions)
+                "-gaze",  # Extract gaze direction
+            ]
+            print(f"Running OpenFace command: {' '.join(command)}")
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to process video with OpenFace: {str(e)}")
+
+        # --- Verify Output Files ---
+        output_file = os.path.join(output_dir, "processed", os.path.basename(temp_video_path).replace(".mp4", ".csv"))
+        if not os.path.exists(output_file):
+            raise HTTPException(
+                status_code=500,
+                detail="OpenFace did not generate an output file. Ensure the video contains a visible face and all required models are present.",
+            )
+
+        print(f"OpenFace output file: {output_file}")
+
+        # Read the CSV file and parse the results
+        
+        df = pd.read_csv(output_file)
+        results = df.to_dict(orient="records")  # Convert to a list of dictionaries
+
+        print("COMPLETED: /process-video endpoint")  # Log completion of endpoint
+
+        return {
+            "message": "Video processed successfully.",
+            "results": results,  # Return the parsed results
+        }
+
+    except Exception as e:
+        print(f"ERROR: /process-video - {e}")
+        raise HTTPException(status_code=500, detail="Failed to process video file")
+    finally:
+        # Clean up temporary files and directories
+        if temp_video_path and os.path.exists(temp_video_path):
+            os.remove(temp_video_path)
+        if output_dir and os.path.exists(output_dir):
+            import shutil
+            shutil.rmtree(output_dir)
     
 @app.post("/generate-script")
 async def generate_script(request: ScriptRequest):

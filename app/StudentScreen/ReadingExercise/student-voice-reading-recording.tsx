@@ -322,6 +322,8 @@ async function setAudioModeCompatIdle() {
         speech_text: transcription,
         spacy_stats,
         expected_text: expectedText, // Include the expected text
+         category: "reading"
+
       },
       {
         headers: {

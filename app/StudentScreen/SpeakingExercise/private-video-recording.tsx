@@ -755,6 +755,7 @@ export default function PrivateVideoRecording() {
         speech_text: transcription,
         spacy_stats,
         criteria,
+        category: "speaking",
       },
       {
         headers: {
