@@ -176,6 +176,17 @@ function HomePage() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [confidenceScores, setConfidenceScores] = useState({
+  speaking: 0,
+  reading: 0
+});
+const [cachedConfidenceScores, setCachedConfidenceScores] = useState({
+  speaking: 0,
+  reading: 0,
+  lastUpdated: null as string | null
+});
+  const speakingPercentcached = cachedConfidenceScores.speaking;
+  const readingPercentcached = cachedConfidenceScores.reading;
 
   // Use layout transform instead of local transform
   const sidebarAnim = layoutTranslateX;
@@ -231,8 +242,8 @@ function HomePage() {
   }, [moduleCounts]);
 
   // 🔢 Derived percents for display
-  const speakingPercent = Math.round(speakingProgress * 100);
-  const readingPercent = Math.round(readingProgress * 100);
+  const speakingPercent = confidenceScores.speaking;
+  const readingPercent = confidenceScores.reading;
 
   const [showReadingLevelModal, setShowReadingLevelModal] = useState(false);
   const [showCommunityLevelModal, setShowCommunityLevelModal] = useState(false);
@@ -254,7 +265,97 @@ function HomePage() {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
 
+  // Add this new fetch function with the other fetch functions
+
+  // Add this new fetch function with your other fetch functions
+const fetchConfidenceScoreCache = useCallback(async () => {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+
+    // Get latest cached scores from confidence_anxiety_score table
+    const { data: cachedScores, error } = await supabase
+      .from('confidence_anxiety_score')
+      .select('*')
+      .eq('student_id', uid)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      console.warn('Error fetching cached confidence scores:', error.message);
+      return;
+    }
+
+    if (cachedScores) {
+      console.log('📊 Found cached confidence scores:', {
+        speaking: cachedScores.confidence_score_speaking,
+        reading: cachedScores.confidence_score_reading,
+        updated: cachedScores.updated_at
+      });
+
+      // Update cachedConfidenceScores instead of confidenceScores
+      setCachedConfidenceScores({
+        speaking: cachedScores.confidence_score_speaking || 0,
+        reading: cachedScores.confidence_score_reading || 0,
+        lastUpdated: cachedScores.updated_at
+      });
+    }
+  } catch (error) {
+    console.error("Error fetching cached confidence scores:", error);
+  }
+}, []);
+
+const fetchConfidenceScores = useCallback(async () => {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+
+    // Make the API call with error handling
+    const response = await fetch(`https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-confidence/${uid}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Validate the response data structure
+    if (data && 
+        typeof data.confidencescoreSpeaking === 'number' && 
+        typeof data.confidencescoreReading === 'number') {
+      
+      setConfidenceScores({
+        speaking: Math.round(data.confidencescoreSpeaking),
+        reading: Math.round(data.confidencescoreReading)
+      });
+    } else {
+      console.warn('Invalid confidence score data format:', data);
+      setConfidenceScores({
+        speaking: 0,
+        reading: 0
+      });
+    }
+  } catch (error) {
+    console.error("Error fetching confidence scores:", error);
+    // Set default values on error
+    setConfidenceScores({
+      speaking: 0,
+      reading: 0
+    });
+  }
+}, []);
+
   // ---- mount: initial profile load (kept) ----
+  
   useEffect(() => {
     let mounted = true;
     const loadUser = async () => {
@@ -573,6 +674,7 @@ function HomePage() {
           () => {
             fetchCounts();
             fetchAverageConfidence();
+            
           }
         )
         .subscribe();
@@ -606,10 +708,26 @@ function HomePage() {
   }, [fetchCounts]);
 
   // initial fetch so numbers show on very first mount
-  useEffect(() => {
+  // Replace or modify the existing useEffect that contains initial fetches
+useEffect(() => {
+    // Initial fetches
     fetchCounts();
     fetchAverageConfidence();
-  }, [fetchCounts, fetchAverageConfidence]);
+    fetchConfidenceScores();
+    fetchConfidenceScoreCache();
+
+    // Set up 5-minute interval for confidence scores
+    const intervalId = setInterval(() => {
+    console.log('⏰ 5-minute interval: Fetching fresh confidence scores');
+    fetchConfidenceScores();
+  }, 300000); // 5 minutes in milliseconds
+
+    // Cleanup function
+    return () => {
+        console.log('🧹 Cleaning up confidence score interval');
+      clearInterval(intervalId);
+    };
+}, [fetchCounts, fetchAverageConfidence, fetchConfidenceScores, fetchConfidenceScoreCache]);
 
   // ===== UI Components =====
   const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -1082,7 +1200,7 @@ function HomePage() {
                   {/* Progress Circle */}
                   <View className="items-center justify-center">
                     <CircularProgress size={96} strokeWidth={10} progress={speakingProgress}>
-                      <Text className="text-white text-2xl font-bold">{`${speakingPercent}%`}</Text>
+                      <Text className="text-white text-2xl font-bold">{`${cachedConfidenceScores.speaking}%`}</Text>
                       <Text className="text-violet-200 text-[10px] mt-[-2px]">Score</Text>
                     </CircularProgress>
                   </View>
@@ -1115,7 +1233,7 @@ function HomePage() {
                   {/* Progress Circle */}
                   <View className="items-center justify-center">
                     <CircularProgress size={96} strokeWidth={10} progress={readingProgress}>
-                      <Text className="text-white text-2xl font-bold">{`${readingPercent}%`}</Text>
+                      <Text className="text-white text-2xl font-bold">{`${cachedConfidenceScores.reading}%`}</Text>
                       <Text className="text-violet-200 text-[10px] mt-[-2px]">Score</Text>
                     </CircularProgress>
                   </View>

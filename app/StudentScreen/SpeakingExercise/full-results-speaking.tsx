@@ -56,6 +56,7 @@ async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "ad
           progress: 100,
           completed: true,
           updated_at: now,
+          category: "speaking",
         },
         { onConflict: "student_id,module_id", ignoreDuplicates: false }
       );

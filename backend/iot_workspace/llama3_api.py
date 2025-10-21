@@ -6,7 +6,8 @@ from supabase import create_client, Client
 from fastapi import Request
 from asyncio import CancelledError
 from typing import Dict, Any
-
+# Add to top of llama3_api.py
+from datetime import datetime, timezone, timedelta
 
 import statistics
 
@@ -139,61 +140,183 @@ async def get_current_user(request: Request):
 @app.get("/analyze-confidence/{student_id}")
 async def analyze_confidence(student_id: str):
     try:
-        # Use the existing supabase client instead of creating a new one
-        # Fetch feedback_ai data
+        # Check cached scores first
+        cached_scores = supabase.table("confidence_anxiety_score")\
+            .select("*")\
+            .eq("student_id", student_id)\
+            .order("updated_at", desc=True)\
+            .limit(1)\
+            .execute()
+
+        # Return cached scores if less than 5 minutes old
+        if cached_scores.data:
+            # Convert string to datetime with timezone
+            last_update = datetime.fromisoformat(cached_scores.data[0]["updated_at"].replace("Z", "+00:00"))
+            current_time = datetime.now(timezone.utc)
+            
+            # Calculate time difference
+            time_diff = current_time - last_update
+            if time_diff < timedelta(minutes=5):
+                print(f"Returning cached scores for student {student_id}")
+                return {
+                    "confidencescoreSpeaking": cached_scores.data[0]["confidence_score_speaking"],
+                    "confidencescoreReading": cached_scores.data[0]["confidence_score_reading"],
+                    "details": {
+                        "cached": True,
+                        "last_updated": cached_scores.data[0]["updated_at"],
+                        "speaking_attempts": cached_scores.data[0]["total_speaking_attempts"],
+                        "reading_attempts": cached_scores.data[0]["total_reading_attempts"]
+                    }
+                }
+
+        # Fetch fresh data
+        print(f"\nFetching fresh data for student {student_id}")
         feedback_response = supabase.table("feedback_ai").select("*").eq("student_id", student_id).execute()
-        feedback_data = feedback_response.data
-
-        # Fetch student_progress data
         progress_response = supabase.table("student_progress").select("*").eq("student_id", student_id).execute()
-        progress_data = progress_response.data
-        if not feedback_data and not progress_data:
-            return {"confidence_score": 0}
+        attempts_response = supabase.table("attempts").select("*").eq("student_id", student_id).execute()
+        
+        print(f"Data fetched - Feedback: {len(feedback_response.data)}, Progress: {len(progress_response.data)}, Attempts: {len(attempts_response.data)}")
 
-        # Calculate scores
-        feedback_scores = []
-        for feedback in feedback_data:
-            score = feedback.get("score", 0)
-            feedback_scores.append(score)
+        # Prepare Llama 3 analysis prompt
+        analysis_prompt = f"""
+        Analyze the following student data and provide confidence scores for speaking and reading:
 
-        progress_scores = []
-        for progress in progress_data:
-            if progress.get("confidence"):
-                progress_scores.append(float(progress.get("confidence")))
+        1. Speaking Attempts Data:
+        - Total attempts: {len(attempts_response.data)}
+        - Recent attempts: {attempts_response.data[-5:] if attempts_response.data else 'None'}
 
-        # Calculate final confidence score
-        final_score = 0
-        if feedback_scores and progress_scores:
-            # Weight: 60% from feedback analysis, 40% from progress data
-            feedback_avg = sum(feedback_scores) / len(feedback_scores) if feedback_scores else 0
-            progress_avg = sum(progress_scores) / len(progress_scores) if progress_scores else 0
-            final_score = (feedback_avg * 0.6) + (progress_avg * 0.4)
-        elif feedback_scores:
-            final_score = sum(feedback_scores) / len(feedback_scores)
-        elif progress_scores:
-            final_score = sum(progress_scores) / len(progress_scores)
+        2. Progress Data:
+        - Speaking modules: {[p for p in progress_response.data if p.get('category') == 'speaking']}
+        - Reading modules: {[p for p in progress_response.data if p.get('category') == 'reading']}
 
-        # Ensure score is between 0 and 100
-        final_score = max(0, min(100, round(final_score)))
+        3. Feedback History:
+        - Speaking feedback: {[f for f in feedback_response.data if f.get('category') == 'speaking']}
+        - Reading feedback: {[f for f in feedback_response.data if f.get('category') == 'reading']}
+
+        Based on this data, provide two scores:
+        1. Speaking confidence score (0-100)
+        2. Reading confidence score (0-100)
+        """
+
+        # Get analysis from Llama 3
+        print("Requesting Llama 3 analysis...")
+        analyzer = FeedbackAnalyzer()
+        analysis_result = analyzer.llm.analyze(analysis_prompt)
+        
+        try:
+            speaking_score = int(analysis_result.get('speaking_score', 0))
+            reading_score = int(analysis_result.get('reading_score', 0))
+            print(f"Llama 3 scores - Speaking: {speaking_score}, Reading: {reading_score}")
+        except Exception as e:
+            print(f"Llama 3 parsing failed: {e}, using fallback calculation")
+            speaking_score = calculate_fallback_score('speaking', 
+                progress_response.data, 
+                feedback_response.data, 
+                attempts_response.data)
+            reading_score = calculate_fallback_score('reading',
+                progress_response.data,
+                feedback_response.data,
+                [])
+
+        # Ensure scores are within bounds
+        speaking_score = max(0, min(100, speaking_score))
+        reading_score = max(0, min(100, reading_score))
+
+        # Update cache in confidence_anxiety_score table
+        cache_data = {
+            "student_id": student_id,
+            "confidence_score_speaking": speaking_score,
+            "confidence_score_reading": reading_score,
+            "total_speaking_attempts": len(attempts_response.data),
+            "total_reading_attempts": len([f for f in feedback_response.data if f.get('category') == 'reading']),
+            "anxiety_level_speaking": None,
+            "anxiety_level_reading": None,
+            "last_feedback_id": feedback_response.data[-1]["id"] if feedback_response.data else None,
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        }
+
+        print("Updating confidence_anxiety_score cache...")
+        supabase.table("confidence_anxiety_score").upsert(cache_data).execute()
 
         return {
-            "confidence_score": final_score,
+            "confidencescoreSpeaking": speaking_score,
+            "confidencescoreReading": reading_score,
             "details": {
-                "feedback_analysis": {
-                    "average_score": round(sum(feedback_scores) / len(feedback_scores)) if feedback_scores else 0,
-                    "total_attempts": len(feedback_scores)
-                },
-                "progress_data": {
-                    "average_confidence": round(sum(progress_scores) / len(progress_scores)) if progress_scores else 0,
-                    "total_entries": len(progress_scores)
-                }
+                "cached": False,
+                "speaking_attempts": len(attempts_response.data),
+                "reading_attempts": len([f for f in feedback_response.data if f.get('category') == 'reading']),
+                "total_entries": len(progress_response.data),
+                "analysis_source": "llama3",
+                "last_updated": cache_data["updated_at"]
             }
         }
 
     except Exception as e:
-        print(f"ERROR: /analyze-confidence - {e}")
+        print(f"Error in analyze_confidence: {str(e)}")
+        # Try to return cached scores even if they're old
+        try:
+            cached_scores = supabase.table("confidence_anxiety_score")\
+                .select("*")\
+                .eq("student_id", student_id)\
+                .order("updated_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if cached_scores.data:
+                print("Returning old cached scores due to error")
+                return {
+                    "confidencescoreSpeaking": cached_scores.data[0]["confidence_score_speaking"],
+                    "confidencescoreReading": cached_scores.data[0]["confidence_score_reading"],
+                    "details": {
+                        "cached": True,
+                        "error_fallback": True,
+                        "last_updated": cached_scores.data[0]["updated_at"]
+                    }
+                }
+        except:
+            pass
+        
         raise HTTPException(status_code=500, detail=f"Failed to analyze confidence: {str(e)}")
+
+def calculate_fallback_score(category: str, progress_data: list, feedback_data: list, attempts_data: list) -> int:
+    """Fallback calculation if Llama 3 analysis fails"""
     
+    # Weight distribution
+    weights = {
+        'completion': 0.4,  # 40% from module completion
+        'feedback': 0.3,    # 30% from feedback scores
+        'attempts': 0.3     # 30% from attempts data
+    }
+    
+    # Calculate completion score
+    relevant_progress = [p for p in progress_data if p.get('category') == category]
+    completion_score = (
+        sum(1 for p in relevant_progress if p.get('completed', False)) / 
+        max(len(relevant_progress), 1)
+    ) * 100
+    
+    # Calculate feedback score
+    relevant_feedback = [f for f in feedback_data if f.get('category') == category]
+    feedback_score = (
+        sum(f.get('score', 0) for f in relevant_feedback) / 
+        max(len(relevant_feedback), 1)
+    ) if relevant_feedback else 0
+    
+    # Calculate attempts score (only for speaking)
+    attempts_score = 0
+    if category == 'speaking' and attempts_data:
+        attempts_score = min(100, len(attempts_data) * 10)  # 10 points per attempt, max 100
+    
+    # Calculate weighted final score
+    final_score = (
+        completion_score * weights['completion'] +
+        feedback_score * weights['feedback'] +
+        attempts_score * weights['attempts']
+    )
+    
+    return int(final_score)
+    
+
 @app.post("/analyze-feedback")
 async def analyze_feedback(request: SpeechFeedbackRequest, req: Request):
     """
