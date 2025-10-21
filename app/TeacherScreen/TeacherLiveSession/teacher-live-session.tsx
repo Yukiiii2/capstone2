@@ -506,7 +506,7 @@ export default function LiveSession() {
                             >
                               <Image
                                 source={{
-                                  uri: "https://randomuser.me/api/portraits/women/44.jpg",
+                                  uri: avatarUri || TRANSPARENT_PNG,
                                 }}
                                 className="w-9 h-9 rounded-full left-6 border-2 border-white/80"
                               />
@@ -528,7 +528,7 @@ export default function LiveSession() {
                     <Text className="text-white font-bold text-xl">
                       {sessionData.name}
                     </Text>
-                    <Text className="text-violet-300 text-base">Student</Text>
+                    <Text className="text-violet-300 text-base">Teacher</Text>
                   </View>
                   <View className="flex-row items-center -right-2">
                     <Ionicons name="star" size={18} color="white" />
