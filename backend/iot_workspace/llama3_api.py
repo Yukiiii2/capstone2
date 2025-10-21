@@ -112,6 +112,7 @@ class SpeechFeedbackRequest(BaseModel):
     speech_text: str
     spacy_stats: dict
     expected_text: str | None = None  # Add expected_text here
+    category: str | None = None  # e.g., "presentation", "reading", etc.
 class ScriptRequest(BaseModel):
     lessonPrompt: str
     topic: str  # The topic for the script
