@@ -42,6 +42,14 @@ import {
 // ⬇️ Supabase (logic only; UI unchanged)
 import { supabase } from "@/lib/supabaseClient";
 
+// ⬇️ AI API
+import axios from "axios";
+
+// ====== CONFIG (point to your FastAPI) ======
+const API_BASE =
+  process.env.EXPO_PUBLIC_FASTAPI_URL ||
+  "https://your-fastapi.example.com"; // TODO: set EXPO_PUBLIC_FASTAPI_URL
+
 // Constants
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
@@ -196,9 +204,12 @@ export default function LiveVideoRecording() {
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  // ====== AI analysis states (added) ======
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<string | null>(null);
+
   const [showContinueButton, setShowContinueButton] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
@@ -234,7 +245,6 @@ export default function LiveVideoRecording() {
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
 
-  const [aiFeedback, setAiFeedback] = useState<string | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
 
   // status bar styling
@@ -529,12 +539,14 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // ===== Upload helpers =====
-  const uploadVideo = async () => {
+  // ===== Video upload (MOV) + signed URL (UPDATED to return URL for AI) =====
+  const uploadVideoAndGetSignedUrl = async (): Promise<{ objectPath: string; signedUrl: string } | null> => {
     if (!recordedVideoPath) {
       Alert.alert("No video", "Please record first.");
-      return;
+      return null;
     }
+    const ext = ".mov";
+    const mime = "video/quicktime";
     try {
       const { data: sess } = await supabase.auth.getSession();
       const token =
@@ -544,7 +556,7 @@ export default function LiveVideoRecording() {
       if (!token || !SUPABASE_URL) throw new Error("Missing Supabase config");
 
       const BUCKET = "recordings";
-      const objectPath = `live/${Date.now()}.mp4`;
+      const objectPath = `live/${Date.now()}${ext}`;
       const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(
         objectPath
       )}`;
@@ -554,7 +566,7 @@ export default function LiveVideoRecording() {
         headers: {
           Authorization: `Bearer ${token}`,
           apikey: token,
-          "Content-Type": "video/mp4",
+          "Content-Type": mime, // MOV
           "x-upsert": "false",
         },
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
@@ -567,12 +579,71 @@ export default function LiveVideoRecording() {
       const { data: signed, error } = await supabase.storage
         .from(BUCKET)
         .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
-      if (error) throw error;
+      if (error || !signed?.signedUrl) throw error || new Error("No signed URL");
 
-      Alert.alert("Uploaded", "Signed URL created for your video.");
+      return { objectPath, signedUrl: signed.signedUrl };
     } catch (e: any) {
       console.warn("Upload error:", e?.message || e);
       Alert.alert("Upload failed", "Please try again later.");
+      return null;
+    }
+  };
+
+  // Legacy hook (kept for “Upload to cloud” button)
+  const uploadVideo = async () => {
+    const up = await uploadVideoAndGetSignedUrl();
+    if (up) Alert.alert("Uploaded", `Saved as ${up.objectPath}`);
+  };
+
+  // ===== AI analysis trigger (ported from Private) =====
+  const handleViewAIAnalysis = async () => {
+    try {
+      setShowEndSessionModal(false);
+      setShowCompletionModal(true);
+      setIsProcessing(true);
+      setShowResultsPrompt(false);
+
+      // 1) ensure video is uploaded and get a signed URL
+      const uploaded = await uploadVideoAndGetSignedUrl();
+      if (!uploaded?.signedUrl) {
+        setIsProcessing(false);
+        Alert.alert("Upload error", "Could not upload video for analysis.");
+        return;
+      }
+
+      // 2) SERVER: extract/process audio from the video
+      //    Expect your FastAPI to accept { media_url, source } and return { audio_id }
+      const proc = await axios.post(`${API_BASE}/process-audio`, {
+        media_url: uploaded.signedUrl,
+        source: "video", // server should handle extracting audio from MOV
+      });
+
+      const audio_id = proc?.data?.audio_id;
+      if (!audio_id) {
+        throw new Error("No audio_id returned from /process-audio");
+      }
+
+      // 3) SERVER: analyze feedback for speaking (returns ai_feedback text or object)
+      const analysis = await axios.post(`${API_BASE}/analyze-feedback`, {
+        audio_id,
+        // include any extra fields you use on Private:
+        // lessonPrompt, topic, criteria, user info, etc.
+      });
+
+      const feedbackText =
+        analysis?.data?.ai_feedback ||
+        analysis?.data?.summary ||
+        "Analysis complete. View your results.";
+
+      setAiFeedback(typeof feedbackText === "string" ? feedbackText : JSON.stringify(feedbackText));
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+    } catch (err: any) {
+      console.error("AI analysis error:", err?.message || err);
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+      setAiFeedback("We couldn’t complete the analysis. Please try again later.");
+      Alert.alert("Analysis failed", "There was a problem analyzing your recording.");
     }
   };
 
@@ -858,13 +929,7 @@ export default function LiveVideoRecording() {
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={() => {
-          // show results modal; upload already happened on "Continue"
-          setShowEndSessionModal(false);
-          setShowCompletionModal(true);
-          setIsProcessing(false);
-          setShowResultsPrompt(true);
-        }}
+        onViewAIAnalysis={handleViewAIAnalysis} // 🔗 now runs the AI pipeline
         onDownloadVideo={async () => {
           try {
             setIsDownloading(true);
@@ -901,7 +966,7 @@ export default function LiveVideoRecording() {
         }}
       />
 
-      {/* Completion Modal (kept) */}
+      {/* Completion Modal */}
       <CompletionModal
         visible={showCompletionModal}
         showResultsPrompt={showResultsPrompt}
@@ -1003,7 +1068,7 @@ export default function LiveVideoRecording() {
                   <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
                     <TouchableOpacity
                       onPress={async () => {
-                        // ⬅️ Upload MP4 first, then show End Session modal
+                        // Upload first (for AI), then let user choose
                         await uploadVideo();
                         setShowEndSessionModal(true);
                       }}
