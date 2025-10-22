@@ -1,5 +1,4 @@
 // ...existing code...
-
 import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
@@ -15,7 +14,6 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
-
 
 type Question = {
   question: string;
@@ -120,7 +118,6 @@ const PreAssessmentScreen = () => {
   const [saving, setSaving] = useState(false); // ⬅️ added
 
   // ⬅️ guard: only new students should be here
-  
   useEffect(() => {
     (async () => {
       const { data: userRes } = await supabase.auth.getUser();
@@ -165,36 +162,53 @@ const PreAssessmentScreen = () => {
 
   // ⬅️ save completion to Supabase then route home
   const completeAssessment = useCallback(async () => {
-    try {
-      setSaving(true);
-      const { data: userRes } = await supabase.auth.getUser();
-      const user = userRes?.user;
-      if (!user) {
-        Alert.alert("Session expired", "Please sign in again.");
-        router.replace(LOGIN_STUDENT_ROUTE);
-        return;
-      }
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ has_completed_preassessment: true })
-        .eq("id", user.id);
-
-      if (error) {
-        Alert.alert(
-          "Save failed",
-          error.message || "Could not save your pre-assessment."
-        );
-        return;
-      }
-
-      router.replace(HOME_ROUTE);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Something went wrong.");
-    } finally {
-      setSaving(false);
+  try {
+    setSaving(true);
+    const { data: userRes } = await supabase.auth.getUser();
+    const user = userRes?.user;
+    if (!user) {
+      Alert.alert("Session expired", "Please sign in again.");
+      router.replace(LOGIN_STUDENT_ROUTE);
+      return;
     }
-  }, [router]);
+
+    // Call the new API endpoint
+    const response = await fetch(`https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-pre-assessment`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        student_id: user.id,
+        answers: answers
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to process pre-assessment');
+    }
+
+    // Update profile completion status
+    const { error } = await supabase
+      .from("profiles")
+      .update({ has_completed_preassessment: true })
+      .eq("id", user.id);
+
+    if (error) {
+      Alert.alert(
+        "Save failed",
+        error.message || "Could not save your pre-assessment."
+      );
+      return;
+    }
+
+    router.replace(HOME_ROUTE);
+  } catch (e: any) {
+    Alert.alert("Error", e?.message || "Something went wrong.");
+  } finally {
+    setSaving(false);
+  }
+}, [router, answers]);
 
   const goNext = useCallback(async () => {
     if (answers[current] === null) {
