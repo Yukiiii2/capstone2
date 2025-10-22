@@ -116,6 +116,8 @@ const PreAssessmentScreen = () => {
   );
   const [showError, setShowError] = useState(false);
   const [saving, setSaving] = useState(false); // ⬅️ added
+   // Move isRedirecting state inside component
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   // ⬅️ guard: only new students should be here
   useEffect(() => {
@@ -161,7 +163,8 @@ const PreAssessmentScreen = () => {
   );
 
   // ⬅️ save completion to Supabase then route home
-  const completeAssessment = useCallback(async () => {
+  // Update the completeAssessment function
+const completeAssessment = useCallback(async () => {
   try {
     setSaving(true);
     const { data: userRes } = await supabase.auth.getUser();
@@ -172,7 +175,7 @@ const PreAssessmentScreen = () => {
       return;
     }
 
-    // Call the new API endpoint
+    // Call the API endpoint
     const response = await fetch(`https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-pre-assessment`, {
       method: 'POST',
       headers: {
@@ -202,11 +205,17 @@ const PreAssessmentScreen = () => {
       return;
     }
 
+    setIsRedirecting(true);
+    
+    // Add a small delay for better UX
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     router.replace(HOME_ROUTE);
   } catch (e: any) {
     Alert.alert("Error", e?.message || "Something went wrong.");
   } finally {
     setSaving(false);
+    setIsRedirecting(false);
   }
 }, [router, answers]);
 
@@ -308,7 +317,9 @@ const PreAssessmentScreen = () => {
                   <Text className="text-white text-base font-medium">
                     {current === QUESTIONS.length - 1
                       ? saving
-                        ? "Saving..."
+                        ? isRedirecting 
+                          ? "Redirecting..." 
+                          : "Saving..."
                         : "Complete"
                       : "Next"}
                   </Text>
