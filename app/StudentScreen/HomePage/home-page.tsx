@@ -232,14 +232,14 @@ const [cachedConfidenceScores, setCachedConfidenceScores] = useState({
   });
 
   const speakingProgress = React.useMemo(() => {
-    const total = moduleCounts.completedSpeaking + moduleCounts.upcomingSpeaking;
-    return total ? moduleCounts.completedSpeaking / total : 0; // 0..1
-  }, [moduleCounts]);
+    // Convert confidence score to 0-1 range
+    return confidenceScores.speaking / 100;
+}, [confidenceScores.speaking]);
 
-  const readingProgress = React.useMemo(() => {
-    const total = moduleCounts.completedReading + moduleCounts.upcomingReading;
-    return total ? moduleCounts.completedReading / total : 0; // 0..1
-  }, [moduleCounts]);
+const readingProgress = React.useMemo(() => {
+    // Convert confidence score to 0-1 range
+    return confidenceScores.reading / 100;
+}, [confidenceScores.reading]);
 
   // 🔢 Derived percents for display
   const speakingPercent = confidenceScores.speaking;
@@ -297,8 +297,8 @@ const fetchConfidenceScoreCache = useCallback(async () => {
 
       // Update cachedConfidenceScores instead of confidenceScores
       setCachedConfidenceScores({
-        speaking: cachedScores.confidence_score_speaking || 0,
-        reading: cachedScores.confidence_score_reading || 0,
+        speaking: cachedScores.confidence_score_speaking,
+        reading: cachedScores.confidence_score_reading,
         lastUpdated: cachedScores.updated_at
       });
     }
@@ -357,6 +357,7 @@ const fetchConfidenceScores = useCallback(async () => {
   // ---- mount: initial profile load (kept) ----
   
   useEffect(() => {
+    
     let mounted = true;
     const loadUser = async () => {
       const { data: auth } = await supabase.auth.getUser();
@@ -684,6 +685,17 @@ const fetchConfidenceScores = useCallback(async () => {
       if (channel) supabase.removeChannel(channel);
     };
   }, [fetchCounts, fetchAverageConfidence]);
+
+  // Update the stats whenever confidence scores change
+useEffect(() => {
+    const averageConfidence = Math.round((confidenceScores.speaking + confidenceScores.reading) / 2);
+    setStats(prev => ({
+        ...prev,
+        averageConfidence: averageConfidence
+    }));
+}, [confidenceScores.speaking, confidenceScores.reading]);
+
+
 
   // NEW: realtime for modules table so counts refresh when modules change
   useEffect(() => {
