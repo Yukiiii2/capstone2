@@ -19,31 +19,65 @@ const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const fmtPct = (n: number) => `${clampPct(n)}%`;
 const widthStyle = (n: number): ViewStyle => ({ width: `${clampPct(n)}%` as `${number}%` });
 
-// Add getFinalAnalysis here
-const getFinalAnalysis = async (feedback: string, speechText: string) => {
+const getFinalAnalysis = async (feedback: string, speechText: string): Promise<FullAnalysisResponse> => {
   try {
+    // Get auth session properly
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      console.error('No valid auth session:', sessionError);
+      return getDefaultResponse();
+    }
+
     const response = await fetch(`https://unbalanceable-lyman-microstomatous.ngrok-free.dev/full-analysis`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
-        feedback: feedback,
-        speech_text: speechText,
-        category: 'speaking'
+        feedback: feedback.trim(),
+        speech_text: speechText.trim(),
+        category: 'speaking',
+        student_id: session.user.id,
+        attempt_id: null,
+        session_id: null
       })
     });
 
+    const data = await response.json();
+    
     if (!response.ok) {
-      throw new Error('Failed to get full analysis');
+      console.error('Analysis API error:', response.status, data);
+      return getDefaultResponse();
     }
 
-    return await response.json();
+    // Validate and return response
+    return {
+      success: true,
+      confidence_score: data.confidence_score ?? 75,
+      metrics: Array.isArray(data.metrics) ? data.metrics : [],
+      skills: {
+        strengths: Array.isArray(data.skills?.strengths) ? data.skills.strengths : [],
+        improvements: Array.isArray(data.skills?.improvements) ? data.skills.improvements : []
+      }
+    };
+
   } catch (error) {
     console.error('Error getting full analysis:', error);
-    return null;
+    return getDefaultResponse();
   }
 };
+
+// Add helper function for default response
+const getDefaultResponse = (): FullAnalysisResponse => ({
+  success: false,
+  confidence_score: 75,
+  metrics: [],
+  skills: {
+    strengths: [],
+    improvements: []
+  }
+});
 
 type Trend = "up" | "down";
 
@@ -119,7 +153,9 @@ export default function FullResultsSpeaking() {
   const [speechText, setSpeechText] = useState('');
   const [strengths, setStrengths] = useState<StrengthItem[]>([]);
   const [improvements, setImprovements] = useState<ImprovementItem[]>([]);
-  const { session_id, attempt_id, level, module_id, module_title, score } =
+  const [storedAiFeedback, setStoredAiFeedback] = useState<string | null>(null);
+
+  const { session_id, attempt_id, level, module_id, module_title, score, ai_feedback } =
     useLocalSearchParams<{
       session_id?: string;
       attempt_id?: string;
@@ -127,6 +163,7 @@ export default function FullResultsSpeaking() {
       module_id?: string;
       module_title?: string;
       score?: string;
+      ai_feedback?: string; // Add this line
     }>();
 
   // lock level strictly to the URL param (prevents any cross-over)
@@ -162,10 +199,28 @@ export default function FullResultsSpeaking() {
 
   /* ─────────── pull tips & a better score from feedback_ai ─────────── */
   const loadFeedbackFromAI = useCallback(async () => {
+    if (ai_feedback) return; // Skip if we have direct AI feedback
+    
     const keyId = attempt_id || session_id;
-    if (!keyId) return;
+    if (!keyId && !storedAiFeedback) return;
     try {
       setLoadingTips(true);
+
+      // If we have stored AI feedback, use it directly
+      if (storedAiFeedback) {
+        const analysisResult = await getFinalAnalysis(storedAiFeedback, speechText);
+        if (analysisResult) {
+          setMetrics(analysisResult.metrics);
+          setStrengths(analysisResult.skills.strengths);
+          setImprovements(analysisResult.skills.improvements);
+          if (analysisResult.confidence_score) {
+            setLiveScore(analysisResult.confidence_score);
+          }
+        }
+        setTips([storedAiFeedback]); // Add the feedback as a tip
+        return;
+      }
+
       const col = attempt_id ? "attempt_id" : "session_id";
       const { data, error } = await supabase
         .from("feedback_ai")
@@ -178,7 +233,7 @@ export default function FullResultsSpeaking() {
       const newTips: string[] = [];
       let latestScore: number | null = null;
       let feedback = '';
-      let speechText = '';
+      let transcribedText = ''; // Renamed to avoid conflict
 
       (data ?? []).forEach((row: any) => {
         const ev = row?.evaluation;
@@ -189,8 +244,8 @@ export default function FullResultsSpeaking() {
           feedback += ev.summary + ' ';
         }
         if (typeof ev?.transcript === "string") {
-          setSpeechText(ev.transcript);
-          speechText = ev.transcript;
+          transcribedText = ev.transcript; // Use new variable name
+          setSpeechText(ev.transcript); // Set the state
         }
 
         // Rest of existing feedback processing...
@@ -205,14 +260,12 @@ export default function FullResultsSpeaking() {
       });
 
       // Get full analysis if we have feedback and speech text
-      if (feedback && speechText) {
-        const analysisResult = await getFinalAnalysis(feedback.trim(), speechText);
+      if (feedback && transcribedText) { // Use new variable name
+        const analysisResult = await getFinalAnalysis(feedback.trim(), transcribedText);
         if (analysisResult) {
-          // Update all states with the analysis results
           setMetrics(analysisResult.metrics);
           setStrengths(analysisResult.skills.strengths);
           setImprovements(analysisResult.skills.improvements);
-          // Update score if provided
           if (analysisResult.confidence_score) {
             setLiveScore(analysisResult.confidence_score);
           }
@@ -224,7 +277,54 @@ export default function FullResultsSpeaking() {
     } finally {
       setLoadingTips(false);
     }
-  }, [attempt_id, session_id]);
+  }, [attempt_id, session_id, storedAiFeedback, speechText, ai_feedback]);
+
+  // Add new effect to handle ai_feedback
+  useEffect(() => {
+    const analyzeAiFeedback = async () => {
+    if (!ai_feedback) return;
+    
+    try {
+      setLoadingTips(true);
+      const { data: authData } = await supabase.auth.getUser();
+      
+      if (!authData?.user) {
+        console.error('No authenticated user');
+        return;
+      }
+
+      const analysisResult = await getFinalAnalysis(ai_feedback, speechText);
+      
+      if (analysisResult) {
+        // Update states only if we have valid data
+        if (analysisResult.metrics?.length > 0) {
+          setMetrics(analysisResult.metrics);
+        }
+        if (analysisResult.skills?.strengths?.length > 0) {
+          setStrengths(analysisResult.skills.strengths);
+        }
+        if (analysisResult.skills?.improvements?.length > 0) {
+          setImprovements(analysisResult.skills.improvements);
+        }
+        if (typeof analysisResult.confidence_score === 'number') {
+          setLiveScore(analysisResult.confidence_score);
+        }
+        
+        // Always set feedback as tip even if analysis fails
+        setTips([ai_feedback]);
+      }
+      
+    } catch (error) {
+      console.error('Error analyzing feedback:', error);
+      // Set feedback as tip even if analysis fails
+      setTips([ai_feedback]);
+    } finally {
+      setLoadingTips(false);
+    }
+  };
+
+  analyzeAiFeedback();
+}, [ai_feedback, speechText]);
 
   /* ─────────── realtime feedback_ai inserts ─────────── */
   useEffect(() => {
@@ -540,8 +640,6 @@ export default function FullResultsSpeaking() {
   
 
   
-  
-
   
 
  

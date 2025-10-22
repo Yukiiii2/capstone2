@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useFocusEffect } from "expo-router";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 import ProfileMenu from "@/components/ProfileModal/ProfileMenuNew";
 import { supabase } from "@/lib/supabaseClient";
@@ -134,69 +134,65 @@ const SpeakingHome = () => {
   }, []);
 
   // ---- pull aggregate progress for Basic/Advanced from Supabase ----
-  useEffect(() => {
-    let cancel = false;
+  useFocusEffect(
+    React.useCallback(() => {
+      let cancel = false;
 
-    const loadTrackProgress = async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const user = auth?.user;
-      if (!user || cancel) return;
+      const loadTrackProgress = async () => {
+        const { data: auth } = await supabase.auth.getUser();
+        const user = auth?.user;
+        if (!user || cancel) return;
 
-      // helper that computes average progress for a level (basic/advanced)
-      const computeLevelProgress = async (level: "basic" | "advanced"): Promise<number> => {
-        // 1) fetch modules in this track
-        const { data: mods, error: modsErr } = await supabase
-          .from("modules")
-          .select("id")
-          .eq("category", "speaking")
-          .eq("level", level)
-          .eq("active", true);
+        // helper that computes average progress for a level (basic/advanced)
+        const computeLevelProgress = async (level: "basic" | "advanced"): Promise<number> => {
+          // 1) fetch modules in this track
+          const { data: mods, error: modsErr } = await supabase
+            .from("modules")
+            .select("id")
+            .eq("category", "speaking")
+            .eq("level", level)
+            .eq("active", true);
 
-        if (modsErr || !mods?.length) return 0;
+          if (modsErr || !mods?.length) return 0;
 
-        const moduleIds = mods.map((m) => m.id);
-        // 2) fetch student_progress rows for these modules
-        const { data: rows, error: spErr } = await supabase
-          .from("student_progress")
-          .select("module_id, progress")
-          .eq("student_id", user.id)
-          .in("module_id", moduleIds);
+          const moduleIds = mods.map((m) => m.id);
+          // 2) fetch student_progress rows for these modules
+          const { data: rows, error: spErr } = await supabase
+            .from("student_progress")
+            .select("module_id, progress")
+            .eq("student_id", user.id)
+            .in("module_id", moduleIds);
 
-        if (spErr) return 0;
+          if (spErr) return 0;
 
-        // 3) average progress across all modules in this track (treat missing as 0)
-        const sum = (rows ?? []).reduce((acc, r) => acc + (r.progress ?? 0), 0);
-        const totalModules = moduleIds.length;
-        const avgPercent = sum / totalModules; // still 0..100
-        const normalized = Math.max(0, Math.min(1, Math.round(avgPercent) / 100));
-        return normalized;
+          // 3) average progress across all modules in this track (treat missing as 0)
+          const sum = (rows ?? []).reduce((acc, r) => acc + (r.progress ?? 0), 0);
+          const totalModules = moduleIds.length;
+          const avgPercent = sum / totalModules; // still 0..100
+          const normalized = Math.max(0, Math.min(1, Math.round(avgPercent) / 100));
+          return normalized;
+        };
+
+        try {
+          const [basic, advanced] = await Promise.all([
+            computeLevelProgress("basic"),
+            computeLevelProgress("advanced"),
+          ]);
+          if (!cancel) {
+            setBasicProgress(basic);
+            setAdvancedProgress(advanced);
+          }
+        } catch {
+          // ignore
+        }
       };
 
-      try {
-        const [basic, advanced] = await Promise.all([
-          computeLevelProgress("basic"),
-          computeLevelProgress("advanced"),
-        ]);
-        if (!cancel) {
-          setBasicProgress(basic);
-          setAdvancedProgress(advanced);
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    loadTrackProgress();
-
-    // optional: refresh when you come back to this screen
-    const focusSub = router?.addListener?.("focus", loadTrackProgress);
-
-    return () => {
-      cancel = true;
-      // @ts-ignore
-      if (focusSub && typeof focusSub.remove === "function") focusSub.remove();
-    };
-  }, [router]);
+      loadTrackProgress();
+      return () => {
+        cancel = true;
+      };
+    }, [])
+  );
 
   // ----- header & handlers -----
   const handleIconPress = (iconName: string) => {
