@@ -28,14 +28,18 @@
   },
   "typeRoots": [
     "./node_modules/@types",
-    "./src/types"
+    "./src/types",
+    "./backend/iot_workspace"
+
   ],
   "include": [
     "app",
     "backend/lib",
      "components",
     "**/*.d.ts",
-    "src/types/**/*.d.ts"
+    "src/types/**/*.d.ts",
+    "backend/iot_workspace/**/*"
+
   ],
   "extends": "expo/tsconfig.base"
 }

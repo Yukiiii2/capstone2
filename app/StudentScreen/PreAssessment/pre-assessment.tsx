@@ -1,4 +1,5 @@
 // ...existing code...
+
 import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
@@ -14,6 +15,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabaseClient"; // ⬅️ added
+
 
 type Question = {
   question: string;
@@ -118,6 +120,7 @@ const PreAssessmentScreen = () => {
   const [saving, setSaving] = useState(false); // ⬅️ added
 
   // ⬅️ guard: only new students should be here
+  
   useEffect(() => {
     (async () => {
       const { data: userRes } = await supabase.auth.getUser();

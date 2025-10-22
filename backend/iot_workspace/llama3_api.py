@@ -19,6 +19,8 @@ import os
 import tempfile
 import wave
 import difflib
+
+import re
 from textblob import TextBlob  # Import TextBlob for sentiment analysis
 import textstat  # Import textstat for readability analysis
 import subprocess
@@ -107,6 +109,10 @@ global_feedback = {}
 # =========================
 # Request Models
 # =========================
+class PreAssessmentRequest(BaseModel):
+    student_id: str
+    answers: list[int]
+
 class SpeechFeedbackRequest(BaseModel):
     student_id: str | None = None
     attempt_id: str | None = None
@@ -136,6 +142,97 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Invalid token")
     
     return {"user": user}
+
+@app.post("/process-pre-assessment")
+async def process_pre_assessment(request: PreAssessmentRequest):
+    """Process pre-assessment answers and generate initial confidence scores"""
+    try:
+        # Calculate initial averages
+        speaking_questions = [0, 1, 2, 4]  # indices for speaking-related questions
+        reading_questions = [3, 5]  # indices for reading-related questions
+
+        speakingAvg = round(
+            (sum(request.answers[i] for i in speaking_questions) / len(speaking_questions)) * 20
+        )
+        readingAvg = round(
+            (sum(request.answers[i] for i in reading_questions) / len(reading_questions)) * 20
+        )
+
+        # Prepare prompt for Llama3
+        prompt = f"""
+        Analyze this student's pre-assessment results and suggest confidence scores.
+        
+        Assessment responses (1-5 scale):
+        1. Public speaking confidence: {request.answers[0]}
+        2. Anxiety management: {request.answers[1]}
+        3. Thought organization: {request.answers[2]}
+        4. Reading aloud confidence: {request.answers[3]}
+        5. Impromptu speaking: {request.answers[4]}
+        6. Overall satisfaction: {request.answers[5]}
+
+        Initial calculations:
+        Speaking average: {speakingAvg}/100
+        Reading average: {readingAvg}/100
+
+        Based on these responses, provide adjusted confidence scores that:
+        1. Consider the psychological aspects of self-assessment
+        2. Account for potential under/over estimation
+        3. Provide a balanced starting point for improvement
+        
+        Respond in this exact format:
+        speaking_score: [number]
+        reading_score: [number]
+        explanation: [brief analysis]
+        """
+
+        # Get Llama3 analysis
+        analyzer = FeedbackAnalyzer()
+        analysis = await analyzer.llm.analyze(prompt)
+
+        # Parse scores from Llama3 response
+        speaking_match = re.search(r'speaking_score:\s*(\d+)', str(analysis).lower())
+        reading_match = re.search(r'reading_score:\s*(\d+)', str(analysis).lower())
+
+        speaking_score = min(100, max(0, int(speaking_match.group(1)))) if speaking_match else speakingAvg
+        reading_score = min(100, max(0, int(reading_match.group(1)))) if reading_match else readingAvg
+
+        # Store in confidence_anxiety_score table
+        confidence_data = {
+            "student_id": request.student_id,
+            "confidence_score_speaking": speaking_score,
+            "confidence_score_reading": reading_score,
+            "total_speaking_attempts": 0,
+            "total_reading_attempts": 0,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "pre_assessment_data": {
+                "raw_answers": request.answers,
+                "initial_speaking_avg": speakingAvg,
+                "initial_reading_avg": readingAvg,
+                "llama_analysis": analysis
+            }
+        }
+
+        response = await supabase.table("confidence_anxiety_score").insert(confidence_data).execute()
+
+        if "error" in response:
+            raise HTTPException(status_code=500, detail="Failed to save confidence scores")
+
+        return {
+            "success": True,
+            "scores": {
+                "speaking": speaking_score,
+                "reading": reading_score
+            },
+            "analysis": analysis,
+            "message": "Pre-assessment processed successfully"
+        }
+
+    except Exception as e:
+        print(f"Error processing pre-assessment: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to process pre-assessment: {str(e)}"
+        )
 
 @app.get("/analyze-confidence/{student_id}")
 async def analyze_confidence(student_id: str):
