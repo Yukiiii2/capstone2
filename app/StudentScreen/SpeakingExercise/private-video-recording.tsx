@@ -41,9 +41,8 @@ import {
   VideoFile,
 } from "react-native-vision-camera";
 
-// ❌ Removed expo-av & expo-camera imports
-// import { Camera, CameraType } from "expo-camera";
-// import { Audio } from "expo-av";
+// ✅ bring back expo-av for AI audio sidecar (UNTOUCHED logic relies on this)
+import { Audio } from "expo-av";
 import axios from "axios";
 
 /* ---- Base64 -> Uint8Array (kept, used for uploads if needed) ---- */
@@ -164,6 +163,10 @@ export default function PrivateVideoRecording() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
   const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+  const [expectedText, setExpectedText] = useState<string | null>(null);
+
+  // ====== AI logic state (UNTOUCHED) ======
+  const [selectedAudioFile, setSelectedAudioFile] = useState<any | null>(null);
   const [expectedText, setExpectedText] = useState<string | null>(null);
 
   // avatar
@@ -452,14 +455,18 @@ export default function PrivateVideoRecording() {
     Animated.parallel(anis).start();
   }, [isProfileMenuVisible]);
 
-  // 🔐 Permissions helper (Vision Camera)
+  // 🔐 Permissions helper (Vision Camera) + expo-av mic for sidecar
   const ensurePermissions = async () => {
     try {
       let cam = hasCamPerm;
       let mic = hasMicPerm;
       if (!cam) cam = await reqCam();
       if (!mic) mic = await reqMic();
-      if (!cam || !mic) {
+
+      const micPermission = await Audio.requestPermissionsAsync();
+      const ok = !!cam && !!mic && micPermission?.status === "granted";
+
+      if (!ok) {
         Alert.alert(
           "Permission required",
           "Camera and microphone permissions are needed to record video.",
@@ -500,7 +507,159 @@ export default function PrivateVideoRecording() {
     }
   }, [isFullScreen, isRecording]);
 
-  // ===== Camera start/stop (like Live) =====
+  // ====================== AI AUDIO SIDECAR (UNTOUCHED LOGIC) ======================
+  const audioRecordingRef = useRef<Audio.Recording | null>(null);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null); // .m4a
+  const [uploadUrl, setUploadUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [didAutoUpload, setDidAutoUpload] = useState(false);
+
+  async function setAudioModeCompatRecording() {
+    const A: any = Audio as any;
+    const mode: any = {
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    };
+    if (A?.InterruptionModeIOS?.DoNotMix != null) {
+      mode.interruptionModeIOS = A.InterruptionModeIOS.DoNotMix;
+    } else if (A?.INTERRUPTION_MODE_IOS_DO_NOT_MIX != null) {
+      mode.interruptionModeIOS = A.INTERRUPTION_MODE_IOS_DO_NOT_MIX;
+    }
+    if (A?.InterruptionModeAndroid?.DoNotMix != null) {
+      mode.interruptionModeAndroid = A.InterruptionModeAndroid.DoNotMix;
+    } else if (A?.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX != null) {
+      mode.interruptionModeAndroid = A.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX;
+    }
+    await Audio.setAudioModeAsync(mode);
+  }
+  async function setAudioModeCompatIdle() {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    } as any);
+  }
+
+  const startAudioRecording = async () => {
+    try {
+      const ok = await ensurePermissions();
+      if (!ok) return false;
+
+      await setAudioModeCompatRecording();
+
+      const rec = new Audio.Recording();
+      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await rec.startAsync();
+
+      audioRecordingRef.current = rec;
+      setRecordedUri(null);
+      setUploadUrl(null);
+
+      // do not flip global isRecording; camera controls that UI
+      return true;
+    } catch (e: any) {
+      Alert.alert("Audio error", String(e?.message || e));
+      return false;
+    }
+  };
+
+  const stopAudioRecording = async () => {
+    try {
+      const rec = audioRecordingRef.current;
+      if (!rec) return null;
+
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      audioRecordingRef.current = null;
+
+      if (uri) {
+        setRecordedUri(uri);
+
+        // *** UNTOUCHED: AI expects a File-like object ***
+        const audioFile = {
+          uri,
+          name: `recording-${Date.now()}.m4a`,
+          type: "audio/m4a",
+        };
+        setSelectedAudioFile(audioFile as any);
+      }
+      // *** UNTOUCHED: expected text fed to AI ***
+      if (generatedScript) {
+        setExpectedText(generatedScript);
+        console.log("Expected Text Set:", generatedScript);
+      }
+
+      await setAudioModeCompatIdle();
+      return uri;
+    } catch (e) {
+      console.error("Error stopping audio recording:", e);
+      return null;
+    }
+  };
+
+  // ---------- Upload (unchanged; .m4a into 'recordings') ----------
+  const uploadAudio = async () => {
+    if (!recordedUri) return;
+    try {
+      setIsUploading(true);
+
+      const filename = `private-${Date.now()}.m4a`;
+      const objectPath = `${filename}`;
+
+      const base64 = await FileSystem.readAsStringAsync(recordedUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const bytes = base64ToUint8Array(base64);
+      const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+
+      // try with audio/mp4 (m4a), fallback to octet-stream
+      let res = await supabase.storage
+        .from("recordings")
+        .upload(objectPath, buf as ArrayBuffer, {
+          contentType: "audio/mp4",
+          upsert: false,
+        });
+      if (res.error && /mime type .* not supported/i.test(res.error.message || "")) {
+        res = await supabase.storage
+          .from("recordings")
+          .upload(objectPath, buf as ArrayBuffer, {
+            contentType: "application/octet-stream",
+            upsert: false,
+          });
+      }
+      if (res.error) throw res.error;
+
+      const signed = await supabase.storage
+        .from("recordings")
+        .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
+      if (signed.error) throw signed.error;
+
+      setUploadUrl(signed.data?.signedUrl ?? null);
+    } catch (e: any) {
+      console.warn("[upload] failed:", e?.message || e);
+      Alert.alert(
+        "Upload failed",
+        "Check your connection and Supabase storage policies for the 'recordings' bucket."
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // auto-upload when end-session modal opens (once)
+  useEffect(() => {
+    if (showEndSessionModal && !didAutoUpload) {
+      setDidAutoUpload(true);
+      if (recordedUri && !uploadUrl && !isUploading) {
+        uploadAudio().catch(() => {});
+      }
+    }
+    if (!showEndSessionModal) setDidAutoUpload(false);
+  }, [showEndSessionModal, recordedUri, uploadUrl, isUploading, didAutoUpload]);
+
+  // ====================== Camera start/stop (now also runs audio sidecar) ======================
   const handleStartPress = async () => {
     const ok = await ensurePermissions();
     if (!ok) return;
@@ -518,23 +677,33 @@ export default function PrivateVideoRecording() {
   const startRecordingNow = async () => {
     if (!cameraRefVC.current || !cameraReady || isRecording) return;
     try {
+      // start AI audio sidecar BEFORE video
+      await startAudioRecording();
+
       setIsRecording(true);
       startTimer();
       await cameraRefVC.current.startRecording({
         flash: "off",
-        onRecordingFinished: (video: VideoFile) => {
+        onRecordingFinished: async (video: VideoFile) => {
           stopTimer();
           setRecordedVideoPath(video.path ?? null);
           setIsRecording(false);
           setIsFullScreen(false);
           setShowContinueButton(true);
+
+          // stop audio sidecar after video completes
+          await stopAudioRecording();
         },
-        onRecordingError: (err) => {
+        onRecordingError: async (err) => {
           console.error("Recording error:", err);
           stopTimer();
           setIsRecording(false);
           setIsFullScreen(false);
           setShowContinueButton(false);
+
+          // ensure audio sidecar stopped
+          await stopAudioRecording();
+
           Alert.alert("Recording failed", "Please try again.");
         },
       });
@@ -544,6 +713,9 @@ export default function PrivateVideoRecording() {
       setIsRecording(false);
       setIsFullScreen(false);
       setShowContinueButton(false);
+
+      // ensure audio sidecar stopped
+      await stopAudioRecording();
       Alert.alert("Camera not ready", "Please try again.");
     }
   };
@@ -568,6 +740,9 @@ export default function PrivateVideoRecording() {
       stopTimer();
       setIsRecording(false);
       setShowContinueButton((prev) => prev || !!recordedVideoPath);
+
+      // ensure audio sidecar stopped
+      await stopAudioRecording();
     }
   };
 
@@ -811,16 +986,74 @@ export default function PrivateVideoRecording() {
     else if (iconName === "notifications") router.push("/ButtonIcon/notification");
   };
 
-  // ✅ OPEN COMPLETION MODAL (mirror live behavior for video)
+  // ===================== AI ANALYSIS (UNTOUCHED CODE) =====================
   const handleViewAIAnalysis = async () => {
-    if (!recordedVideoPath) {
-      Alert.alert("Error", "No video found. Please record a session first.");
+    if (!selectedAudioFile) {
+      Alert.alert("Error", "No audio file found. Please record a session first.");
       return;
     }
+
+    // Show the CompletionModal and set it to "Processing" state
     setIsCompletionModalVisible(true);
-    setIsProcessing(false);
-    setShowResultsPrompt(true);
+    setIsProcessing(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("User is not logged in.");
+      }
+
+      const token = session.access_token;
+
+      const formData = new FormData();
+      formData.append("file", selectedAudioFile as any);
+      if (expectedText) formData.append("expected_text", expectedText);
+      if (criteria) formData.append("criteria", criteria);
+
+      // Call /process-audio
+      const processAudioResponse = await axios.post(
+        "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-audio",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const { transcription, spacy_stats } = processAudioResponse.data;
+
+      // Call /analyze-feedback
+      const analyzeFeedbackResponse = await axios.post(
+        "https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-feedback",
+        {
+          speech_text: transcription,
+          spacy_stats,
+          criteria,
+          category: "speaking",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const { ai_feedback } = analyzeFeedbackResponse.data;
+      setAiFeedback(ai_feedback); // Store the AI feedback
+    } catch (error) {
+      console.error("Error processing audio or analyzing feedback:", error);
+      Alert.alert(
+        "Error",
+        "An error occurred while processing the audio or analyzing feedback. Please try again."
+      );
+    } finally {
+      setIsProcessing(false); // Stop processing
+    }
   };
+  // =======================================================================
 
   // Save to gallery (video)
   const downloadVideo = async () => {
@@ -945,11 +1178,11 @@ export default function PrivateVideoRecording() {
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis}
+        onViewAIAnalysis={handleViewAIAnalysis}   // ✅ runs your AI pipeline
         onDownloadVideo={downloadVideo}
       />
 
-      {/* ✅ Completion modal that mirrors Live: shows results prompt */}
+      {/* ✅ Completion modal that mirrors Live */}
       <CompletionModal
         visible={isCompletionModalVisible}
         showResultsPrompt={showResultsPrompt}
@@ -1041,7 +1274,9 @@ export default function PrivateVideoRecording() {
                       onPress={() => setShowEndSessionModal(true)}
                       className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
-                      <Text className="text-white font-semibold">Continue</Text>
+                      <Text className="text-white font-semibold">
+                        {isUploading && !uploadUrl ? "Uploading…" : "Continue"}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
