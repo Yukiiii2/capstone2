@@ -158,6 +158,10 @@ async def process_pre_assessment(request: PreAssessmentRequest):
             (sum(request.answers[i] for i in reading_questions) / len(reading_questions)) * 20
         )
 
+        # Calculate initial anxiety levels (inverse of confidence)
+        anxiety_speaking = round(100 - speakingAvg)
+        anxiety_reading = round(100 - readingAvg)
+
         # Prepare prompt for Llama3
         prompt = f"""
         Analyze this student's pre-assessment results and suggest confidence scores.
@@ -185,9 +189,9 @@ async def process_pre_assessment(request: PreAssessmentRequest):
         explanation: [brief analysis]
         """
 
-        # Get Llama3 analysis
+        # Get Llama3 analysis - Remove await since analyze() isn't async
         analyzer = FeedbackAnalyzer()
-        analysis = await analyzer.llm.analyze(prompt)
+        analysis = analyzer.llm.analyze(prompt)  # Removed await
 
         # Parse scores from Llama3 response
         speaking_match = re.search(r'speaking_score:\s*(\d+)', str(analysis).lower())
@@ -196,23 +200,21 @@ async def process_pre_assessment(request: PreAssessmentRequest):
         speaking_score = min(100, max(0, int(speaking_match.group(1)))) if speaking_match else speakingAvg
         reading_score = min(100, max(0, int(reading_match.group(1)))) if reading_match else readingAvg
 
-        # Store in confidence_anxiety_score table
+        # Store in confidence_anxiety_score table with schema-compliant data
         confidence_data = {
             "student_id": request.student_id,
             "confidence_score_speaking": speaking_score,
             "confidence_score_reading": reading_score,
+            "anxiety_level_speaking": anxiety_speaking,
+            "anxiety_level_reading": anxiety_reading,
             "total_speaking_attempts": 0,
             "total_reading_attempts": 0,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "pre_assessment_data": {
-                "raw_answers": request.answers,
-                "initial_speaking_avg": speakingAvg,
-                "initial_reading_avg": readingAvg,
-                "llama_analysis": analysis
-            }
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
-        response = await supabase.table("confidence_anxiety_score").insert(confidence_data).execute()
+        # Execute Supabase insert without await since it's not async
+        response = supabase.table("confidence_anxiety_score").insert(confidence_data).execute()
 
         if "error" in response:
             raise HTTPException(status_code=500, detail="Failed to save confidence scores")
@@ -221,9 +223,11 @@ async def process_pre_assessment(request: PreAssessmentRequest):
             "success": True,
             "scores": {
                 "speaking": speaking_score,
-                "reading": reading_score
+                "reading": reading_score,
+                "anxiety_speaking": anxiety_speaking,
+                "anxiety_reading": anxiety_reading
             },
-            "analysis": analysis,
+            "analysis": str(analysis),  # Convert analysis to string
             "message": "Pre-assessment processed successfully"
         }
 
@@ -233,7 +237,6 @@ async def process_pre_assessment(request: PreAssessmentRequest):
             status_code=500, 
             detail=f"Failed to process pre-assessment: {str(e)}"
         )
-
 @app.get("/analyze-confidence/{student_id}")
 async def analyze_confidence(student_id: str):
     try:

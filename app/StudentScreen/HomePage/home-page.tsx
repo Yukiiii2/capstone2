@@ -232,14 +232,14 @@ const [cachedConfidenceScores, setCachedConfidenceScores] = useState({
   });
 
   const speakingProgress = React.useMemo(() => {
-    // Convert confidence score to 0-1 range
-    return confidenceScores.speaking / 100;
-}, [confidenceScores.speaking]);
+    // Convert cached confidence score to 0-1 range
+    return cachedConfidenceScores.speaking / 100;
+}, [cachedConfidenceScores.speaking]);
 
 const readingProgress = React.useMemo(() => {
-    // Convert confidence score to 0-1 range
-    return confidenceScores.reading / 100;
-}, [confidenceScores.reading]);
+    // Convert cached confidence score to 0-1 range
+    return cachedConfidenceScores.reading / 100;
+}, [cachedConfidenceScores.reading]);
 
   // 🔢 Derived percents for display
   const speakingPercent = confidenceScores.speaking;
@@ -355,6 +355,14 @@ const fetchConfidenceScores = useCallback(async () => {
 }, []);
 
   // ---- mount: initial profile load (kept) ----
+  // Add this useEffect to update average when confidence scores change
+useEffect(() => {
+    const averageConfidence = Math.round((cachedConfidenceScores.speaking + cachedConfidenceScores.reading) / 2);
+    setStats(prev => ({
+        ...prev,
+        averageConfidence: averageConfidence
+    }));
+}, [cachedConfidenceScores.speaking, cachedConfidenceScores.reading]);
   
   useEffect(() => {
     
@@ -584,33 +592,7 @@ const fetchConfidenceScores = useCallback(async () => {
     }));
   }, []);
 
-  // ====== NEW: confidence aggregation (backend logic only) ======
-  const fetchAverageConfidence = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth?.user?.id;
-    if (!uid) return;
-
-    const { data } = await supabase
-      .from("student_progress")
-      .select("confidence")
-      .eq("student_id", uid);
-
-    if (!data || data.length === 0) {
-      setStats({ averageConfidence: 0 });
-      return;
-    }
-
-    const vals = data
-      .map((d: any) => Number(d?.confidence))
-      .filter((n) => Number.isFinite(n) && n >= 0);
-    if (vals.length === 0) {
-      setStats({ averageConfidence: 0 });
-      return;
-    }
-
-    const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-    setStats({ averageConfidence: Math.max(0, Math.min(100, avg)) });
-  }, []);
+  
 
   // refresh on screen focus (profile/avatar + counts + confidence)
   useFocusEffect(
@@ -644,13 +626,13 @@ const fetchConfidenceScores = useCallback(async () => {
         if (cancelled) return;
         setAvatarUri(url);
 
-        await Promise.all([fetchCounts(), fetchAverageConfidence()]);
+        await Promise.all([fetchCounts()]);
       })();
 
       return () => {
         cancelled = true;
       };
-    }, [fetchCounts, fetchAverageConfidence])
+    }, [fetchCounts])
   );
 
   // realtime: recompute when this user's progress changes
@@ -674,7 +656,7 @@ const fetchConfidenceScores = useCallback(async () => {
           },
           () => {
             fetchCounts();
-            fetchAverageConfidence();
+            
             
           }
         )
@@ -684,7 +666,7 @@ const fetchConfidenceScores = useCallback(async () => {
     return () => {
       if (channel) supabase.removeChannel(channel);
     };
-  }, [fetchCounts, fetchAverageConfidence]);
+  }, [fetchCounts]);
 
   // Update the stats whenever confidence scores change
 useEffect(() => {
@@ -724,7 +706,7 @@ useEffect(() => {
 useEffect(() => {
     // Initial fetches
     fetchCounts();
-    fetchAverageConfidence();
+    
     fetchConfidenceScores();
     fetchConfidenceScoreCache();
 
@@ -739,7 +721,7 @@ useEffect(() => {
         console.log('🧹 Cleaning up confidence score interval');
       clearInterval(intervalId);
     };
-}, [fetchCounts, fetchAverageConfidence, fetchConfidenceScores, fetchConfidenceScoreCache]);
+}, [fetchCounts,  fetchConfidenceScores, fetchConfidenceScoreCache]);
 
   // ===== UI Components =====
   const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);

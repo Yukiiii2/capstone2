@@ -162,6 +162,8 @@ export default function PrivateVideoRecording() {
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
+  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
+  const [expectedText, setExpectedText] = useState<string | null>(null);
 
   // ====== AI logic state (UNTOUCHED) ======
   const [selectedAudioFile, setSelectedAudioFile] = useState<any | null>(null);
@@ -1120,18 +1122,8 @@ export default function PrivateVideoRecording() {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
-      {/* DEV HUD (optional) */}
-      {__DEV__ && (
-        <View style={{ position: "absolute", top: 8, left: 8, zIndex: 9999, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
-          <Text style={{ color: "white", fontSize: 10 }}>
-            mountCamera: {String(mountCamera)}{"\n"}
-            device: {device ? (useBack ? "back" : "front") : "none"}{"\n"}
-            perms cam/mic: {String(hasCamPerm)}/{String(hasMicPerm)}{"\n"}
-            fullscreen: {String(isFullScreen)} active: {String(cameraActive)}{"\n"}
-            ready: {String(cameraReady)} attempts: {initAttemptsRef.current}
-          </Text>
-        </View>
-      )}
+     
+     
 
       {mountCamera && device ? (
         <View
