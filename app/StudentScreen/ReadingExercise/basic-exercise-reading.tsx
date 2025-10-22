@@ -84,6 +84,9 @@ const HomeScreen = () => {
   const [userEmail, setUserEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
+  // 🔧 NEW: hydrate UI modules with progress from DB (defaults to MODULES)
+  const [modules, setModules] = useState<ModuleType[]>(MODULES);
+
   // ===== REFS =====
   const slideAnim = useRef(new Animated.Value(-50)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -225,13 +228,114 @@ const HomeScreen = () => {
     };
   }, []);
 
+  // 🔧 NEW: Load & reflect progress (latest 3) from student_progress -> modules
+  const loadReadingProgress = useCallback(async () => {
+    // 1) user
+    const { data: auth } = await supabase.auth.getUser();
+    const user = auth?.user;
+    if (!user) {
+      setModules(MODULES);
+      return;
+    }
+
+    // 2) map basic reading modules (id <-> title)
+    const { data: basicMods, error: modsErr } = await supabase
+      .from("modules")
+      .select("id, title")
+      .eq("category", "reading")
+      .eq("level", "basic")
+      .eq("active", true);
+    if (modsErr || !basicMods) {
+      setModules(MODULES);
+      return;
+    }
+
+    const idByTitle = new Map<string, string>();
+    basicMods.forEach(m => idByTitle.set(m.title, m.id));
+    const basicIds = basicMods.map(m => m.id);
+    if (basicIds.length === 0) {
+      setModules(MODULES);
+      return;
+    }
+
+    // 3) latest 3 rows for this user among those modules
+    const { data: progressRows } = await supabase
+      .from("student_progress")
+      .select("module_id, progress, updated_at, category")
+      .eq("student_id", user.id)
+      .eq("category", "reading")
+      .in("module_id", basicIds)
+      .order("updated_at", { ascending: false })
+      .limit(3);
+
+    const newestByModuleId = new Map<string, number>(); // id -> 0..100
+    (progressRows ?? []).forEach(r => {
+      if (!r?.module_id || typeof r?.progress !== "number") return;
+      if (!newestByModuleId.has(r.module_id)) {
+        const pct = Math.max(0, Math.min(100, r.progress));
+        newestByModuleId.set(r.module_id, pct);
+      }
+    });
+
+    // 4) merge into our three UI modules by title
+    setModules(prev =>
+      prev.map(m => {
+        const id = idByTitle.get(m.title);
+        const pct = id ? newestByModuleId.get(id) : undefined;
+        return { ...m, progress: typeof pct === "number" ? pct / 100 : 0 };
+      })
+    );
+  }, []);
+
+  // 🔧 NEW: load once and subscribe to realtime changes
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+
+    (async () => {
+      await loadReadingProgress();
+
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (!user) return;
+
+      const channel = supabase
+        .channel(`sp-reading:${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "student_progress",
+            filter: `student_id=eq.${user.id},category=eq.reading`,
+          },
+          () => {
+            // refresh UI (keeps only newest 3 reflected)
+            loadReadingProgress();
+          }
+        )
+        .subscribe();
+
+      unsub = () => {
+        try { supabase.removeChannel(channel); } catch {}
+      };
+    })();
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [loadReadingProgress]);
+
   // ===== UTILITY FUNCTIONS =====
-  const getProgressStatus = (progress: number) =>
-    progress < 0.3
-      ? "Getting Started"
-      : progress < 0.7
-        ? "In Progress"
-        : "Almost There";
+  // Replace your current getProgressStatus with this:
+const getProgressStatus = (progress: number) => {
+  // clamp to [0..1] to avoid float noise like 0.999999
+  const p = Math.max(0, Math.min(1, progress));
+  if (p >= 1) return "Completed";
+  if (p >= 0.7) return "Almost There";
+  if (p >= 0.3) return "In Progress";
+  return "Getting Started";
+};
+
 
   // ===== SUB-COMPONENTS =====
 
@@ -419,7 +523,7 @@ const HomeScreen = () => {
             <Text className="text-white text-xl font-bold mb-4">
               Start Learning
             </Text>
-            {MODULES.map((mod) => (
+            {modules.map((mod) => (
               <ModuleCard
                 key={mod.key}
                 mod={{ ...mod, isActive: selectedModule === mod.key }}

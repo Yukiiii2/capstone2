@@ -16,7 +16,7 @@ import LivesessionCommunityModal from "../../../components/StudentModal/Livesess
 import LevelSelectionModal from "../../../components/StudentModal/LevelSelectionModal";
 import NavigationBar from "../../../components/NavigationBar/nav-bar";
 
-/* ───────────── Supabase + avatar helpers (data only, no UI changes) ───────────── */
+/* ───────────── Supabase (logic only) ───────────── */
 import { supabase } from "@/lib/supabaseClient";
 
 const TRANSPARENT_PNG =
@@ -42,9 +42,8 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   if (signedRes.error) return null;
   return signedRes.data?.signedUrl ?? null;
 }
-/* ──────────────────────────────────────────────────────────────────────────────── */
 
-// Background Decorator Component
+/* ───────────── Background decor (UI unchanged) ───────────── */
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
     <View className="absolute left-0 right-0 top-0 bottom-0">
@@ -71,29 +70,26 @@ type Session = {
   viewers: string;
   time: string;
   duration: string;
-  isMyTeacher?: boolean; // reused as "Classmate" flag for your dropdown
+  isMyTeacher?: boolean;
 };
 
-/* Minimal DB rows */
 type LiveSessionRow = {
   id: string;
   host_id: string;
   title: string | null;
   viewers: number | null;
-  status: string | null;          // 'live'
-  level?: string | null;
-  started_at?: string | null;
+  status: string | null;
+  created_at?: string | null;
+  // joined profile (if RLS allows)
+  profiles?: { name: string | null } | null;
 };
 
-type ProfileRow = {
-  id: string;
-  name: string | null;
-};
+type ProfileRow = { id: string; name: string | null };
 
 const LIVE_TABLE = "live_sessions";
 const TEACHER_STUDENTS = "teacher_students";
 
-/* One static card kept exactly like your design */
+/* kept for when there are no lives */
 const STATIC_SESSION: Session = {
   id: "static-1",
   name: "Michael Chen",
@@ -102,7 +98,7 @@ const STATIC_SESSION: Session = {
   viewers: "1.2k",
   time: "LIVE NOW",
   duration: "45 min session",
-  isMyTeacher: true, // appears under "Classmate" filter in your UI
+  isMyTeacher: true,
 };
 
 const LiveSessions = () => {
@@ -114,16 +110,11 @@ const LiveSessions = () => {
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  /* header avatar like Home */
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string>("Student");
   const [email, setEmail] = useState<string>("");
 
-  /* dynamic sessions coming from Supabase + the static one */
-  const [sessions, setSessions] = useState<Session[]>([STATIC_SESSION]);
-
-  /* In your previous logic, this Set held teacher IDs.
-     Here we reuse the boolean to drive the "Classmate" filter UI without changing structure. */
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [classmateIds, setClassmateIds] = useState<Set<string>>(new Set());
 
   const handleIconPress = (iconName: string) => {
@@ -138,12 +129,8 @@ const LiveSessions = () => {
 
   const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
     setShowCommunityModal(false);
-    if (option === "Live Session") {
-      // We are already on the live list; just close. (Avoid self-navigation loop)
-      return;
-    } else if (option === "Community Post") {
-      router.push("/community-selection");
-    }
+    if (option === "Live Session") return;
+    if (option === "Community Post") router.push("/community-selection");
   };
 
   /* load user + avatar */
@@ -175,11 +162,12 @@ const LiveSessions = () => {
       if (!mounted) return;
       setAvatarUri(signed);
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  /* load "classmates" (reusing your teacher_students membership)
-     If you have a real classmates table later, plug it in here without touching UI. */
+  /* load “classmates” (reusing your teacher_students membership) */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -201,80 +189,112 @@ const LiveSessions = () => {
       });
       setClassmateIds(setIds);
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   /* fetch + subscribe to live sessions */
-  useEffect(() => {
-    let mounted = true;
+useEffect(() => {
+  let mounted = true;
 
-    const fetchLive = async () => {
-      try {
-        const { data, error } = await supabase
-          .from(LIVE_TABLE)
-          .select("id, host_id, title, viewers, status, level, started_at")
-          .eq("status", "live")
-          .order("started_at", { ascending: false });
+  const fetchLive = async () => {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id || "";
 
-        if (error || !mounted) {
-          setSessions([STATIC_SESSION]); // keep static on error
-          return;
-        }
+      // While testing, show your own lives too; flip to false to hide yours
+      const includeMine = true;
 
-        const rows = (data as LiveSessionRow[]) ?? [];
-        if (rows.length === 0) {
-          setSessions([STATIC_SESSION]);
-          return;
-        }
+      // NOTE: only select columns that exist in your table
+      const { data, error } = await supabase
+        .from(LIVE_TABLE)
+        .select("id, host_id, title, viewers, status, created_at")
+        .eq("status", "live")
+        .order("created_at", { ascending: false });
 
-        const hostIds = Array.from(new Set(rows.map(r => r.host_id)));
-        const { data: profs } = await supabase
+      if (error) {
+        console.log("[live-sessions-select] select error:", error);
+        if (mounted) setSessions([STATIC_SESSION]);
+        return;
+      }
+
+      // Normalize rows (avoid reassigning `data`)
+      let rows: LiveSessionRow[] = (data as LiveSessionRow[]) ?? [];
+
+      // Optional client-side filter to hide your own sessions
+      if (!includeMine && uid) {
+        rows = rows.filter((r) => r.host_id !== uid);
+      }
+
+      if (!mounted) return;
+
+      if (rows.length === 0) {
+        setSessions([STATIC_SESSION]);
+        return;
+      }
+
+      // Fetch host names
+      const hostIds = Array.from(new Set(rows.map((r) => r.host_id).filter(Boolean)));
+      let byId = new Map<string, ProfileRow>();
+
+      if (hostIds.length > 0) {
+        const { data: profs, error: profErr } = await supabase
           .from("profiles")
           .select("id, name")
           .in("id", hostIds);
 
-        const byId = new Map<string, ProfileRow>(
-          ((profs as ProfileRow[]) ?? []).map((p) => [p.id, p])
-        );
-
-        const mapped: Session[] = rows.map((r) => {
-          const host = byId.get(r.host_id);
-          return {
-            id: r.id,
-            name: (host?.name || "Unknown").toString(),
-            title: (r.title || "Live Session").toString(),
-            level: (r.level || "Basic").toString(),
-            viewers: String(r.viewers ?? 0),
-            time: "LIVE NOW",
-            duration: "45 min session",
-            // Reusing the boolean for your "Classmate" filter without changing UI
-            isMyTeacher: classmateIds.has(r.host_id),
-          };
-        });
-
-        // keep ONE static at the top + dynamic lives
-        setSessions([STATIC_SESSION, ...mapped]);
-      } catch {
-        setSessions([STATIC_SESSION]);
+        if (profErr) {
+          console.log("[live-sessions-select] profiles error:", profErr);
+        } else {
+          byId = new Map(((profs as ProfileRow[]) ?? []).map((p) => [p.id, p]));
+        }
       }
-    };
 
-    fetchLive();
+      const mapped: Session[] = rows.map((r) => {
+        const host = byId.get(r.host_id);
+        const fallbackName =
+          r.host_id ? `Host ${r.host_id.slice(0, 6)}` : "Unknown";
+        return {
+          id: r.id,
+          name: (host?.name || fallbackName).toString(),
+          title: (r.title || "Live Session").toString(),
+          // Your table has no `level` column; keep a safe default for UI
+          level: "Basic",
+          viewers: String(r.viewers ?? 0),
+          time: "LIVE NOW",
+          duration: "45 min session",
+          isMyTeacher: classmateIds.has(r.host_id),
+        };
+      });
 
-    const ch = supabase
-      .channel(`live_sessions:all`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: LIVE_TABLE },
-        () => fetchLive()
-      )
-      .subscribe();
+      // Keep the static card first, then the live sessions
+      setSessions([STATIC_SESSION, ...mapped]);
+    } catch (e: any) {
+      console.log("[live-sessions-select] unexpected error:", e?.message || e);
+      if (mounted) setSessions([STATIC_SESSION]);
+    }
+  };
 
-    return () => {
-      try { supabase.removeChannel(ch); } catch {}
-      mounted = false;
-    };
-  }, [classmateIds]);
+  fetchLive();
+
+  const ch = supabase
+    .channel(`live_sessions:all`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: LIVE_TABLE },
+      () => fetchLive()
+    )
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(ch);
+    } catch {}
+    mounted = false;
+  };
+}, [classmateIds]);
+
 
   return (
     <View className="flex-1 bg-[#0F172A]">
@@ -333,9 +353,7 @@ const LiveSessions = () => {
             >
               <View className="p-0.5 bg-white/10 rounded-full">
                 <Image
-                  source={{
-                    uri: avatarUri || TRANSPARENT_PNG,
-                  }}
+                  source={{ uri: avatarUri || TRANSPARENT_PNG }}
                   className="w-8 h-8 rounded-full"
                 />
               </View>
@@ -387,20 +405,12 @@ const LiveSessions = () => {
                     name="search"
                     size={16}
                     color="#94a3b8"
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: 12,
-                    }}
+                    style={{ position: "absolute", left: 12, top: 12 }}
                   />
                   {searchQuery.length > 0 && (
                     <TouchableOpacity
                       onPress={() => setSearchQuery("")}
-                      style={{
-                        position: "absolute",
-                        right: 12,
-                        top: 12,
-                      }}
+                      style={{ position: "absolute", right: 12, top: 12 }}
                     >
                       <Ionicons name="close-circle" size={16} color="#94a3b8" />
                     </TouchableOpacity>
@@ -420,19 +430,13 @@ const LiveSessions = () => {
                     <View className="absolute top-12 right-0 bg-[#1E293B] rounded-lg border border-white/20 z-10 w-40">
                       <TouchableOpacity
                         className="px-4 py-2.5 border-b border-white/10"
-                        onPress={() => {
-                          setSelectedFilter("Everyone");
-                          setShowFilterDropdown(false);
-                        }}
+                        onPress={() => { setSelectedFilter("Everyone"); setShowFilterDropdown(false); }}
                       >
                         <Text className="text-white text-sm">Everyone</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         className="px-4 py-2.5"
-                        onPress={() => {
-                          setSelectedFilter("Classmate");
-                          setShowFilterDropdown(false);
-                        }}
+                        onPress={() => { setSelectedFilter("Classmate"); setShowFilterDropdown(false); }}
                       >
                         <Text className="text-white text-sm">Classmate</Text>
                       </TouchableOpacity>
@@ -454,7 +458,6 @@ const LiveSessions = () => {
                   session.title.toLowerCase().includes(q);
                 return matchesFilter && matchesSearch;
               })
-              .slice(0, selectedFilter === "Classmate" ? 3 : sessions.length)
               .map((session) => (
                 <View
                   key={session.id}
@@ -465,9 +468,7 @@ const LiveSessions = () => {
                     <View className="flex-row items-center">
                       <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
                         <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
-                        <Text className="text-white text-xs font-bold">
-                          {session.time}
-                        </Text>
+                        <Text className="text-white text-xs font-bold">LIVE NOW</Text>
                       </View>
                     </View>
                     <View className="flex-row items-center">
@@ -484,9 +485,7 @@ const LiveSessions = () => {
                       <Ionicons name="person" size={20} color="white" />
                     </View>
                     <View>
-                      <Text className="text-white font-medium">
-                        {session.name}
-                      </Text>
+                      <Text className="text-white font-medium">{session.name}</Text>
                       <Text className="text-violet-300 text-xs">
                         {session.isMyTeacher ? "Classmate" : "Host"}
                       </Text>
@@ -504,47 +503,67 @@ const LiveSessions = () => {
                     onPress={() =>
                       router.push({
                         pathname: "/StudentScreen/StudentLiveSession/live-session",
-                        params: {
-                          id: session.id,
-                          title: session.title,
-                          name: session.name,
-                          viewers: session.viewers,
-                        },
+                        params: { id: session.id, title: session.title, name: session.name, viewers: session.viewers },
                       })
                     }
                   >
-                    <Text className="text-white text-base font-bold">
-                      Join Session
-                    </Text>
+                    <Text className="text-white text-base font-bold">Join Session</Text>
                   </TouchableOpacity>
                 </View>
               ))}
-            {selectedFilter === "Classmate" &&
-              sessions.filter((session) => session.isMyTeacher).length === 0 && (
-                <View className="items-center justify-center py-8">
-                  <Ionicons name="people-outline" size={48} color="#94a3b8" />
-                  <Text className="text-slate-400 mt-2 text-center">
-                    No live sessions from your classmate at the moment
-                  </Text>
+
+            {/* When there are no lives, show the static card (kept) */}
+            {sessions.length === 0 && (
+              <View className="mb-5 bg-white/5 rounded-2xl p-5 border border-white/20">
+                <View className="flex-row justify-between items-center mb-4">
+                  <View className="flex-row items-center">
+                    <View className="bg-white/10 rounded-full px-3 py-1 flex-row items-center">
+                      <View className="w-2 h-2 bg-red-500 rounded-full mr-2" />
+                      <Text className="text-white text-xs font-bold">LIVE NOW</Text>
+                    </View>
+                  </View>
+                  <View className="flex-row items-center">
+                    <Ionicons name="people-outline" size={16} color="white" />
+                    <Text className="text-white text-xs ml-1">
+                      {STATIC_SESSION.viewers} watching
+                    </Text>
+                  </View>
                 </View>
-              )}
+                <View className="flex-row items-center mb-4">
+                  <View className="w-12 h-12 bg-white/10 rounded-full items-center justify-center mr-3">
+                    <Ionicons name="person" size={20} color="white" />
+                  </View>
+                  <View>
+                    <Text className="text-white font-medium">{STATIC_SESSION.name}</Text>
+                    <Text className="text-violet-300 text-xs">
+                      {STATIC_SESSION.isMyTeacher ? "Classmate" : "Host"}
+                    </Text>
+                  </View>
+                </View>
+                <Text className="text-white text-lg font-semibold mb-3 leading-tight">
+                  {STATIC_SESSION.title}
+                </Text>
+                <TouchableOpacity
+                  className="bg-violet-600/80 border border-white/20 rounded-xl py-4 items-center"
+                  onPress={() =>
+                    router.push("/StudentScreen/StudentCommunity/community-selection")
+                  }
+                >
+                  <Text className="text-white text-base font-bold">Explore Sessions</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
 
-          {/* Community Recordings Section */}
+          {/* Community Recordings Section (unchanged) */}
           <View className="mb-8 bottom-14">
             <View className="flex-row justify-between items-center mb-5">
-              <Text className="text-white text-xl top-2 font-bold">
-                Community Recordings
-              </Text>
+              <Text className="text-white text-xl top-2 font-bold">Community Recordings</Text>
             </View>
-
             <View className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-4">
-              {/* Recording Card 1 */}
               <TouchableOpacity
                 className="bg-white/5 rounded-xl p-3 border border-white/20"
-                onPress={() =>
-                  router.push("/StudentScreen/StudentCommunity/community-page")
-                }
+                onPress={() => router.push("/StudentScreen/StudentCommunity/community-page")}
               >
                 <View className="flex-row items-start">
                   <View className="relative mr-3">
@@ -556,35 +575,23 @@ const LiveSessions = () => {
                     </View>
                   </View>
                   <View className="flex-1">
-                    <Text
-                      className="text-white font-medium text-sm mb-1"
-                      numberOfLines={2}
-                    >
+                    <Text className="text-white font-medium text-sm mb-1" numberOfLines={2}>
                       Mastering Public Speaking: Tips & Tricks
                     </Text>
-                    <Text className="text-violet-300 text-xs mb-1">
-                      @jameswilson
-                    </Text>
+                    <Text className="text-violet-300 text-xs mb-1">@jameswilson</Text>
                     <View className="flex-row items-center">
                       <Ionicons name="eye-outline" size={14} color="#94a3b8" />
-                      <Text className="text-slate-400 text-xs ml-1">
-                        1.2k views
-                      </Text>
+                      <Text className="text-slate-400 text-xs ml-1">1.2k views</Text>
                       <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
-                      <Text className="text-slate-400 text-xs">
-                        2 days ago
-                      </Text>
+                      <Text className="text-slate-400 text-xs">2 days ago</Text>
                     </View>
                   </View>
                 </View>
               </TouchableOpacity>
 
-              {/* Recording Card 2 */}
               <TouchableOpacity
                 className="bg-white/5 rounded-xl p-3 border border-white/20"
-                onPress={() =>
-                  router.push("/StudentScreen/StudentCommunity/community-page")
-                }
+                onPress={() => router.push("/StudentScreen/StudentCommunity/community-page")}
               >
                 <View className="flex-row items-start">
                   <View className="relative mr-3">
@@ -596,42 +603,25 @@ const LiveSessions = () => {
                     </View>
                   </View>
                   <View className="flex-1">
-                    <Text
-                      className="text-white font-medium text-sm mb-1"
-                      numberOfLines={2}
-                    >
+                    <Text className="text-white font-medium text-sm mb-1" numberOfLines={2}>
                       Daily English Conversation Practice
                     </Text>
-                    <Text className="text-violet-300 text-xs mb-1">
-                      @sarah_teaches
-                    </Text>
+                    <Text className="text-violet-300 text-xs mb-1">@sarah_teaches</Text>
                     <View className="flex-row items-center">
                       <Ionicons name="eye-outline" size={14} color="#94a3b8" />
-                      <Text className="text-slate-400 text-xs ml-1">
-                        856 views
-                      </Text>
+                      <Text className="text-slate-400 text-xs ml-1">856 views</Text>
                       <View className="w-1 h-1 bg-slate-500 rounded-full mx-2" />
-                      <Text className="text-slate-400 text-xs">
-                        1 week ago
-                      </Text>
+                      <Text className="text-slate-400 text-xs">1 week ago</Text>
                     </View>
                   </View>
                 </View>
               </TouchableOpacity>
 
-              {/* Find More Button */}
               <TouchableOpacity
                 className="bg-white/20 rounded-xl border border-white/20 py-3 flex-row items-center justify-center mt-4"
-                onPress={() =>
-                  router.push("/StudentScreen/StudentCommunity/community-selection")
-                }
+                onPress={() => router.push("/StudentScreen/StudentCommunity/community-selection")}
               >
-                <Ionicons
-                  name="search"
-                  size={20}
-                  color="white"
-                  style={{ marginRight: 8 }}
-                />
+                <Ionicons name="search" size={20} color="white" style={{ marginRight: 8 }} />
                 <Text className="text-white font-bold text-base">
                   Find More Community Recordings
                 </Text>
@@ -639,22 +629,14 @@ const LiveSessions = () => {
             </View>
           </View>
 
-          {/* Profile Menu */}
           <ProfileMenuNew
             visible={isProfileMenuVisible}
             onDismiss={() => setIsProfileMenuVisible(false)}
-            user={{
-              name: fullName,
-              email: email,
-              image: {
-                uri: avatarUri || TRANSPARENT_PNG,
-              },
-            }}
+            user={{ name: fullName, email, image: { uri: avatarUri || TRANSPARENT_PNG } }}
           />
         </View>
       </ScrollView>
 
-      {/* Selection Modal */}
       <LivesessionCommunityModal
         visible={showCommunityModal}
         onDismiss={() => setShowCommunityModal(false)}
@@ -666,10 +648,7 @@ const LiveSessions = () => {
         onDismiss={() => setShowLevelModal(false)}
         onSelectLevel={(level: "Basic" | "Advanced") => {
           setShowLevelModal(false);
-          const route =
-            level === "Basic"
-              ? "/basic-exercise-reading"
-              : "/advance-exercise-reading"; // fixed spelling
+          const route = level === "Basic" ? "/basic-exercise-reading" : "/advance-exercise-reading";
           router.push(route);
         }}
       />

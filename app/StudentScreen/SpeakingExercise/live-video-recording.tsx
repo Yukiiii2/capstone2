@@ -14,6 +14,7 @@ import {
   StatusBar,
   Dimensions,
   StyleSheet,
+  AppState,
 } from "react-native";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
@@ -24,7 +25,10 @@ import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 import CompletionModal from "@/components/StudentModal/CompletionModal";
-import axios from "axios";
+
+// ⬇️ keep-awake + orientation
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import * as ScreenOrientation from "expo-screen-orientation";
 
 // ⬇️ Vision Camera
 import {
@@ -33,7 +37,6 @@ import {
   useCameraPermission,
   useMicrophonePermission,
   VideoFile,
-  useCameraFormat,
 } from "react-native-vision-camera";
 
 // ⬇️ Supabase (logic only; UI unchanged)
@@ -119,29 +122,79 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // opening camera: pick the front camera device for selfie-style speaking
-  const device = useCameraDevice("front");
+  // opening camera: pick devices (front preferred, back fallback)
+  const deviceFront = useCameraDevice("front");
+  const deviceBack = useCameraDevice("back");
+  const [useBack, setUseBack] = useState(false);
+  const device = useBack ? deviceBack : deviceFront;
 
-  // camera configuration: choose a stable 720p@30 preset, HDR off, stabilization off
-  const TARGET_FPS = 30;
-  const format = useCameraFormat(device, [
-    { videoResolution: { width: 1280, height: 720 } },
-    { fps: TARGET_FPS },
-    { videoHdr: false },
-    { videoStabilizationMode: "off" },
-  ]);
+  // ===== Stable, fixed format selection (choose once and never change) =====
+  const stableFormat = React.useMemo(() => {
+    if (!device) return undefined;
+    const formats = device.formats ?? [];
 
-  // opening camera: permissions hooks for camera + microphone
+    // helper: pick an fps from a range that's closest to 30
+    const pickFps = (range?: any) => {
+      if (!range) return 30;
+      const minFps = typeof range.minFps === "number" ? range.minFps : 15;
+      const maxFps = typeof range.maxFps === "number" ? range.maxFps : 30;
+      if (minFps <= 30 && 30 <= maxFps) return 30;
+      const mid = (minFps + maxFps) / 2;
+      return Math.round(Math.abs(mid - 30) < Math.abs(maxFps - 30) ? mid : maxFps);
+    };
+
+    const scored = formats.map((f) => {
+      const w = (f as any).videoWidth ?? 0;
+      const h = (f as any).videoHeight ?? 0;
+      const area = w * h;
+      const areaDelta = Math.abs(area - 1280 * 720); // prefer ~720p
+      const fps = pickFps((f as any).frameRateRanges?.[0]);
+      const fpsDelta = Math.abs(fps - 30);
+      const supportsVideoStabilization = (f as any)?.supportsVideoStabilization ?? false;
+      // lower score is better; stabilize streams preferred slightly
+      const score = areaDelta * 1.0 + fpsDelta * 500 - (supportsVideoStabilization ? 200 : 0);
+      return { f, score };
+    });
+
+    scored.sort((a, b) => a.score - b.score);
+    return (scored[0]?.f as any) ?? (formats[0] as any);
+  }, [device]);
+
+  // Always keep audio enabled to avoid session restarts later
+  const [audioEnabled] = useState(true);
+
+  // opening camera: permissions (request both up-front!)
   const { hasPermission: hasCamPerm, requestPermission: reqCam } = useCameraPermission();
   const { hasPermission: hasMicPerm, requestPermission: reqMic } = useMicrophonePermission();
+
+  useEffect(() => {
+    (async () => {
+      try { if (!hasCamPerm) await reqCam(); } catch {}
+      try { if (!hasMicPerm) await reqMic(); } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mount once when we have device + perms (⚠️ do NOT block on stableFormat)
+  const [mountCamera, setMountCamera] = useState(false);
+  useEffect(() => {
+    setMountCamera(!!device && !!hasCamPerm && !!hasMicPerm);
+  }, [device, hasCamPerm, hasMicPerm]);
+
+  // AppState awareness to avoid OS tearing down the session in background
+  const [appActive, setAppActive] = useState(true);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      setAppActive(next === "active");
+    });
+    return () => sub.remove();
+  }, []);
 
   // ui: other modals and state unchanged
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null); // kept for modal prop parity
-  const [expectedText, setExpectedText] = useState<string | null>(null); // kept for modal prop parity
 
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -181,10 +234,10 @@ export default function LiveVideoRecording() {
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
 
-  const [aiFeedback, setAiFeedback] = useState<string | null>(null); // State to store AI feedback
+  const [aiFeedback, setAiFeedback] = useState<string | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // ui: status bar styling for immersive recorder
+  // status bar styling
   useEffect(() => {
     StatusBar.setBarStyle("light-content");
     if (Platform.OS === "android") {
@@ -193,7 +246,7 @@ export default function LiveVideoRecording() {
     }
   }, []);
 
-  // ui: load user profile + get a signed avatar URL from Supabase
+  // user profile + signed avatar
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -251,7 +304,7 @@ export default function LiveVideoRecording() {
     };
   }, []);
 
-  // ui: rotate fallback tips every 5s when no live feedback is present
+  // rotate fallback tips
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTipIndex((prevIndex) => (prevIndex + 1) % tips.length);
@@ -259,7 +312,7 @@ export default function LiveVideoRecording() {
     return () => clearInterval(timer);
   }, []);
 
-  // recording: pulse animation + rotating feedback messages during capture
+  // recording animations
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
@@ -287,7 +340,7 @@ export default function LiveVideoRecording() {
     }
   }, [isRecording, pulseAnim, feedbackAnim]);
 
-  // ui: slide/fade animation for the profile menu
+  // profile menu animation
   useEffect(() => {
     const animations = isProfileMenuVisible
       ? [
@@ -301,19 +354,88 @@ export default function LiveVideoRecording() {
     Animated.parallel(animations).start();
   }, [isProfileMenuVisible, slideAnim, opacityAnim]);
 
-  // closing camera: reset flags and timer when exiting fullscreen recorder
+  // ======== guards ========
+  const shuttingDownRef = useRef(false);
+
+  // ⬇️ Watchdog to avoid infinite "Initializing…" + one-time auto-remount
+  const initWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initAttemptsRef = useRef(0);
+  const [camKey, setCamKey] = useState(0);
+
+  const startInitWatchdog = () => {
+    if (initWatchdogRef.current) clearTimeout(initWatchdogRef.current);
+    initWatchdogRef.current = setTimeout(() => {
+      if (!cameraReady) {
+        console.warn("[LiveRec] init watchdog: still not ready after 3000ms, attempt:", initAttemptsRef.current);
+        if (initAttemptsRef.current === 0) {
+          // one controlled remount of the camera session
+          initAttemptsRef.current = 1;
+          setCamKey((k) => k + 1);
+          startInitWatchdog();
+        } else {
+          Alert.alert(
+            "Camera slow to start",
+            "We’re having trouble starting the camera. Close other apps using the camera and try again."
+          );
+          setIsFullScreen(false);
+        }
+      }
+    }, 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (initWatchdogRef.current) clearTimeout(initWatchdogRef.current);
+    };
+  }, []);
+
+  // ⬇️ Fallback: if preview is clearly active in fullscreen but onInitialized never fires,
+  // flip the UI to "Ready" after ~900ms so the button isn't stuck.
+  useEffect(() => {
+    if (!isFullScreen || !mountCamera || !device || cameraReady || !appActive) return;
+    const t = setTimeout(() => {
+      if (isFullScreen && appActive && !cameraReady) {
+        setCameraReady(true);
+      }
+    }, 900);
+    return () => clearTimeout(t);
+  }, [isFullScreen, mountCamera, device, appActive, cameraReady, camKey]);
+
+  // reset flags & timer when leaving fullscreen
   useEffect(() => {
     if (!isFullScreen) {
       setCameraReady(false);
       setPendingStart(false);
       stopTimer();
       setElapsedMs(0);
+      shuttingDownRef.current = false;
+      initAttemptsRef.current = 0;
+      if (initWatchdogRef.current) {
+        clearTimeout(initWatchdogRef.current);
+        initWatchdogRef.current = null;
+      }
     }
   }, [isFullScreen]);
 
+  // keep-awake + lock orientation during fullscreen/recording
+  useEffect(() => {
+    const enable = async () => {
+      try { await activateKeepAwakeAsync("live-rec"); } catch {}
+      try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
+    };
+    const disable = () => {
+      try { deactivateKeepAwake("live-rec"); } catch {}
+      (async () => { try { await ScreenOrientation.unlockAsync(); } catch {} })();
+    };
+
+    if (isFullScreen || isRecording) enable();
+    else disable();
+
+    return () => { disable(); };
+  }, [isFullScreen, isRecording]);
+
   // ======== CAMERA HELPERS ========
 
-  // opening camera: ask for camera + mic permissions
   const ensurePermissions = async () => {
     let cam = hasCamPerm;
     let mic = hasMicPerm;
@@ -335,7 +457,7 @@ export default function LiveVideoRecording() {
     return true;
   };
 
-  // opening camera: enter fullscreen and arm auto-start on <Camera/> init
+  // enter fullscreen and arm auto-start (camera is already mounted)
   const handleStartPress = async () => {
     const ok = await ensurePermissions();
     if (!ok) return;
@@ -344,11 +466,12 @@ export default function LiveVideoRecording() {
       return;
     }
     setCameraReady(false);
-    setPendingStart(true); // will trigger startRecordingNow() in onInitialized
+    setPendingStart(true);
     setIsFullScreen(true);
+    startInitWatchdog();
   };
 
-  // recording: start capture once camera is initialized and ready
+  // start capture once camera is initialized
   const startRecordingNow = async () => {
     if (!cameraRef.current || !cameraReady || isRecording) return;
     try {
@@ -357,7 +480,6 @@ export default function LiveVideoRecording() {
       await cameraRef.current.startRecording({
         flash: "off",
         onRecordingFinished: (video: VideoFile) => {
-          // output: recorded file path is available here
           stopTimer();
           setRecordedVideoPath(video.path ?? null);
           setIsRecording(false);
@@ -383,10 +505,17 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // closing camera: stop capture safely and clear timer
+  // stop capture safely (do NOT unmount camera, just exit fullscreen)
   const stopRecording = async () => {
-    if (!isRecording) return;
+    if (!isRecording) {
+      setCameraReady(false);
+      setIsFullScreen(false);
+      return;
+    }
     try {
+      shuttingDownRef.current = true;
+      setCameraReady(false);
+      setIsFullScreen(false);
       await cameraRef.current?.stopRecording();
     } catch (e: any) {
       const msg = String(e?.toString?.() ?? e);
@@ -396,103 +525,11 @@ export default function LiveVideoRecording() {
     } finally {
       stopTimer();
       setIsRecording(false);
+      setShowContinueButton((prev) => prev || !!recordedVideoPath);
     }
   };
 
-  // ===== Your existing handlers (kept) =====
-
-  const handleCommunitySelect = (option: "Live Session" | "Community Post") => {
-    setShowCommunityModal(false);
-    if (option === "Live Session") {
-      router.push("/live-sessions-select");
-    } else if (option === "Community Post") {
-      router.push("/community-selection");
-    }
-  };
-
-  const handleLevelSelect = (level: "Basic" | "Advanced") => {
-    setShowLevelModal(false);
-    const route = level === "Basic" ? "/basic-exercise-reading" : "/advance-execise-reading";
-    router.push(route);
-  };
-
-  const handleRecordingComplete = async (audioFilePath: string, text: string) => {
-    try {
-      const response = await fetch(audioFilePath);
-      const blob = await response.blob();
-      const audioFile = new File([blob], `recording-${Date.now()}.wav`, {
-        type: "audio/wav",
-      });
-      setSelectedAudioFile(audioFile);
-      setExpectedText(text);
-      setShowCompletionModal(true);
-    } catch (error) {
-      console.error("Error handling recording completion:", error);
-      Alert.alert("Error", "Failed to process the recording. Please try again.");
-    }
-  };
-
-  const handleIconPress = (iconName: string) => {
-    if (iconName === "log-out-outline") {
-      router.replace("/login-page");
-    } else if (iconName === "chatbot") {
-      router.push("/ButtonIcon/chatbot");
-    } else if (iconName === "notifications") {
-      router.push("/ButtonIcon/notification");
-    }
-  };
-
-  const handleViewAIAnalysis = async () => {
-    if (!recordedVideoPath) {
-      Alert.alert("Error", "No video found. Please record a session first.");
-      return;
-    }
-    setShowEndSessionModal(false);
-    setShowCompletionModal(true);
-    setIsProcessing(false);
-    setShowResultsPrompt(true);
-  };
-
-  // output: save the captured local video to Photos/Gallery
-  const downloadVideo = async () => {
-    try {
-      setIsDownloading(true);
-
-      if (!recordedVideoPath) {
-        Alert.alert("Nothing to save", "Please record a video first.");
-        return;
-      }
-
-      if (Platform.OS === "android") {
-        const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
-        if (status !== "granted") {
-          if (!canAskAgain) {
-            Alert.alert(
-              "Permission Required",
-              "Storage permission is required to save videos.",
-              [
-                { text: "OK", onPress: () => {} },
-                { text: "Open Settings", onPress: () => Linking.openSettings() },
-              ]
-            );
-          }
-          return;
-        }
-      }
-
-      const asset = await MediaLibrary.createAssetAsync(recordedVideoPath);
-      await MediaLibrary.createAlbumAsync("Recordings", asset, false);
-      Alert.alert("Success", "Video saved to gallery!");
-    } catch (error) {
-      console.error("Error saving video:", error);
-      Alert.alert("Error", "Failed to save video. Please try again.");
-    } finally {
-      setIsDownloading(false);
-      setShowEndSessionModal(false);
-    }
-  };
-
-  // OPTIONAL: Upload recorded video directly to Supabase (no expo-av)
+  // ===== Upload helpers =====
   const uploadVideo = async () => {
     if (!recordedVideoPath) {
       Alert.alert("No video", "Please record first.");
@@ -588,6 +625,16 @@ export default function LiveVideoRecording() {
     </View>
   );
 
+  const handleIconPress = (iconName: string) => {
+    if (iconName === "log-out-outline") {
+      router.replace("/login-page");
+    } else if (iconName === "chatbot") {
+      router.push("/ButtonIcon/chatbot");
+    } else if (iconName === "notifications") {
+      router.push("/ButtonIcon/notification");
+    }
+  };
+
   const AIFeedback = () => (
     <Animated.View
       className="absolute top-[40%] left-5 right-5 z-10 items-center justify-center"
@@ -637,44 +684,13 @@ export default function LiveVideoRecording() {
     </View>
   );
 
-  // ===== Full Screen Recording View with VisionCamera =====
+  // ===== Full Screen Recording View (overlays only; camera is a global layer) =====
   const FullScreenRecording = () => (
     <View style={StyleSheet.absoluteFill} className="bg-black">
-      {/* camera feed – render only when device + permissions + chosen format exist */}
-      {device && hasCamPerm && hasMicPerm && format ? (
-        <Camera
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          device={device}
-          isActive={isFullScreen}
-          video
-          audio
-          format={format}
-          // recording: fps/stabilization come from `format`; don't override here
-          onInitialized={async () => {
-            setCameraReady(true);
-            if (pendingStart && !isRecording) {
-              setPendingStart(false);
-              await startRecordingNow();
-            }
-          }}
-          onError={(e) => {
-            console.warn("Camera error:", e);
-            setCameraReady(false);
-          }}
-        />
-      ) : (
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white">
-            {(!device || !hasCamPerm || !hasMicPerm) ? "Requesting camera…" : "Choosing camera format…"}
-          </Text>
-        </View>
-      )}
-
       {/* ui: right badge shows camera type */}
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="camera" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
-        <Text className="text-white text-sm">Front Camera</Text>
+        <Text className="text-white text-sm">{useBack ? "Back Camera" : "Front Camera"}</Text>
       </View>
 
       {/* ui: left badge shows recording status + timer */}
@@ -754,10 +770,76 @@ export default function LiveVideoRecording() {
   };
   const activeTab = getActiveTab();
 
+  // ===== GLOBAL SINGLE-MOUNT CAMERA LAYER (mounted when ready; shown when fullscreen) =====
+  const cameraVisible = isFullScreen;
+  const cameraActive = cameraVisible && appActive;
+
   return (
     <View className="flex-1 bg-[#0F172A] relative">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
+
+      {/* DEV HUD to see gating flags (remove if you want) */}
+      {__DEV__ && (
+        <View style={{ position: "absolute", top: 8, left: 8, zIndex: 9999, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
+          <Text style={{ color: "white", fontSize: 10 }}>
+            mountCamera: {String(mountCamera)}{"\n"}
+            device: {device ? (useBack ? "back" : "front") : "none"}{"\n"}
+            perms cam/mic: {String(hasCamPerm)}/{String(hasMicPerm)}{"\n"}
+            fullscreen: {String(isFullScreen)} active: {String(cameraActive)}{"\n"}
+            ready: {String(cameraReady)} attempts: {initAttemptsRef.current}
+          </Text>
+        </View>
+      )}
+
+      {/* GLOBAL CAMERA: single mount; no prop thrash; no remounts */}
+      {mountCamera && device ? (
+        <View
+          key={camKey}
+          pointerEvents={cameraVisible ? "auto" : "none"}
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, opacity: cameraVisible ? 1 : 0, backgroundColor: "black" },
+          ]}
+        >
+          <Camera
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={cameraActive}
+            video
+            audio={audioEnabled}
+            photo={false}
+            {...(stableFormat ? { format: stableFormat } : {})}
+            enableZoomGesture={false}
+            onInitialized={() => {
+              if (initWatchdogRef.current) {
+                clearTimeout(initWatchdogRef.current);
+                initWatchdogRef.current = null;
+              }
+              setTimeout(() => setCameraReady(true), 120);
+              if (pendingStart && !isRecording) {
+                setPendingStart(false);
+                startRecordingNow();
+              }
+            }}
+            onError={(e) => {
+              if (shuttingDownRef.current) return;
+              console.warn("Camera session error:", e);
+              setCameraReady(false);
+              if (initWatchdogRef.current) {
+                clearTimeout(initWatchdogRef.current);
+                initWatchdogRef.current = null;
+              }
+              Alert.alert(
+                "Camera not available",
+                "Your device's camera session could not start. Close other camera apps and try again."
+              );
+              setIsFullScreen(false);
+            }}
+          />
+        </View>
+      ) : null}
 
       {/* Profile Menu */}
       <ProfileMenuNew
@@ -776,8 +858,47 @@ export default function LiveVideoRecording() {
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis}
-        onDownloadVideo={downloadVideo}
+        onViewAIAnalysis={() => {
+          // show results modal; upload already happened on "Continue"
+          setShowEndSessionModal(false);
+          setShowCompletionModal(true);
+          setIsProcessing(false);
+          setShowResultsPrompt(true);
+        }}
+        onDownloadVideo={async () => {
+          try {
+            setIsDownloading(true);
+            if (!recordedVideoPath) {
+              Alert.alert("Nothing to save", "Please record a video first.");
+              return;
+            }
+            if (Platform.OS === "android") {
+              const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+              if (status !== "granted") {
+                if (!canAskAgain) {
+                  Alert.alert(
+                    "Permission Required",
+                    "Storage permission is required to save videos.",
+                    [
+                      { text: "OK", onPress: () => {} },
+                      { text: "Open Settings", onPress: () => Linking.openSettings() },
+                    ]
+                  );
+                }
+                return;
+              }
+            }
+            const asset = await MediaLibrary.createAssetAsync(recordedVideoPath);
+            await MediaLibrary.createAlbumAsync("Recordings", asset, false);
+            Alert.alert("Success", "Video saved to gallery!");
+          } catch (error) {
+            console.error("Error saving video:", error);
+            Alert.alert("Error", "Failed to save video. Please try again.");
+          } finally {
+            setIsDownloading(false);
+            setShowEndSessionModal(false);
+          }
+        }}
       />
 
       {/* Completion Modal (kept) */}
@@ -791,16 +912,23 @@ export default function LiveVideoRecording() {
           setShowCompletionModal(false);
           router.push("StudentScreen/SpeakingExercise/full-results-speaking");
         }}
-        ai_feedback={aiFeedback} // Pass the AI feedback
+        ai_feedback={aiFeedback}
       />
 
       <LivesessionCommunityModal
         visible={showCommunityModal}
         onDismiss={() => setShowCommunityModal(false)}
-        onSelectOption={handleCommunitySelect}
+        onSelectOption={(option: "Live Session" | "Community Post") => {
+          setShowCommunityModal(false);
+          if (option === "Live Session") {
+            router.push("/live-sessions-select");
+          } else if (option === "Community Post") {
+            router.push("/community-selection");
+          }
+        }}
       />
 
-      {/* Fullscreen recorder */}
+      {/* Fullscreen recorder overlays */}
       {isFullScreen ? (
         <FullScreenRecording />
       ) : (
@@ -874,7 +1002,11 @@ export default function LiveVideoRecording() {
                 {showContinueButton && (
                   <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
                     <TouchableOpacity
-                      onPress={() => setShowEndSessionModal(true)}
+                      onPress={async () => {
+                        // ⬅️ Upload MP4 first, then show End Session modal
+                        await uploadVideo();
+                        setShowEndSessionModal(true);
+                      }}
                       className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
                       <Text className="text-white font-semibold">Continue</Text>

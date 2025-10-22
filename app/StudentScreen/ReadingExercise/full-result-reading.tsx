@@ -1,5 +1,5 @@
 // app/StudentScreen/ReadingExercise/full-result-reading.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StatusBar,
   ViewStyle,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -58,28 +59,9 @@ export default function FullResultReading() {
 
   const [nextModule, setNextModule] = useState<{ id: string | null; title: string | null } | null>(null);
 
-  async function resolveModule() {
+  const resolveModule = useCallback(async () => {
     try {
-      if (!currentModule.id || !currentModule.title) {
-        const { data } = await supabase
-          .from("modules")
-          .select("id, title, level, order_index")
-          .eq("category", "reading")
-          .eq("level", currentModule.level)
-          .eq("active", true)
-          .order("order_index", { ascending: true })
-          .limit(1);
-
-        if (data && data.length) {
-          const m = data[0];
-          setCurrentModule({
-            id: m.id,
-            title: m.title,
-            level: m.level === "advanced" ? "advanced" : "basic",
-            order_index: m.order_index ?? null,
-          });
-        }
-      } else {
+      if (currentModule.id) {
         const { data } = await supabase
           .from("modules")
           .select("id, title, order_index")
@@ -92,11 +74,55 @@ export default function FullResultReading() {
             title: prev.title ?? data.title,
           }));
         }
+        return;
       }
-    } catch {}
-  }
 
-  async function resolveNextModule() {
+      if (currentModule.title) {
+        const { data } = await supabase
+          .from("modules")
+          .select("id, title, level, order_index")
+          .eq("category", "reading")
+          .eq("level", currentModule.level)
+          .eq("active", true)
+          .ilike("title", currentModule.title)
+          .limit(1);
+
+        if (data && data.length) {
+          const m = data[0];
+          setCurrentModule({
+            id: m.id,
+            title: m.title,
+            level: m.level === "advanced" ? "advanced" : "basic",
+            order_index: m.order_index ?? null,
+          });
+          return;
+        }
+      }
+
+      const { data: first } = await supabase
+        .from("modules")
+        .select("id, title, level, order_index")
+        .eq("category", "reading")
+        .eq("level", currentModule.level)
+        .eq("active", true)
+        .order("order_index", { ascending: true })
+        .limit(1);
+
+      if (first && first.length) {
+        const m = first[0];
+        setCurrentModule({
+          id: m.id,
+          title: m.title,
+          level: m.level === "advanced" ? "advanced" : "basic",
+          order_index: m.order_index ?? null,
+        });
+      }
+    } catch {
+      // no-op
+    }
+  }, [currentModule.id, currentModule.level, currentModule.title]);
+
+  const resolveNextModule = useCallback(async () => {
     try {
       const curOrder = currentModule.order_index ?? -1;
       const { data } = await supabase
@@ -114,129 +140,99 @@ export default function FullResultReading() {
     } catch {
       setNextModule(null);
     }
-  }
+  }, [currentModule.level, currentModule.order_index]);
+
+  /* ───────── attempts + progress (mirrors speaking logic) ───────── */
+
+  // compute next attempt_number per (student, module)
+  const computeNextAttemptNumber = useCallback(
+    async (studentId: string): Promise<number> => {
+      try {
+        if (!currentModule.id) return 1;
+        const { count } = await supabase
+          .from("attempts")
+          .select("id", { head: true, count: "exact" })
+          .eq("student_id", studentId)
+          .eq("module_id", currentModule.id)
+          .eq("category", "reading");
+        return (typeof count === "number" ? count : 0) + 1;
+      } catch {
+        return 1;
+      }
+    },
+    [currentModule.id]
+  );
+
+  const logAttempt = useCallback(
+    async (studentId: string, finalScore: number) => {
+      try {
+        const attempt_number = await computeNextAttemptNumber(studentId);
+        await supabase.from("attempts").insert([
+          {
+            student_id: studentId,
+            module_id: currentModule.id,
+            attempt_number,
+            score: finalScore,
+            category: "reading",
+            level: currentModule.level,
+            session_id: null, // no session id for reading; adjust if you add one
+          } as any,
+        ]);
+      } catch {
+        // ignore
+      }
+    },
+    [currentModule.id, currentModule.level, computeNextAttemptNumber]
+  );
+
+  // BASIC rule from speaking version:
+  // on landing full-results, mark THIS module as 100% complete for the student.
+  const applyFullResultsRuleInlineReading = useCallback(
+    async (moduleId: string) => {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const user = auth?.user;
+        if (!user || !moduleId) return;
+
+        const now = new Date().toISOString();
+        await supabase
+          .from("student_progress")
+          .upsert(
+            {
+              student_id: user.id,
+              module_id: moduleId,
+              progress: 100,
+              completed: true,
+              category: "reading",
+              updated_at: now,
+            } as any,
+            { onConflict: "student_id,module_id", ignoreDuplicates: false }
+          );
+
+        // hard-cap any rogue >100
+        await supabase
+          .from("student_progress")
+          .update({ progress: 100, updated_at: now })
+          .eq("student_id", user.id)
+          .eq("module_id", moduleId)
+          .gt("progress", 100);
+      } catch {
+        // swallow errors
+      }
+    },
+    []
+  );
 
   /* ───────── metrics derived from score (keeps your bar UI) ───────── */
-  const metrics: Metric[] = useMemo(() => {
-    const p = uiScore;
-    return [
-      { label: "Fluency Score", value: clampPct(p),     icon: "bar-chart",   trend: "up" },
-      { label: "Clarity Precision", value: clampPct(p - 4), icon: "volume-high", trend: "up" },
-      { label: "Filler Word Reduction", value: clampPct(p - 2), icon: "time",     trend: "up" },
-      { label: "Speaking Rate (WPM)", value: clampPct(p - 5), icon: "pulse",    trend: "up" },
-    ];
-  }, [uiScore]);
+  const [metrics, setMetrics] = useState<Metric[] | null>(null);
+  const deriveMetrics = (p: number): Metric[] => ([
+    { label: "Fluency Score", value: clampPct(p),        icon: "bar-chart",    trend: "up" },
+    { label: "Clarity Precision", value: clampPct(p - 4), icon: "volume-high",  trend: "up" },
+    { label: "Filler Word Reduction", value: clampPct(p - 2), icon: "time",        trend: "up" },
+    { label: "Speaking Rate (WPM)", value: clampPct(p - 5), icon: "pulse",       trend: "up" },
+  ]);
 
-  /* ───────── backend effects: attempts + progress + aggregate ───────── */
-  async function logAttempt(userId: string) {
-    try {
-      await supabase.from("attempts").insert({
-        user_id: userId,
-        module_id: currentModule.id,
-        category: "reading",
-        score: uiScore,
-        created_at: new Date().toISOString(),
-      } as any);
-    } catch (e) {
-      console.log("[full-result-reading] attempts insert skipped:", (e as any)?.message);
-    }
-  }
-
-  async function upsertStudentProgress(userId: string) {
-    // per-module completion row
-    try {
-      const payload: any = {
-        user_id: userId,
-        category: "reading",
-        level: currentModule.level,
-        completed: true,
-        progress: 1,
-        updated_at: new Date().toISOString(),
-      };
-      if (currentModule.id) payload.module_id = currentModule.id;
-      if (currentModule.title) payload.module = currentModule.title;
-
-      const { error } = await supabase
-        .from("student_progress")
-        .upsert(payload, { onConflict: currentModule.id ? "user_id,module_id" : "user_id,module" });
-
-      if (error) {
-        const { data: existing } = await supabase
-          .from("student_progress")
-          .select("id")
-          .match(
-            currentModule.id
-              ? { user_id: userId, module_id: currentModule.id }
-              : { user_id: userId, module: currentModule.title }
-          )
-          .maybeSingle();
-        if (existing?.id) {
-          await supabase.from("student_progress").update(payload).eq("id", existing.id);
-        } else {
-          await supabase.from("student_progress").insert(payload);
-        }
-      }
-    } catch (e) {
-      console.log("[full-result-reading] progress upsert skipped:", (e as any)?.message);
-    }
-
-    // overall reading aggregate (0–1)
-    try {
-      const { data: allMods } = await supabase
-        .from("modules")
-        .select("id")
-        .eq("category", "reading")
-        .eq("level", currentModule.level)
-        .eq("active", true);
-
-      const total = allMods?.length ?? 0;
-
-      const { data: doneMods } = await supabase
-        .from("student_progress")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("category", "reading")
-        .eq("level", currentModule.level)
-        .eq("completed", true);
-
-      const completed = doneMods?.length ?? 0;
-      const overall = total > 0 ? completed / total : 0;
-
-      const aggregateRow: any = {
-        user_id: userId,
-        category: "reading",
-        level: currentModule.level,
-        module: null,
-        module_id: null,
-        progress: overall,
-        completed: completed >= total && total > 0,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error: aggErr } = await supabase
-        .from("student_progress")
-        .upsert(aggregateRow, { onConflict: "user_id,category,level,module_id" });
-
-      if (aggErr) {
-        const { data: agg } = await supabase
-          .from("student_progress")
-          .select("id")
-          .is("module_id", null)
-          .eq("user_id", userId)
-          .eq("category", "reading")
-          .eq("level", currentModule.level)
-          .maybeSingle();
-
-        if (agg?.id) {
-          await supabase.from("student_progress").update(aggregateRow).eq("id", agg.id);
-        } else {
-          await supabase.from("student_progress").insert(aggregateRow);
-        }
-      }
-    } catch (e) {
-      console.log("[full-result-reading] aggregate upsert skipped:", (e as any)?.message);
-    }
-  }
+  useEffect(() => setMetrics(deriveMetrics(uiScore)), [uiScore]);
 
   // run once, like speaking
   const savedOnceRef = useRef(false);
@@ -254,20 +250,26 @@ export default function FullResultReading() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentModule.order_index, currentModule.id, currentModule.title]);
 
+  // ⬇️ THIS is the key bit: when landing on this page, write attempt + progress (once)
   useEffect(() => {
     (async () => {
       if (savedOnceRef.current) return;
-      savedOnceRef.current = true;
+      if (!currentModule.id) return;
 
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (!user) return;
 
-      await logAttempt(user.id);
-      await upsertStudentProgress(user.id);
+      savedOnceRef.current = true;
+
+      // 1) write attempt (use uiScore as the final score source here)
+      await logAttempt(user.id, uiScore);
+
+      // 2) mark module 100% (reading)
+      await applyFullResultsRuleInlineReading(currentModule.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiScore, currentModule.level]);
+  }, [currentModule.id, uiScore]);
 
   /**
    * Background decoration component
@@ -370,7 +372,6 @@ export default function FullResultReading() {
                         name={item.trend === "up" ? "trending-up" : "trending-down"}
                         size={12}
                         color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-                        className="ml-1"
                       />
                     </View>
                     <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
@@ -409,7 +410,6 @@ export default function FullResultReading() {
                         name={item.trend === "up" ? "trending-up" : "trending-down"}
                         size={12}
                         color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-                        className="ml-1"
                       />
                     </View>
                     <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
@@ -434,7 +434,7 @@ export default function FullResultReading() {
           </View>
 
           <View className="space-y-6">
-            {metrics.map((item, i) => {
+            {(metrics ?? []).map((item, i) => {
               const isPositive = item.trend === "up";
               const trendColor = isPositive ? "#10B981" : "#EF4444";
 
@@ -472,6 +472,11 @@ export default function FullResultReading() {
                 </View>
               );
             })}
+            {!metrics && (
+              <View className="items-center justify-center py-6">
+                <ActivityIndicator />
+              </View>
+            )}
           </View>
         </View>
 
