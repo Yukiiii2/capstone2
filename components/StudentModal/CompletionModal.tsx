@@ -84,6 +84,7 @@ const CompletionModal: React.FC<CompletionModalProps> = ({
     }
     return 100;
   }, [attempt_id, session_id]);
+  
 
   // Insert attempts (optional) – safe to keep; won’t break anything if table exists
   const logAttempt = useCallback(

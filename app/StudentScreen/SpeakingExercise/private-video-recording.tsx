@@ -1195,10 +1195,15 @@ export default function PrivateVideoRecording() {
             params: { 
               ...moduleCtx,
               ai_feedback: aiFeedback || 'No feedback available', // Add AI feedback to params
+              module_id: module_id,
+              level: level || 'basic',
             },
           });
         }}
         ai_feedback={aiFeedback}
+        module_id={module_id}
+        level={level}
+        
       />
 
       <LivesessionCommunityModal

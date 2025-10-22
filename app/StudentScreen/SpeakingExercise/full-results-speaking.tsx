@@ -613,11 +613,28 @@ export default function FullResultsSpeaking() {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (user && currentModule.id) {
+        // Log the final attempt with current score
         const finalScore = await fetchFinalScore();
         await logAttempt(user.id, finalScore);
-        await applyFullResultsRuleInline(currentModule.id, levelParam); // basic only
+
+        // Force update progress to 100% and mark as completed
+        await supabase
+          .from("student_progress")
+          .upsert({
+            student_id: user.id,
+            module_id: currentModule.id,
+            progress: 100,
+            completed: true,
+            updated_at: new Date().toISOString(),
+            category: "speaking"
+          }, {
+            onConflict: "student_id,module_id",
+            ignoreDuplicates: false
+          });
       }
-    } catch {}
+    } catch (error) {
+      console.error("Error updating progress:", error);
+    }
     router.replace("StudentScreen/HomePage/home-page");
   };
 

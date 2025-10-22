@@ -22,7 +22,7 @@ import ProfileMenuNew from "@/components/ProfileModal/ProfileMenuNew";
 import { supabase } from "@/lib/supabaseClient";
 
 // Unlock rule: set to 100 for perfect-only, or e.g. 80 to unlock at 80+
-const UNLOCK_THRESHOLD = 100;
+const UNLOCK_THRESHOLD = 100; // Set to 100 to require perfect completion like advanced
 
 const TRANSPARENT_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
@@ -341,9 +341,10 @@ export default function BasicContents() {
       .select("module_id, progress, updated_at")
       .eq("student_id", user.id);
 
+    // Update how we determine completed modules
     const doneSet = new Set(
       (progRows ?? [])
-        .filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD) // ← uses threshold
+        .filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD) // Now requires 100% like advanced
         .map((r) => r.module_id as string)
     );
 
@@ -359,8 +360,9 @@ export default function BasicContents() {
         const earlierDone = earlier.every((id) => doneSet.has(id));
         const unlocked = idx === 0 || earlierDone;
 
+        // Update progress calculation to match advanced
         const rawProgress = (progRows ?? []).find((r) => r.module_id === m.id)?.progress ?? 0;
-        const progressUI = Math.max(0, Math.min(1, (rawProgress as number) / 100));
+        const progressUI = Math.max(0, Math.min(1, (rawProgress as number) / 100)); // Scale 0-100 to 0-1
 
         // keep your static labels as primary UI; fallback to DB fields if needed
         const meta = lessons.find((x) => x.id === displayId);
@@ -368,8 +370,11 @@ export default function BasicContents() {
         const subtitle = meta?.subtitle ?? `Lesson ${displayId}`;
         const desc = (m.description as string) ?? meta?.desc ?? "";
 
+        // Update type determination based on threshold
         const type: Lesson["type"] =
-          rawProgress >= UNLOCK_THRESHOLD ? "Review" : rawProgress > 0 ? "Continue" : "Start";
+          rawProgress >= UNLOCK_THRESHOLD ? "Review" : // Only "Review" at 100%
+          rawProgress > 0 ? "Continue" : 
+          "Start";
 
         return {
           id: displayId,

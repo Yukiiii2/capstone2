@@ -140,17 +140,17 @@ const LESSONS: LessonDetail[] = [
 
 // ===== helpers for progress write (50%) =====
 const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
-const QUIZ_PROGRESS_PCT = 50;                // we store 50% on quiz completion
+const QUIZ_PROGRESS_PCT = 50;                // progress after quiz
+const FINAL_PROGRESS_PCT = 100;              // progress after recording
 const BASIC_ORDER_INDEX_FOR_THIS = 1;        // this is Basic Lesson #1
 
-const saveQuizProgress50 = async (): Promise<void> => {
+// Rename and update the save progress function to handle both quiz and final progress
+const saveProgress = async (progressPct: number): Promise<void> => {
   try {
-    // 1) Current user
     const { data: auth } = await supabase.auth.getUser();
     const user = auth?.user;
     if (!user) return;
 
-    // 2) Find the module_id for Basic, order_index = 1
     const { data: mod, error: modErr } = await supabase
       .from("modules")
       .select("id")
@@ -163,7 +163,6 @@ const saveQuizProgress50 = async (): Promise<void> => {
     if (modErr || !mod?.id) return;
     const moduleId = mod.id as string;
 
-    // 3) See if there's already a progress row
     const { data: existing, error: selErr } = await supabase
       .from("student_progress")
       .select("id, progress, completed")
@@ -172,24 +171,22 @@ const saveQuizProgress50 = async (): Promise<void> => {
       .maybeSingle();
 
     if (!selErr && existing?.id) {
-      const newProgress = Math.max(clampPct(existing.progress ?? 0), QUIZ_PROGRESS_PCT);
       await supabase
         .from("student_progress")
         .update({
-          progress: newProgress,
-          completed: !!existing.completed && newProgress >= 100,
+          progress: progressPct,
+          completed: progressPct >= FINAL_PROGRESS_PCT,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existing.id);
       return;
     }
 
-    // 4) Insert a fresh row at 50%
     await supabase.from("student_progress").insert({
       student_id: user.id,
       module_id: moduleId,
-      progress: QUIZ_PROGRESS_PCT,
-      completed: false,
+      progress: progressPct,
+      completed: progressPct >= FINAL_PROGRESS_PCT,
       updated_at: new Date().toISOString(),
     });
   } catch {
@@ -499,10 +496,9 @@ const QuizSection = ({ data, onBack, onNext }: {
   };
 
   const handleDone = async () => {
-    // Save 50% progress for Basic module #1, then proceed to recording
     try {
       setSaving(true);
-      await saveQuizProgress50();
+      await saveProgress(QUIZ_PROGRESS_PCT);  // 50% after quiz
     } finally {
       setSaving(false);
       onNext();
@@ -650,6 +646,20 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
     ]).start();
   }, []);
 
+  const handleStartRecording = async () => {
+    try {
+      // Save 100% progress before navigating
+      await saveProgress(FINAL_PROGRESS_PCT);
+      
+      router.push({
+        pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
+        params: { lessonPrompt, topic, criteria },
+      });
+    } catch (error) {
+      Alert.alert("Error", "Failed to save progress. Please try again.");
+    }
+  };
+
   return (
     <Animated.View 
       style={{ 
@@ -731,18 +741,12 @@ const RecordingSection = ({ data, onBack }: { data: LessonDetail; onBack: () => 
               <Text className="text-white font-medium text-sm">Back to Quiz</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() =>
-                  router.push({
-                    pathname: "/StudentScreen/SpeakingExercise/live-vid-selection",
-                    params: { lessonPrompt, topic, criteria },
-                  })
-                }
+              onPress={handleStartRecording}  // Use new handler
               className="py-3 px-4 rounded-xl bg-violet-600 flex-1 items-center justify-center active:bg-violet-700 active:scale-95 transition-all"
               activeOpacity={0.7}
             >
               <Text className="text-white font-semibold text-sm">Start Recording</Text>
             </TouchableOpacity>
-            
           </View>
         </View>
       </ScrollView>
