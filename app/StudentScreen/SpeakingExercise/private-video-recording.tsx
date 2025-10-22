@@ -166,8 +166,7 @@ export default function PrivateVideoRecording() {
   const [expectedText, setExpectedText] = useState<string | null>(null);
 
   // ====== AI logic state (UNTOUCHED) ======
-  const [selectedAudioFile, setSelectedAudioFile] = useState<any | null>(null);
-  const [expectedText, setExpectedText] = useState<string | null>(null);
+  
 
   // avatar
   const [avatarUri, setAvatarUri] = useState<string | null>(null);

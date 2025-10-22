@@ -117,6 +117,9 @@ class FullAnalysisRequest(BaseModel):
     feedback: str
     speech_text: str
     category: str
+    student_id: str
+    attempt_id: str | None = None
+    session_id: str | None = None
 
 class SpeechFeedbackRequest(BaseModel):
     student_id: str | None = None
@@ -245,122 +248,107 @@ async def process_pre_assessment(request: PreAssessmentRequest):
     
 @app.post("/full-analysis")
 async def full_analysis(request: FullAnalysisRequest):
-    """Generate detailed skill ratings based on AI feedback"""
+    """Generate detailed skill ratings based on AI feedback with historical context"""
     try:
-        # Prepare prompt for Llama3 to analyze specific skills
+        # Get historical data for trend analysis
+        historical_data = supabase.table("feedback_ai")\
+            .select("*")\
+            .eq("student_id", request.student_id)\
+            .order("created_at", desc=True)\
+            .limit(3)\
+            .execute()
+
+        # Prepare historical context
+        historical_context = ""
+        if historical_data.data:
+            for entry in historical_data.data:
+                if entry.get("evaluation"):
+                    historical_context += f"\nPrevious feedback: {entry['evaluation']}"
+
+        # Enhanced prompt with historical context
         analysis_prompt = f"""
-        Based on this speaking performance feedback and transcription, rate each skill on a scale of 0-100.
+        Based on this speaking performance feedback and transcription, provide a detailed analysis.
+        Consider the student's historical performance for trend analysis.
 
-        Feedback: {request.feedback}
+        Current Feedback: {request.feedback}
         Speech Text: {request.speech_text}
+        Historical Context: {historical_context}
 
-        Analyze and rate these specific skills:
-        1. Gestures and Body Language
-        2. Pacing and Timing
-        3. Grammar and Language Use
-        4. Engagement and Audience Connection
-        5. Clarity and Pronunciation
-        6. Vocal Tone Variation
-        7. Fluency
-        8. Speaking Rate
-        9. Filler Word Usage
+        Analyze and rate these specific skills on a scale of 0-100:
+
+        Speaking Skills:
+        1. Gestures and Body Language (confidence in physical presence)
+        2. Pacing and Timing (speech rhythm and pauses)
+        3. Grammar and Language Use (sentence structure and vocabulary)
+        4. Engagement and Audience Connection (interaction and presence)
+        5. Clarity and Pronunciation (clear speech and enunciation)
+        6. Vocal Tone Variation (voice modulation and expression)
+        7. Fluency (smooth speech flow)
+        8. Speaking Rate (appropriate pace)
+        9. Filler Word Usage (minimize um, uh, like)
 
         For each skill provide:
-        - A score from 0-100
-        - A trend indicator (improving or needs work)
-        - A brief explanation
+        - A detailed score from 0-100
+        - A trend indicator (improving/declining) based on historical data
+        - A specific explanation with examples from the speech
+        - Actionable improvement suggestions
 
-        Format your response exactly like this:
+        Format your response exactly like this for each skill:
         skill: [name]
         score: [0-100]
         trend: [up/down]
-        explanation: [brief analysis]
+        explanation: [detailed analysis with examples]
+        suggestions: [specific improvement tips]
         ---
-        [repeat for each skill]
         """
 
         # Get Llama3 analysis
         analyzer = FeedbackAnalyzer()
         analysis_result = analyzer.llm.analyze(analysis_prompt)
 
-        # Parse the response into skill categories
+        # Parse skills data
         skills_data = parse_skills_analysis(analysis_result)
 
-        # Format metrics blocks
-        metrics = [
-            {
-                "label": "Fluency Score",
-                "value": skills_data.get("Fluency", {}).get("score", 70),
-                "icon": "bar-chart",
-                "trend": skills_data.get("Fluency", {}).get("trend", "up"),
-                "change": 2.0
-            },
-            {
-                "label": "Clarity Precision",
-                "value": skills_data.get("Clarity and Pronunciation", {}).get("score", 75),
-                "icon": "volume-high",
-                "trend": "up",
-                "change": 1.2
-            },
-            {
-                "label": "Filler Word Reduction",
-                "value": 100 - skills_data.get("Filler Word Usage", {}).get("score", 30),
-                "icon": "time",
-                "trend": "up",
-                "change": 0.8
-            },
-            {
-                "label": "Speaking Rate (WPM)",
-                "value": skills_data.get("Speaking Rate", {}).get("score", 70),
-                "icon": "pulse",
-                "trend": "up",
-                "change": 0.6
-            }
-        ]
+        # Calculate metrics with improved accuracy
+        metrics = format_metrics(skills_data, request.speech_text)
 
         # Calculate overall confidence score
         confidence_score = calculate_confidence_score(skills_data)
+
+        # Store analysis results
+        analysis_data = {
+            "student_id": request.student_id,
+            "attempt_id": request.attempt_id,
+            "session_id": request.session_id,
+            "analysis_result": {
+                "skills_data": skills_data,
+                "metrics": metrics,
+                "confidence_score": confidence_score,
+                "raw_analysis": analysis_result
+            },
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "status": "completed"
+        }
+
+        # Update full_analysis_queue with results
+        supabase.table("full_analysis_queue")\
+            .update(analysis_data)\
+            .match({
+                "student_id": request.student_id,
+                "attempt_id": request.attempt_id
+            })\
+            .execute()
 
         return {
             "success": True,
             "confidence_score": confidence_score,
             "metrics": metrics,
             "skills": {
-                "strengths": [
-                    {
-                        "skill": "Gestures",
-                        "level": skills_data.get("Gestures and Body Language", {}).get("score", 70),
-                        "trend": "up"
-                    },
-                    {
-                        "skill": "Pacing",
-                        "level": skills_data.get("Pacing and Timing", {}).get("score", 65),
-                        "trend": "up"
-                    },
-                    {
-                        "skill": "Grammar",
-                        "level": skills_data.get("Grammar and Language Use", {}).get("score", 68),
-                        "trend": "up"
-                    },
-                    {
-                        "skill": "Engagement",
-                        "level": skills_data.get("Engagement and Audience Connection", {}).get("score", 66),
-                        "trend": "up"
-                    }
-                ],
-                "improvements": [
-                    {
-                        "skill": "Clarity",
-                        "level": skills_data.get("Clarity and Pronunciation", {}).get("score", 60),
-                        "trend": "down"
-                    },
-                    {
-                        "skill": "Vocal Tone",
-                        "level": skills_data.get("Vocal Tone Variation", {}).get("score", 62),
-                        "trend": "down"
-                    }
-                ]
-            }
+                "strengths": get_top_skills(skills_data, threshold=65),
+                "improvements": get_bottom_skills(skills_data, threshold=65),
+                "details": skills_data  # Include full details for each skill
+            },
+            "suggestions": extract_suggestions(skills_data)
         }
 
     except Exception as e:
@@ -369,7 +357,6 @@ async def full_analysis(request: FullAnalysisRequest):
             status_code=500,
             detail=f"Failed to generate full analysis: {str(e)}"
         )
-
 def parse_skills_analysis(analysis: str) -> dict:
     """Parse the Llama3 response into structured skill data"""
     skills_data = {}
@@ -387,6 +374,8 @@ def parse_skills_analysis(analysis: str) -> dict:
             current_skill['trend'] = 'up' if 'up' in line or 'improving' in line else 'down'
         elif line.startswith('explanation:'):
             current_skill['explanation'] = line.split(':', 1)[1].strip()
+        elif line.startswith('suggestions:'):
+            current_skill['suggestions'] = line.split(':', 1)[1].strip()
     
     if current_skill:
         skills_data[current_skill['name']] = current_skill
@@ -414,6 +403,94 @@ def calculate_confidence_score(skills_data: dict) -> int:
             total_weight += weight
     
     return round(weighted_sum / total_weight if total_weight > 0 else 70)
+    
+def extract_suggestions(skills_data: dict) -> list:
+    """Extract all improvement suggestions from skills data"""
+    suggestions = []
+    for skill, data in skills_data.items():
+        if 'suggestions' in data:
+            suggestions.append({
+                'skill': skill,
+                'suggestion': data['suggestions']
+            })
+    return suggestions
+
+# ...existing code...    
+def format_metrics(skills_data: dict, speech_text: str) -> list:
+    """Format metrics with enhanced calculations"""
+    words = speech_text.split()
+    filler_words = len([w for w in words if w.lower() in ["um", "uh", "like"]])
+    filler_ratio = (filler_words / len(words)) if words else 0
+
+    return [
+        {
+            "label": "Fluency Score",
+            "value": skills_data.get("Fluency", {}).get("score", 70),
+            "icon": "bar-chart",
+            "trend": skills_data.get("Fluency", {}).get("trend", "up"),
+            "change": calculate_change(skills_data, "Fluency")
+        },
+        {
+            "label": "Clarity Precision",
+            "value": skills_data.get("Clarity and Pronunciation", {}).get("score", 75),
+            "icon": "volume-high",
+            "trend": skills_data.get("Clarity and Pronunciation", {}).get("trend", "up"),
+            "change": calculate_change(skills_data, "Clarity and Pronunciation")
+        },
+        {
+            "label": "Filler Word Reduction",
+            "value": max(0, min(100, 100 - (filler_ratio * 1000))),
+            "icon": "time",
+            "trend": "up",
+            "change": 0.8
+        },
+        {
+            "label": "Speaking Rate (WPM)",
+            "value": skills_data.get("Speaking Rate", {}).get("score", 70),
+            "icon": "pulse",
+            "trend": skills_data.get("Speaking Rate", {}).get("trend", "up"),
+            "change": calculate_change(skills_data, "Speaking Rate")
+        }
+    ]
+
+def get_top_skills(skills_data: dict, threshold: int = 65) -> list:
+    """Get top performing skills above threshold"""
+    return [
+        {
+            "skill": skill,
+            "level": data["score"],
+            "trend": data["trend"],
+            "explanation": data.get("explanation", ""),
+            "suggestions": data.get("suggestions", "")
+        }
+        for skill, data in skills_data.items()
+        if data["score"] >= threshold
+    ]
+
+def get_bottom_skills(skills_data: dict, threshold: int = 65) -> list:
+    """Get skills needing improvement below threshold"""
+    return [
+        {
+            "skill": skill,
+            "level": data["score"],
+            "trend": data["trend"],
+            "explanation": data.get("explanation", ""),
+            "suggestions": data.get("suggestions", "")
+        }
+        for skill, data in skills_data.items()
+        if data["score"] < threshold
+    ]
+
+def calculate_change(skills_data: dict, skill_name: str) -> float:
+    """Calculate the change/improvement rate for a skill"""
+    base_changes = {
+        "Fluency": 2.0,
+        "Clarity and Pronunciation": 1.2,
+        "Speaking Rate": 0.6
+    }
+    trend = skills_data.get(skill_name, {}).get("trend", "up")
+    return base_changes.get(skill_name, 1.0) * (1 if trend == "up" else -1)
+
 @app.get("/analyze-confidence/{student_id}")
 async def analyze_confidence(student_id: str):
     try:
