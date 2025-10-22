@@ -19,15 +19,53 @@ const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const fmtPct = (n: number) => `${clampPct(n)}%`;
 const widthStyle = (n: number): ViewStyle => ({ width: `${clampPct(n)}%` as `${number}%` });
 
+// Add getFinalAnalysis here
+const getFinalAnalysis = async (feedback: string, speechText: string) => {
+  try {
+    const response = await fetch(`https://unbalanceable-lyman-microstomatous.ngrok-free.dev/full-analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        feedback: feedback,
+        speech_text: speechText,
+        category: 'speaking'
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get full analysis');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting full analysis:', error);
+    return null;
+  }
+};
+
 type Trend = "up" | "down";
+
 type StrengthItem = { skill: string; level: number; trend: Trend };
+
 type ImprovementItem = { skill: string; level: number; trend: Trend };
+
+type FullAnalysisResponse = {
+  success: boolean;
+  confidence_score: number;
+  metrics: MetricBlock[];
+  skills: {
+    strengths: StrengthItem[];
+    improvements: ImprovementItem[];
+  };
+};
 
 type MetricBlock = {
   label: string;
   value: number; // 0..100
   icon: keyof typeof Ionicons.glyphMap;
-  trend: Trend;
+  trend: "up" | "down";
   change: number;
 };
 
@@ -76,6 +114,11 @@ async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "ad
 export default function FullResultsSpeaking() {
   const router = useRouter();
 
+  // Add these two new state declarations
+  const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
+  const [speechText, setSpeechText] = useState('');
+  const [strengths, setStrengths] = useState<StrengthItem[]>([]);
+  const [improvements, setImprovements] = useState<ImprovementItem[]>([]);
   const { session_id, attempt_id, level, module_id, module_title, score } =
     useLocalSearchParams<{
       session_id?: string;
@@ -115,6 +158,7 @@ export default function FullResultsSpeaking() {
   // AI feedback (from feedback_ai.evaluation jsonb)
   const [loadingTips, setLoadingTips] = useState(false);
   const [tips, setTips] = useState<string[]>([]);
+  
 
   /* ─────────── pull tips & a better score from feedback_ai ─────────── */
   const loadFeedbackFromAI = useCallback(async () => {
@@ -133,28 +177,47 @@ export default function FullResultsSpeaking() {
 
       const newTips: string[] = [];
       let latestScore: number | null = null;
+      let feedback = '';
+      let speechText = '';
 
       (data ?? []).forEach((row: any) => {
         const ev = row?.evaluation;
         if (!ev) return;
 
-        // Prefer final_score, then score. Both are 0–100.
-        const s =
-          typeof ev?.final_score === "number"
-            ? ev.final_score
-            : typeof ev?.score === "number"
-            ? ev.score
-            : null;
-        if (s != null && latestScore == null) latestScore = clampPct(s);
+        // Collect feedback and speech text for analysis
+        if (typeof ev?.summary === "string") {
+          feedback += ev.summary + ' ';
+        }
+        if (typeof ev?.transcript === "string") {
+          setSpeechText(ev.transcript);
+          speechText = ev.transcript;
+        }
 
-        // Tips/summaries
-        if (typeof ev?.summary === "string" && ev.summary.trim()) newTips.push(ev.summary.trim());
+        // Rest of existing feedback processing...
+        if (typeof ev?.summary === "string" && ev.summary.trim()) {
+          newTips.push(ev.summary.trim());
+        }
         if (Array.isArray(ev?.tips)) {
           ev.tips.forEach((t: any) => {
             if (typeof t === "string" && t.trim()) newTips.push(t.trim());
           });
         }
       });
+
+      // Get full analysis if we have feedback and speech text
+      if (feedback && speechText) {
+        const analysisResult = await getFinalAnalysis(feedback.trim(), speechText);
+        if (analysisResult) {
+          // Update all states with the analysis results
+          setMetrics(analysisResult.metrics);
+          setStrengths(analysisResult.skills.strengths);
+          setImprovements(analysisResult.skills.improvements);
+          // Update score if provided
+          if (analysisResult.confidence_score) {
+            setLiveScore(analysisResult.confidence_score);
+          }
+        }
+      }
 
       if (latestScore != null) setLiveScore(latestScore);
       if (newTips.length) setTips(newTips.slice(0, 10));
@@ -371,36 +434,30 @@ export default function FullResultsSpeaking() {
   );
 
   /* ─────────── metrics derived from score ─────────── */
-  const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
-  const deriveMetricsFromScore = (s: number): MetricBlock[] => {
-    const fluency = clampPct(s - 2);
-    const clarity = clampPct(s);
-    const fillers = clampPct(100 - Math.max(0, 100 - s) * 0.9);
-    const wpm = clampPct(60 + (s - 50) * 0.6);
-    return [
-      { label: "Fluency Score", value: fluency, icon: "bar-chart", trend: "up", change: 2.0 },
-      { label: "Clarity Precision", value: clarity, icon: "volume-high", trend: "up", change: 1.2 },
-      { label: "Filler Word Reduction", value: fillers, icon: "time", trend: "up", change: 0.8 },
-      { label: "Speaking Rate (WPM)", value: wpm, icon: "pulse", trend: "up", change: 0.6 },
-    ];
+  
+  
+  const recalcMetrics = async (feedback: string, speechText: string) => {
+    const analysisResult = await getFinalAnalysis(feedback, speechText);
+    if (analysisResult?.metrics) {
+      setMetrics(analysisResult.metrics);
+    }
+    if (analysisResult?.skills) {
+      setStrengths(analysisResult.skills.strengths);
+      setImprovements(analysisResult.skills.improvements);
+    }
   };
-  const recalcMetrics = (n: number) => setMetrics(deriveMetricsFromScore(n));
 
   // react to live score changes
   useEffect(() => {
-    recalcMetrics(uiScore);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiScore]);
-
-  // initial load
-  useEffect(() => {
     (async () => {
-      await resolveModule();
-      await loadFeedbackFromAI();
-      recalcMetrics(initialScore);
+        await resolveModule();
+        await loadFeedbackFromAI();
+        if (tips.length > 0) {
+            const combinedFeedback = tips.join(' ');
+            recalcMetrics(combinedFeedback, speechText);
+        }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+}, [loadFeedbackFromAI, tips, resolveModule, speechText]); // Fixed syntax and added speechText dependency
 
   useEffect(() => {
     if (currentModule.order_index !== null || currentModule.id || currentModule.title) {
@@ -479,45 +536,15 @@ export default function FullResultsSpeaking() {
       <View className="absolute w-32 h-32 bg-[#a78bfa]/5 rounded-full bottom-24 left-1/6" />
     </View>
   );
+  
+  
 
-  const [metricsState, setMetricsState] = useState<MetricBlock[] | null>(null);
-  useEffect(() => setMetricsState(metrics), [metrics]);
+  
+  
 
-  const strengths: StrengthItem[] = useMemo(() => {
-    const arr = metrics ?? deriveMetricsFromScore(uiScore);
-    return [
-      { skill: "Gestures", level: clampPct(Math.max(70, arr[0].value)), trend: "up" },
-      { skill: "Pacing", level: clampPct(Math.max(65, arr[3].value)), trend: "up" },
-      {
-        skill: "Grammar",
-        level: clampPct(Math.max(68, Math.round((arr[0].value + arr[1].value) / 2))),
-        trend: "up",
-      },
-      {
-        skill: "Engagement",
-        level: clampPct(Math.max(66, Math.round((arr[0].value + arr[2].value) / 2))),
-        trend: "up",
-      },
-    ];
-  }, [metrics, uiScore]);
+  
 
-  const improvements: ImprovementItem[] = useMemo(() => {
-    const arr = metrics ?? deriveMetricsFromScore(uiScore);
-    const sorted = [...arr].sort((a, b) => a.value - b.value).slice(0, 2);
-    return [
-      {
-        skill: sorted[0]?.label?.replace(" Score", "") || "Clarity",
-        level: clampPct(sorted[0]?.value ?? 60),
-        trend: "down",
-      },
-      {
-        skill: sorted[1]?.label?.replace(" Score", "") || "Vocal Tone",
-        level: clampPct(sorted[1]?.value ?? 62),
-        trend: "down",
-      },
-      { skill: "Pronunciation", level: clampPct(Math.round(uiScore * 0.7)), trend: "down" },
-    ];
-  }, [metrics, uiScore]);
+ 
 
   return (
     <View className="flex-1 bg-gray-900">
