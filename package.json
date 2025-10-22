@@ -22,7 +22,7 @@
     "axios": "^1.12.2",
     "expo": "~53.0.23",
     "expo-audio": "~0.4.9",
-    "expo-av": "~15.1.7",
+    "expo-av": "^16.0.7",
     "expo-battery": "~9.1.4",
     "expo-blur": "~14.1.5",
     "expo-camera": "~16.1.11",

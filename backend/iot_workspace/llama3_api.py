@@ -5,7 +5,7 @@ from backend.iot_workspace.feedback_analyzer import FeedbackAnalyzer
 from supabase import create_client, Client
 from fastapi import Request
 from asyncio import CancelledError
-from typing import Dict, Any
+from typing import Dict, Any, Optional  # Add Optional here
 # Add to top of llama3_api.py
 from datetime import datetime, timezone, timedelta
 
@@ -24,6 +24,10 @@ import re
 from textblob import TextBlob  # Import TextBlob for sentiment analysis
 import textstat  # Import textstat for readability analysis
 import subprocess
+import asyncio
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 
@@ -112,6 +116,14 @@ global_feedback = {}
 class PreAssessmentRequest(BaseModel):
     student_id: str
     answers: list[int]
+    # Add new request model
+class FullAnalysisRequest(BaseModel):
+    feedback: str
+    speech_text: str
+    category: str
+    student_id: str
+    attempt_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 class SpeechFeedbackRequest(BaseModel):
     student_id: str | None = None
@@ -237,6 +249,374 @@ async def process_pre_assessment(request: PreAssessmentRequest):
             status_code=500, 
             detail=f"Failed to process pre-assessment: {str(e)}"
         )
+    
+@app.post("/full-analysis")
+async def full_analysis(request: FullAnalysisRequest):
+    """Generate detailed skill ratings based on AI feedback with historical context"""
+    try:
+        if not request.student_id:
+            raise HTTPException(status_code=400, detail="student_id is required")
+
+        # Prepare historical context
+        historical_context = await get_historical_context(request.student_id)
+
+        # Shortened prompt for faster analysis
+        analysis_prompt = f"""
+        Analyze this speaking performance concisely.
+        Feedback: {request.feedback}
+        Text: {request.speech_text}
+        History: {historical_context}
+
+        Rate these skills (0-100):
+        1. Fluency
+        2. Clarity
+        3. Grammar
+        4. Engagement
+        5. Pronunciation
+        6. Voice
+        7. Pacing
+        8. Speaking Rate
+        9. Filler Words
+
+        Format:
+        skill: [name]
+        score: [0-100]
+        trend: [up/down]
+        explanation: [brief]
+        suggestions: [brief]
+        ---
+        """
+
+        # Get Llama3 analysis with increased timeout and fallback
+        analyzer = FeedbackAnalyzer()
+        try:
+            analysis_result = await asyncio.wait_for(
+                asyncio.to_thread(analyzer.llm.analyze, analysis_prompt),
+                timeout=60.0  # Increased to 60 seconds
+            )
+        except asyncio.TimeoutError:
+            # Fallback to quick analysis
+            analysis_result = generate_fallback_analysis(request.feedback, request.speech_text)
+            print("Using fallback analysis due to timeout")
+
+        # Process results
+        try:
+            skills_data = parse_skills_analysis(str(analysis_result))
+            metrics = format_metrics(skills_data, request.speech_text)
+            confidence_score = calculate_confidence_score(skills_data)
+        except Exception as parse_error:
+            print(f"Parsing error: {str(parse_error)}")
+            skills_data = generate_default_skills()
+            metrics = format_metrics(skills_data, request.speech_text)
+            confidence_score = 75
+
+        # Store results asynchronously
+        asyncio.create_task(store_analysis_results(
+            request.student_id,
+            request.attempt_id,
+            request.session_id,
+            skills_data,
+            metrics,
+            confidence_score,
+            str(analysis_result)
+        ))
+
+        return {
+            "success": True,
+            "confidence_score": confidence_score,
+            "metrics": metrics,
+            "skills": {
+                "strengths": get_top_skills(skills_data, threshold=65),
+                "improvements": get_bottom_skills(skills_data, threshold=65)
+            },
+            "suggestions": extract_suggestions(skills_data)
+        }
+
+    except Exception as e:
+        print(f"Error in full analysis: {str(e)}")
+        return {
+            "success": False,
+            "confidence_score": 75,
+            "metrics": generate_default_metrics(),
+            "skills": {
+                "strengths": [],
+                "improvements": []
+            },
+            "suggestions": []
+        }
+
+# Add these helper functions
+async def get_historical_context(student_id: str) -> str:
+    try:
+        response = supabase.table("feedback_ai")\
+            .select("*")\
+            .eq("student_id", student_id)\
+            .order("created_at", desc=True)\
+            .limit(3)\
+            .execute()
+        
+        historical_data = response.data if response else []
+        return "\n".join([entry.get("evaluation", "") for entry in historical_data])
+    except Exception:
+        return ""
+
+def generate_fallback_analysis(feedback: str, speech_text: str) -> str:
+    # Simple rule-based analysis
+    word_count = len(speech_text.split())
+    filler_words = len([w for w in speech_text.split() if w.lower() in ["um", "uh", "like"]])
+    
+    return f"""
+    skill: Fluency
+    score: {min(100, max(0, 75 - (filler_words * 5)))}
+    trend: up
+    explanation: Basic fluency analysis
+    suggestions: Practice speaking smoothly
+
+    skill: Speaking Rate
+    score: {min(100, max(0, word_count / 2))}
+    trend: up
+    explanation: Word count analysis
+    suggestions: Maintain consistent pace
+    """
+
+def generate_default_metrics() -> list:
+    return [
+        {
+            "label": "Overall Score",
+            "value": 75,
+            "icon": "bar-chart",
+            "trend": "up",
+            "change": 0
+        }
+    ]
+
+def generate_default_skills() -> dict:
+    return {
+        "general": {
+            "name": "general",
+            "score": 75,
+            "trend": "up",
+            "explanation": "Default analysis",
+            "suggestions": "Continue practicing"
+        }
+    }
+
+async def store_analysis_results(student_id, attempt_id, session_id, skills_data, metrics, confidence_score, raw_analysis):
+    """Store analysis results in the database with proper JSON handling and UUID validation"""
+    try:
+        # Validate UUIDs
+        if not student_id:
+            raise ValueError("student_id is required")
+            
+        # Convert analysis result to proper JSON structure
+        analysis_data = {
+            "student_id": student_id,
+            "attempt_id": attempt_id if attempt_id else None,
+            "session_id": session_id if session_id else None,
+            "status": "completed",
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "analysis_result": {
+                "skills_data": skills_data,
+                "metrics": metrics,
+                "confidence_score": confidence_score,
+                # Clean and format raw analysis
+                "raw_analysis": str(raw_analysis).replace('\n', ' ').strip()
+            },
+            "feedback": str(raw_analysis),  # Store original feedback
+            "speech_text": str(raw_analysis)  # Store original speech text
+        }
+
+        # Insert into database
+        response = await supabase.table("full_analysis_queue")\
+            .upsert(analysis_data)\
+            .execute()
+
+        if "error" in response:
+            print(f"Database error: {response['error']}")
+            raise Exception(f"Failed to store analysis: {response['error']}")
+
+        return True
+
+    except Exception as e:
+        print(f"Failed to store analysis results: {e}")
+        return False
+
+    except HTTPException as he:
+        raise he
+    except asyncio.CancelledError:
+        print("Request was cancelled")
+        raise HTTPException(status_code=499, detail="Request cancelled")
+    except Exception as e:
+        print(f"Error in full analysis: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate full analysis: {str(e)}"
+        )
+
+def parse_skills_analysis(analysis: str) -> dict:
+    """Parse the LLM response into structured skill data with better error handling"""
+    try:
+        # Clean up the input string
+        clean_analysis = analysis.strip()
+        if not clean_analysis:
+            return generate_default_skills()
+
+        skills_data = {}
+        current_skill = None
+        skill_name = None
+        
+        for line in clean_analysis.split('\n'):
+            line = line.strip().lower()
+            if not line:
+                continue
+                
+            if line.startswith('skill:'):
+                # Save previous skill if exists
+                if current_skill and skill_name:
+                    skills_data[skill_name] = current_skill
+                
+                # Start new skill
+                skill_name = line.split(':', 1)[1].strip()
+                current_skill = {
+                    'name': skill_name,
+                    'score': 70,  # Default score
+                    'trend': 'up',  # Default trend
+                    'explanation': '',
+                    'suggestions': ''
+                }
+            elif line.startswith('score:') and current_skill:
+                try:
+                    score = int(line.split(':', 1)[1].strip())
+                    current_skill['score'] = min(100, max(0, score))
+                except ValueError:
+                    current_skill['score'] = 70
+            elif line.startswith('trend:') and current_skill:
+                trend_value = line.split(':', 1)[1].strip()
+                current_skill['trend'] = 'up' if 'up' in trend_value or 'improving' in trend_value else 'down'
+            elif line.startswith('explanation:') and current_skill:
+                current_skill['explanation'] = line.split(':', 1)[1].strip()
+            elif line.startswith('suggestions:') and current_skill:
+                current_skill['suggestions'] = line.split(':', 1)[1].strip()
+        
+        # Don't forget to add the last skill
+        if current_skill and skill_name:
+            skills_data[skill_name] = current_skill
+        
+        return skills_data if skills_data else generate_default_skills()
+
+    except Exception as e:
+        print(f"Error parsing skills analysis: {e}")
+        return generate_default_skills()
+
+def calculate_confidence_score(skills_data: dict) -> int:
+    """Calculate overall confidence score from individual skill scores"""
+    weights = {
+        "Fluency": 0.2,
+        "Clarity and Pronunciation": 0.2,
+        "Grammar and Language Use": 0.15,
+        "Engagement and Audience Connection": 0.15,
+        "Pacing and Timing": 0.1,
+        "Vocal Tone Variation": 0.1,
+        "Gestures and Body Language": 0.1
+    }
+    
+    weighted_sum = 0
+    total_weight = 0
+    
+    for skill, weight in weights.items():
+        if skill in skills_data:
+            weighted_sum += skills_data[skill]["score"] * weight
+            total_weight += weight
+    
+    return round(weighted_sum / total_weight if total_weight > 0 else 70)
+    
+def extract_suggestions(skills_data: dict) -> list:
+    """Extract all improvement suggestions from skills data"""
+    suggestions = []
+    for skill, data in skills_data.items():
+        if 'suggestions' in data:
+            suggestions.append({
+                'skill': skill,
+                'suggestion': data['suggestions']
+            })
+    return suggestions
+
+# ...existing code...    
+def format_metrics(skills_data: dict, speech_text: str) -> list:
+    """Format metrics with enhanced calculations"""
+    words = speech_text.split()
+    filler_words = len([w for w in words if w.lower() in ["um", "uh", "like"]])
+    filler_ratio = (filler_words / len(words)) if words else 0
+
+    return [
+        {
+            "label": "Fluency Score",
+            "value": skills_data.get("Fluency", {}).get("score", 70),
+            "icon": "bar-chart",
+            "trend": skills_data.get("Fluency", {}).get("trend", "up"),
+            "change": calculate_change(skills_data, "Fluency")
+        },
+        {
+            "label": "Clarity Precision",
+            "value": skills_data.get("Clarity and Pronunciation", {}).get("score", 75),
+            "icon": "volume-high",
+            "trend": skills_data.get("Clarity and Pronunciation", {}).get("trend", "up"),
+            "change": calculate_change(skills_data, "Clarity and Pronunciation")
+        },
+        {
+            "label": "Filler Word Reduction",
+            "value": max(0, min(100, 100 - (filler_ratio * 1000))),
+            "icon": "time",
+            "trend": "up",
+            "change": 0.8
+        },
+        {
+            "label": "Speaking Rate (WPM)",
+            "value": skills_data.get("Speaking Rate", {}).get("score", 70),
+            "icon": "pulse",
+            "trend": skills_data.get("Speaking Rate", {}).get("trend", "up"),
+            "change": calculate_change(skills_data, "Speaking Rate")
+        }
+    ]
+
+def get_top_skills(skills_data: dict, threshold: int = 65) -> list:
+    """Get top performing skills above threshold"""
+    return [
+        {
+            "skill": skill,
+            "level": data["score"],
+            "trend": data["trend"],
+            "explanation": data.get("explanation", ""),
+            "suggestions": data.get("suggestions", "")
+        }
+        for skill, data in skills_data.items()
+        if data["score"] >= threshold
+    ]
+
+def get_bottom_skills(skills_data: dict, threshold: int = 65) -> list:
+    """Get skills needing improvement below threshold"""
+    return [
+        {
+            "skill": skill,
+            "level": data["score"],
+            "trend": data["trend"],
+            "explanation": data.get("explanation", ""),
+            "suggestions": data.get("suggestions", "")
+        }
+        for skill, data in skills_data.items()
+        if data["score"] < threshold
+    ]
+
+def calculate_change(skills_data: dict, skill_name: str) -> float:
+    """Calculate the change/improvement rate for a skill"""
+    base_changes = {
+        "Fluency": 2.0,
+        "Clarity and Pronunciation": 1.2,
+        "Speaking Rate": 0.6
+    }
+    trend = skills_data.get(skill_name, {}).get("trend", "up")
+    return base_changes.get(skill_name, 1.0) * (1 if trend == "up" else -1)
+
 @app.get("/analyze-confidence/{student_id}")
 async def analyze_confidence(student_id: str):
     try:
@@ -739,3 +1119,32 @@ async def process_audio(file: UploadFile = File(...), expected_text: str = None)
             os.remove(temp_audio_path)
         if temp_wav_path and os.path.exists(temp_wav_path):
             os.remove(temp_wav_path)
+
+# Add at the top with other imports
+import asyncio
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# Add global exception handlers
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": str(exc.detail)}
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Invalid request parameters"}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    print(f"Unhandled exception: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
