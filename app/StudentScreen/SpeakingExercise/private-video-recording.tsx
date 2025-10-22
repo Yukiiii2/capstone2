@@ -166,8 +166,7 @@ export default function PrivateVideoRecording() {
   const [expectedText, setExpectedText] = useState<string | null>(null);
 
   // ====== AI logic state (UNTOUCHED) ======
-  const [selectedAudioFile, setSelectedAudioFile] = useState<any | null>(null);
-  const [expectedText, setExpectedText] = useState<string | null>(null);
+  
 
   // avatar
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -1193,7 +1192,10 @@ export default function PrivateVideoRecording() {
           setShowCompletionModal(false);
           router.push({
             pathname: "StudentScreen/SpeakingExercise/full-results-speaking",
-            params: { ...moduleCtx },
+            params: { 
+              ...moduleCtx,
+              ai_feedback: aiFeedback || 'No feedback available', // Add AI feedback to params
+            },
           });
         }}
         ai_feedback={aiFeedback}
