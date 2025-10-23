@@ -612,29 +612,55 @@ export default function FullResultsSpeaking() {
     try {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
-      if (user && currentModule.id) {
-        // Log the final attempt with current score
-        const finalScore = await fetchFinalScore();
-        await logAttempt(user.id, finalScore);
+      console.log('[goHome] User:', user?.id);
+      console.log('[goHome] Current Module ID:', currentModule.id);
 
-        // Force update progress to 100% and mark as completed
-        await supabase
+      if (user && currentModule.id) {
+        const finalScore = await fetchFinalScore();
+        console.log('[goHome] Final Score:', finalScore);
+        
+        await logAttempt(user.id, finalScore);
+        console.log('[goHome] Attempt logged successfully');
+
+        // Match exact table structure
+        const progressData = {
+          student_id: user.id,         // uuid
+          module_id: currentModule.id, // uuid
+          progress: 100,               // integer
+          completed: true,             // boolean
+          category: "speaking",        // character varying
+          updated_at: new Date().toISOString(), // timestamp with time zone
+          confidence: finalScore,      // integer
+          anxiety: null                // integer (optional)
+        };
+
+        // Try to fetch existing progress
+        const { data: existing } = await supabase
           .from("student_progress")
-          .upsert({
-            student_id: user.id,
-            module_id: currentModule.id,
-            progress: 100,
-            completed: true,
-            updated_at: new Date().toISOString(),
-            category: "speaking"
-          }, {
-            onConflict: "student_id,module_id",
-            ignoreDuplicates: false
-          });
+          .select("id")
+          .eq("student_id", user.id)
+          .eq("module_id", currentModule.id)
+          .maybeSingle();
+
+        if (existing?.id) {
+          const { error: updateError } = await supabase
+            .from("student_progress")
+            .update(progressData)
+            .eq("id", existing.id);
+
+          console.log('[goHome] Update result:', { error: updateError });
+        } else {
+          const { error: insertError } = await supabase
+            .from("student_progress")
+            .insert([progressData]);
+
+          console.log('[goHome] Insert result:', { error: insertError });
+        }
       }
     } catch (error) {
-      console.error("Error updating progress:", error);
+      console.error("[goHome] Error updating progress:", error);
     }
+    console.log('[goHome] Navigating to home page...');
     router.replace("StudentScreen/HomePage/home-page");
   };
 

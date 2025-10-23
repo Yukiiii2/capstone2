@@ -1197,13 +1197,17 @@ export default function PrivateVideoRecording() {
               ai_feedback: aiFeedback || 'No feedback available', // Add AI feedback to params
               module_id: module_id,
               level: level || 'basic',
+              score: '100',
+              moduleComplete: "true" // Add completion flag
             },
           });
         }}
         ai_feedback={aiFeedback}
         module_id={module_id}
         level={level}
-        
+         attempt_id={null}
+        session_id={null}
+        module_title={module_title}
       />
 
       <LivesessionCommunityModal
