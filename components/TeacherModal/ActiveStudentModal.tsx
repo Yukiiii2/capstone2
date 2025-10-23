@@ -131,6 +131,9 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
   }, []);
 
   /* ====== Live fetch + mapping (logic only) ====== */
+  // ...imports & component setup above stay the same
+
+  /* ====== Live fetch + mapping (logic only) ====== */
   const fetchLiveRaw = useCallback(async () => {
     if (!teacherId) return;
 
@@ -150,38 +153,101 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       const ids = Array.from(new Set(ts.map(r => r.student_id))).filter(Boolean) as string[];
       idsRef.current = new Set(ids);
 
-      const [{ data: profs, error: e2 }, { data: prog, error: e3 }] = await Promise.all([
+      // Pull profiles, per-module progress, and latest confidence/anxiety
+      const [
+        { data: profs, error: e2 },
+        { data: progRows, error: e3 },
+        { data: caRows, error: e4 },
+      ] = await Promise.all([
         supabase.from("profiles").select("id, name").in("id", ids),
+
+        // Per-module progress rows for both categories
         supabase
           .from("student_progress")
-          .select("student_id, speaking_completed, speaking_total, reading_completed, reading_total, confidence, anxiety")
+          .select("student_id, module_id, progress, completed, category")
           .in("student_id", ids),
+
+        // Latest confidence/anxiety per student
+        supabase
+          .from("confidence_anxiety_score")
+          .select(
+            "student_id, confidence_score_speaking, confidence_score_reading, anxiety_level_speaking, anxiety_level_reading, updated_at"
+          )
+          .in("student_id", ids)
+          .order("updated_at", { ascending: false }),
       ]);
+
       if (e2) throw e2;
       if (e3) throw e3;
+      if (e4) throw e4;
 
-      const byProf: Record<string, any> = {};
-      const byProg: Record<string, any> = {};
+      // Index helpers
+      const byProf: Record<string, { id: string; name: string }> = {};
       (profs || []).forEach((p) => (byProf[p.id] = p));
-      (prog || []).forEach((p) => (byProg[p.student_id] = p));
 
-      const pct = (c?: number, t?: number) => (t && t > 0 ? Math.round(((c || 0) / t) * 100) : 0);
+      // Keep only the latest CA row per student
+      const latestCA: Record<string, {
+        confidence_score_speaking?: number | null;
+        confidence_score_reading?: number | null;
+        anxiety_level_speaking?: number | null;
+        anxiety_level_reading?: number | null;
+      }> = {};
+      (caRows || []).forEach((r) => {
+        if (!latestCA[r.student_id]) latestCA[r.student_id] = r;
+      });
+
+      // Group progress rows by student + category
+      type Prog = { student_id: string; module_id: string | null; progress: number | null; completed: boolean | null; category: "speaking" | "reading" | null; };
+      const progByStudent: Record<string, Prog[]> = {};
+      (progRows || []).forEach((row: Prog) => {
+        if (!progByStudent[row.student_id]) progByStudent[row.student_id] = [];
+        progByStudent[row.student_id].push(row);
+      });
+
+      const clamp0to100 = (n: number) =>
+        Math.max(0, Math.min(100, Math.round(n)));
+
+      const MODULES_PER_CATEGORY = 12;        // 6 basic + 6 advanced
+      const TOTAL_PTS = MODULES_PER_CATEGORY * 100; // 1200
+
+      const pctFromRows = (rows: Prog[] | undefined, cat: "speaking" | "reading") => {
+        const rs = (rows || []).filter(r => r.category === cat);
+        // Sum progress per module (completed -> 100, missing modules -> 0)
+        const earned = rs.reduce((sum, r) => {
+          const val = typeof r.progress === "number" && Number.isFinite(r.progress)
+            ? clamp0to100(r.progress)
+            : r.completed ? 100 : 0;
+          return sum + val;
+        }, 0);
+        return clamp0to100((earned / TOTAL_PTS) * 100);
+      };
+
       const makeInitials = (name: string) => {
         const parts = name.trim().split(/\s+/).filter(Boolean);
         if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
         if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
         return "ST";
-        };
+      };
 
       const mapped: Student[] = (ts || []).map((r) => {
         const prof = byProf[r.student_id];
         const rawName = (prof?.name || "Student").trim();
         const initials = makeInitials(rawName);
 
-        const pv = byProg[r.student_id] || {};
-        const speakingPct = pct(pv.speaking_completed, pv.speaking_total);
-        const readingPct  = pct(pv.reading_completed, pv.reading_total);
+        const rows = progByStudent[r.student_id] || [];
+        const speakingPct = pctFromRows(rows, "speaking");
+        const readingPct  = pctFromRows(rows, "reading");
         const overall     = Math.round((speakingPct + readingPct) / 2);
+
+        const ca = latestCA[r.student_id] || {};
+        // Choose speaking confidence/anxiety if present; fallback to reading; fallback defaults.
+        const confidence =
+          (typeof ca.confidence_score_speaking === "number" ? ca.confidence_score_speaking :
+           typeof ca.confidence_score_reading === "number" ? ca.confidence_score_reading : 0);
+
+        const anxiety =
+          (typeof ca.anxiety_level_speaking === "number" ? ca.anxiety_level_speaking :
+           typeof ca.anxiety_level_reading === "number" ? ca.anxiety_level_reading : 100);
 
         return {
           id: r.student_id,
@@ -191,8 +257,8 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
           status: (r.status as "active" | "inactive") || "active",
           progress: overall,
           satisfaction: 0,
-          confidence: typeof pv.confidence === "number" ? pv.confidence : 0,
-          anxiety: typeof pv.anxiety === "number" ? pv.anxiety : 100,
+          confidence: clamp0to100(confidence),
+          anxiety: clamp0to100(anxiety),
           initials,
           color: "#4F46E5",
           statusColor: r.status === "active" ? "text-green-400" : "text-gray-400",
@@ -205,6 +271,7 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       // Keep current list; do not crash UI
     }
   }, [teacherId]);
+
 
   /* ====== Realtime subscriptions (logic only; UI untouched) ====== */
   useEffect(() => {
