@@ -113,6 +113,17 @@ export default function LiveVideoRecording() {
   const pathname = usePathname();
   const params = useLocalSearchParams();
 
+  // Add currentModule state near the top with other states
+  const [currentModule, setCurrentModule] = useState<{
+    id: string | null;
+    title: string | null;
+    level: "basic" | "advanced";
+  }>({
+    id: (params.module_id as string) ?? null,
+    title: (params.module_title as string) ?? null,
+    level: params.level === "advanced" ? "advanced" : "basic"
+  });
+
   // (Optional) if you pass these in Live via route params, we'll forward to AI like Private
   const criteria = (params.criteria as string) || undefined;
   const generatedScript = (params.generatedScript as string) || undefined;
@@ -122,12 +133,15 @@ export default function LiveVideoRecording() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [recordedVideoPath, setRecordedVideoPath] = useState<string | null>(null);
   const cameraRef = useRef<Camera>(null);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const hasActiveRecording = useRef(false);
 
   // AUDIO SIDECAR (expo-av) — the only source for analysis
   const audioRecordingRef = useRef<Audio.Recording | null>(null);
-  const [recordedAudioUri, setRecordedAudioUri] = useState<string | null>(null);
-  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-  const [audioSignedUrl, setAudioSignedUrl] = useState<string | null>(null);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null); // .m4a
+  const [uploadUrl, setUploadUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [didAutoUpload, setDidAutoUpload] = useState(false);
 
   // Private-style AI inputs
   const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null as any);
@@ -346,6 +360,23 @@ export default function LiveVideoRecording() {
 
   // recording animations
   useEffect(() => {
+  return () => {
+    // Cleanup recording on unmount
+    if (hasActiveRecording.current) {
+      try {
+        const rec = audioRecordingRef.current;
+        if (rec) {
+          rec.stopAndUnloadAsync();
+          audioRecordingRef.current = null;
+        }
+      } catch (e) {
+        console.warn('Cleanup error:', e);
+      }
+      hasActiveRecording.current = false;
+    }
+  };
+}, []);
+  useEffect(() => {
     if (isRecording) {
       Animated.loop(
         Animated.sequence([
@@ -513,69 +544,99 @@ export default function LiveVideoRecording() {
     } as any);
   }
 
-  // ▶ start/stop audio sidecar
   const startAudioRecording = async () => {
-    try {
-      await setAudioModeCompatRecording();
-      const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await rec.startAsync();
-      audioRecordingRef.current = rec;
-      setRecordedAudioUri(null);
-      setAudioSignedUrl(null);
-      setSelectedAudioFile(null as any);
-      return true;
-    } catch (e: any) {
-      Alert.alert("Audio error", String(e?.message || e));
-      return false;
-    }
-  };
-
-  const stopAudioRecording = async () => {
-    try {
-      const rec = audioRecordingRef.current;
-      if (!rec) return null;
-
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-      audioRecordingRef.current = null;
-
-      if (uri) {
-        setRecordedAudioUri(uri);
-
-        // create a File-like object for FormData (same as Private)
-        const audioFile = {
-          uri,
-          name: `recording-${Date.now()}.m4a`,
-          type: "audio/m4a",
-        } as any;
-        setSelectedAudioFile(audioFile);
-
-        // expected script (if provided)
-        if (generatedScript) setExpectedText(generatedScript);
+  try {
+    // Prevent multiple recordings
+    if (hasActiveRecording.current) {
+      console.log('Already recording, cleaning up...');
+      try {
+        const rec = audioRecordingRef.current;
+        if (rec) {
+          await rec.stopAndUnloadAsync();
+          audioRecordingRef.current = null;
+        }
+      } catch (e) {
+        console.warn('Cleanup error:', e);
       }
-
-      await setAudioModeCompatIdle();
-      return uri;
-    } catch (e) {
-      console.error("Error stopping audio recording:", e);
-      return null;
+      hasActiveRecording.current = false;
     }
-  };
+
+    // Reset states
+    setRecordedUri(null);
+    setUploadUrl(null);
+    setSelectedAudioFile(null);
+
+    const ok = await ensurePermissions();
+    if (!ok) return false;
+
+    await setAudioModeCompatRecording();
+
+    const rec = new Audio.Recording();
+    await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+    await rec.startAsync();
+
+    audioRecordingRef.current = rec;
+    hasActiveRecording.current = true;
+
+    return true;
+  } catch (e: any) {
+    console.error('Audio start error:', e);
+    hasActiveRecording.current = false;
+    audioRecordingRef.current = null;
+    Alert.alert("Audio error", String(e?.message || e));
+    return false;
+  }
+};
+
+  // Update the stopAudioRecording function
+const stopAudioRecording = async () => {
+  try {
+    const rec = audioRecordingRef.current;
+    if (!rec) return null;
+
+    await rec.stopAndUnloadAsync();
+    const uri = rec.getURI();
+    
+    // Clear refs and states
+    audioRecordingRef.current = null;
+    hasActiveRecording.current = false;
+
+    if (uri) {
+      setRecordedUri(uri);
+      const audioFile = {
+        uri,
+        name: `recording-${Date.now()}.m4a`,
+        type: "audio/m4a",
+      } as any;
+      setSelectedAudioFile(audioFile);
+    }
+
+    await setAudioModeCompatIdle();
+    return uri;
+  } catch (e) {
+    console.error("Error stopping audio recording:", e);
+    // Ensure cleanup even on error
+    audioRecordingRef.current = null;
+    hasActiveRecording.current = false;
+    await setAudioModeCompatIdle();
+    return null;
+  }
+};
+
 
   // ▶ upload audio to Supabase (on Continue)
   const uploadAudioToSupabase = async (): Promise<string | null> => {
-    if (!recordedAudioUri) {
+    if (!recordedUri) {
       Alert.alert("No audio", "There is no audio recording to upload.");
       return null;
     }
     try {
-      setIsUploadingAudio(true);
+      setIsUploading(true);
 
       const filename = `live-${Date.now()}.m4a`;
       const objectPath = `${filename}`;
 
-      const base64 = await FileSystem.readAsStringAsync(recordedAudioUri, {
+      const base64 = await FileSystem.readAsStringAsync(recordedUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
       const bytes = base64ToUint8Array(base64);
@@ -604,7 +665,7 @@ export default function LiveVideoRecording() {
       if (signed.error) throw signed.error;
 
       const url = signed.data?.signedUrl ?? null;
-      setAudioSignedUrl(url);
+      setUploadUrl(url);
       return url;
     } catch (e: any) {
       console.warn("[audio upload] failed:", e?.message || e);
@@ -614,7 +675,7 @@ export default function LiveVideoRecording() {
       );
       return null;
     } finally {
-      setIsUploadingAudio(false);
+      setIsUploading(false);
     }
   };
 
@@ -633,43 +694,56 @@ export default function LiveVideoRecording() {
   };
 
   // start capture (video for UX; analysis uses only audio)
-  const startRecordingNow = async () => {
-    if (!cameraRef.current || !cameraReady || isRecording) return;
-    try {
-      await startAudioRecording();
+ const startRecordingNow = async () => {
+  if (!cameraRef.current || !cameraReady || isRecording || isInitializing) return;
+    
+  try {
+    setIsInitializing(true);
 
-      setIsRecording(true);
-      startTimer();
-      await cameraRef.current.startRecording({
-        flash: "off",
-        onRecordingFinished: async (video: VideoFile) => {
-          stopTimer();
-          setRecordedVideoPath(video.path ?? null);
-          setIsRecording(false);
-          setIsFullScreen(false);
-          setShowContinueButton(true);
-          await stopAudioRecording();
-        },
-        onRecordingError: async (err) => {
-          console.error("Recording error:", err);
-          stopTimer();
-          setIsRecording(false);
-          setIsFullScreen(false);
-          setShowContinueButton(false);
-          await stopAudioRecording();
-          Alert.alert("Recording failed", "Please try again.");
-        },
-      });
-    } catch (err) {
-      console.error("startRecording error:", err);
-      stopTimer();
-      setIsRecording(false);
-      setIsFullScreen(false);
-      setShowContinueButton(false);
-      await stopAudioRecording();
-      Alert.alert("Camera not ready", "Please try again.");
+    // Start audio first with proper cleanup
+    const audioStarted = await startAudioRecording();
+    if (!audioStarted) {
+      throw new Error('Failed to start audio recording');
     }
-  };
+
+    // Then start video
+    setIsRecording(true);
+    startTimer();
+    
+    await cameraRef.current.startRecording({
+      flash: "off",
+      onRecordingFinished: async (video: VideoFile) => {
+        console.log('Recording finished successfully');
+        stopTimer();
+        setRecordedVideoPath(video.path ?? null);
+        setIsRecording(false);
+        setIsFullScreen(false);
+        setShowContinueButton(true);
+        await stopAudioRecording();
+      },
+      onRecordingError: async (err) => {
+        console.error("Recording error:", err);
+        stopTimer();
+        setIsRecording(false);
+        setIsFullScreen(false);
+        setShowContinueButton(false);
+        await stopAudioRecording();
+        Alert.alert("Recording failed", "Please try again.");
+      },
+    });
+
+  } catch (err) {
+    console.error("startRecording error:", err);
+    stopTimer();
+    setIsRecording(false);
+    setIsFullScreen(false);
+    setShowContinueButton(false);
+    await stopAudioRecording();
+    Alert.alert("Recording error", "Please try again.");
+  } finally {
+    setIsInitializing(false);
+  }
+};
 
   // stop capture
   const stopRecording = async () => {
@@ -678,11 +752,15 @@ export default function LiveVideoRecording() {
       setIsFullScreen(false);
       return;
     }
+
     try {
       shuttingDownRef.current = true;
       setCameraReady(false);
       setIsFullScreen(false);
+
+      // Stop video first
       await cameraRef.current?.stopRecording();
+
     } catch (e: any) {
       const msg = String(e?.toString?.() ?? e);
       if (!msg.includes("no-recording-in-progress")) {
@@ -691,13 +769,115 @@ export default function LiveVideoRecording() {
     } finally {
       stopTimer();
       setIsRecording(false);
-      setShowContinueButton((prev) => prev || !!recordedVideoPath);
-      await stopAudioRecording();
+      setShowContinueButton(true);
+      
+      // Always try to stop audio last
+      try {
+        await stopAudioRecording();
+      } catch (e) {
+        console.error('Error stopping audio:', e);
+      }
+    }
+  };
+
+  // update AI analysis
+  const handleViewAIAnalysis = async () => {
+    try {
+      setShowEndSessionModal(false);
+      setShowCompletionModal(true);
+      setIsProcessing(true);
+      setShowResultsPrompt(false);
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("User is not logged in.");
+      }
+
+      // Check for audio file and create one if we have the URI but no file object
+      if (!selectedAudioFile && recordedUri) {
+        const audioFile = {
+          uri: recordedUri,
+          name: `recording-${Date.now()}.m4a`,
+          type: "audio/m4a",
+        };
+        setSelectedAudioFile(audioFile as any);
+      }
+
+      // Final check for audio
+      if (!selectedAudioFile && !recordedUri) {
+        throw new Error("No audio file found. Please record first.");
+      }
+
+      const formData = new FormData();
+      
+      // Use either selectedAudioFile or create from URI
+      const fileToUpload = selectedAudioFile || {
+        uri: recordedUri,
+        name: `recording-${Date.now()}.m4a`,
+        type: "audio/m4a",
+      };
+      
+      formData.append("file", fileToUpload as any);
+
+      // Add expected text if available
+      if (expectedText) {
+        formData.append("expected_text", expectedText);
+      }
+
+      // Process audio first
+      console.log('Sending audio for processing...');
+      const processAudioResponse = await axios.post(
+        `https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-audio`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      console.log('Audio processed, analyzing feedback...');
+      const { transcription, spacy_stats } = processAudioResponse.data;
+
+      // Then analyze feedback
+      const analyzeFeedbackResponse = await axios.post(
+        `https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-feedback`,
+        {
+          speech_text: transcription,
+          spacy_stats,
+          category: "speaking",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      const feedbackText = analyzeFeedbackResponse.data?.ai_feedback ||
+                          analyzeFeedbackResponse.data?.summary ||
+                          "Analysis complete. View your results.";
+
+      setAiFeedback(feedbackText);
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+
+    } catch (error: any) {
+      console.error("Error in AI analysis:", error?.message || error);
+      setIsProcessing(false);
+      setShowResultsPrompt(true);
+      setAiFeedback(error?.message || "Analysis could not be completed. Please try again.");
+      Alert.alert(
+        "Analysis Error",
+        error?.message || "Could not analyze recording. Please try again."
+      );
     }
   };
 
   // ======= ANALYSIS (AUDIO-ONLY, Private-style) =======
-  const handleViewAIAnalysis = async () => {
+  const handleViewAIAnalysisOld = async () => {
     try {
       setShowEndSessionModal(false);
       setShowCompletionModal(true);
@@ -716,15 +896,15 @@ export default function LiveVideoRecording() {
       const token = session.access_token;
 
       // Must have a local File (preferred). If missing but uri exists, fabricate the File-like object now.
-      if (!selectedAudioFile && recordedAudioUri) {
+      if (!selectedAudioFile && recordedUri) {
         setSelectedAudioFile({
-          uri: recordedAudioUri,
+          uri: recordedUri,
           name: `recording-${Date.now()}.m4a`,
           type: "audio/m4a",
         } as any);
       }
 
-      if (!selectedAudioFile && !recordedAudioUri) {
+      if (!selectedAudioFile && !recordedUri) {
         setIsProcessing(false);
         Alert.alert("No audio", "Please record first. Audio file not found.");
         return;
@@ -734,7 +914,7 @@ export default function LiveVideoRecording() {
       const formData = new FormData();
       formData.append("file", (selectedAudioFile ||
         ({
-          uri: recordedAudioUri,
+          uri: recordedUri,
           name: `recording-${Date.now()}.m4a`,
           type: "audio/m4a",
         } as any)) as any);
@@ -743,7 +923,7 @@ export default function LiveVideoRecording() {
       if (criteria) formData.append("criteria", String(criteria));
 
       const processAudioResponse = await axios.post(
-        `${API_BASE}/process-audio`,
+        `https://unbalanceable-lyman-microstomatous.ngrok-free.dev/process-audio`,
         formData,
         {
           headers: {
@@ -756,7 +936,7 @@ export default function LiveVideoRecording() {
       const { transcription, spacy_stats } = processAudioResponse.data || {};
 
       const analyzeFeedbackResponse = await axios.post(
-        `${API_BASE}/analyze-feedback`,
+        `https://unbalanceable-lyman-microstomatous.ngrok-free.dev/analyze-feedback`,
         {
           speech_text: transcription,
           spacy_stats,
@@ -781,7 +961,6 @@ export default function LiveVideoRecording() {
       setIsProcessing(false);
       setShowResultsPrompt(true);
       setAiFeedback("We couldn’t complete the analysis. Please try again later.");
-      Alert.alert("Analysis failed", "There was a problem analyzing your recording.");
     }
   };
 
@@ -925,11 +1104,13 @@ export default function LiveVideoRecording() {
           className="absolute bottom-10 w-[80px] h-[80px] rounded-full bg-white/90 justify-center items-center z-10 self-center"
           onPress={startRecordingNow}
           activeOpacity={0.8}
-          disabled={!cameraReady}
+          disabled={!cameraReady || isInitializing}
         >
           <View
             className="w-[34px] h-[34px] rounded-full"
-            style={{ backgroundColor: cameraReady ? "#ef4444" : "#6b7280" }}
+            style={{ 
+              backgroundColor: (!cameraReady || isInitializing) ? "#6b7280" : "#ef4444" 
+            }}
           />
         </TouchableOpacity>
       ) : (
@@ -979,32 +1160,6 @@ export default function LiveVideoRecording() {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
-      {__DEV__ && (
-        <View
-          style={{
-            position: "absolute",
-            top: 8,
-            left: 8,
-            zIndex: 9999,
-            backgroundColor: "rgba(0,0,0,0.6)",
-            paddingHorizontal: 8,
-            paddingVertical: 6,
-            borderRadius: 8,
-          }}
-        >
-          <Text style={{ color: "white", fontSize: 10 }}>
-            mountCamera: {String(mountCamera)}
-            {"\n"}
-            device: {device ? (useBack ? "back" : "front") : "none"}
-            {"\n"}
-            perms cam/mic: {String(hasCamPerm)}/{String(hasMicPerm)}
-            {"\n"}
-            fullscreen: {String(isFullScreen)} active: {String(cameraActive)}
-            {"\n"}
-            ready: {String(cameraReady)} attempts: {initAttemptsRef.current}
-          </Text>
-        </View>
-      )}
 
       {mountCamera && device ? (
         <View
@@ -1114,9 +1269,23 @@ export default function LiveVideoRecording() {
         onLater={() => setShowCompletionModal(false)}
         onSeeResults={() => {
           setShowCompletionModal(false);
-          router.push("StudentScreen/SpeakingExercise/full-results-speaking");
+          router.push({
+            pathname: "StudentScreen/SpeakingExercise/full-results-speaking",
+            params: {
+              ai_feedback: aiFeedback || 'No feedback available',
+              module_id: currentModule.id || params.module_id,
+              level: currentModule.level,
+              score: '100',
+              moduleComplete: "true"
+            },
+          });
         }}
         ai_feedback={aiFeedback}
+        module_id={currentModule.id}
+        level={currentModule.level}
+        attempt_id={null}
+        session_id={null}
+        module_title={currentModule.title}
       />
 
       <LivesessionCommunityModal
@@ -1204,26 +1373,25 @@ export default function LiveVideoRecording() {
                   <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
                     <TouchableOpacity
                       onPress={async () => {
-                        // Upload AUDIO ONLY (for persistence / parity with Private)
+                        // Upload audio only for persistence
                         const url = await uploadAudioToSupabase();
                         if (url) {
-                          Alert.alert("Audio Uploaded", "Your audio has been uploaded.");
+                          console.log("Audio uploaded successfully");
+                          setUploadUrl(url);
                         }
                         setShowEndSessionModal(true);
                       }}
                       className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
                       <Text className="text-white font-semibold">
-                        {isUploadingAudio ? "Uploading…" : "Continue"}
+                        {isUploading && !uploadUrl ? "Uploading…" : "Continue"}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
                         setShowContinueButton(false);
                         setRecordedVideoPath(null);
-                        setRecordedAudioUri(null);
-                        setAudioSignedUrl(null);
-                        setSelectedAudioFile(null as any);
+                        
                       }}
                       className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
@@ -1232,20 +1400,7 @@ export default function LiveVideoRecording() {
                   </View>
                 )}
 
-                {/* Optional: keep video local-save/upload UI if you want; analysis does NOT use it */}
-                {recordedVideoPath && (
-                  <View className="px-4 pb-4">
-                    <TouchableOpacity
-                      onPress={async () => {
-                        // (Optional) disable cloud upload since analysis is audio-only.
-                        Alert.alert("Note", "Analysis uses audio only. Video upload skipped.");
-                      }}
-                      className="mt-2 bg-white/10 border border-white/20 px-4 py-3 rounded-lg items-center"
-                    >
-                      <Text className="text-white">Upload to cloud (disabled for analysis)</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                
               </View>
 
               <StatusRow />
