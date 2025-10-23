@@ -10,9 +10,9 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import { Student, PerformanceData, defaultPerformanceData } from "../../types";
+import { Student, defaultPerformanceData } from "../../types";
 
-/* ✅ Supabase logic (added, UI untouched) */
+/* ✅ Supabase logic */
 import { supabase } from "@/lib/supabaseClient";
 
 type PerformanceType = "speaking" | "reading";
@@ -26,6 +26,58 @@ interface StudentManagementModalProps {
     strand?: string;
   };
 }
+
+/* ──────────────────────────────────────────────
+   Types
+   ────────────────────────────────────────────── */
+type AnxietyLevel = "low" | "medium" | "high";
+
+type DerivedPerf = {
+  moduleProgress: number;         // overall % out of 12 modules (6 basic + 6 advanced)
+  confidenceLevel: number;        // %
+  anxietyLevel: AnxietyLevel;     // low/medium/high
+  skillMastery: Record<string, number>;
+  recentTasks: Array<{ id: string; title: string; date: string; score: number }>;
+  areasToImprove: string[];
+  recommendations: string[];
+};
+
+type ConfidenceAnxietyRow = {
+  student_id: string;
+  confidence_score_speaking: number;
+  confidence_score_reading: number;
+  anxiety_level_speaking: number | null;
+  anxiety_level_reading: number | null;
+  total_speaking_attempts: number | null;
+  total_reading_attempts: number | null;
+  updated_at: string | null;
+};
+
+type StudentProgressRow = {
+  module_id: string | null;
+  progress: number | null;
+  completed: boolean | null;
+  category: "speaking" | "reading" | null;
+};
+
+type FullAnalysisLevelRow = {
+  module_id: string | null;
+  level: "basic" | "advanced" | null;
+  created_at: string;
+};
+
+type FullAnalysisMetricsRow = {
+  id: string;
+  created_at: string;
+  metric_fluency: number | null;
+  metric_clarity: number | null;
+  metric_filler_reduction: number | null;
+  metric_wpm: number | null;       // 0–300 (normalize to 0–100)
+  metric_accuracy: number | null;
+  metric_volume: number | null;
+  metric_phrasing: number | null;
+  metric_grammar: number | null;
+};
 
 const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
   visible,
@@ -41,7 +93,6 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
   const [selectedPerformanceType, setSelectedPerformanceType] =
     useState<PerformanceType>("speaking");
 
-  /* ✅ match previous logic: initialize from initialFilter */
   const [selectedGrade, setSelectedGrade] = useState<string | null>(
     initialFilter.grade ?? null
   );
@@ -51,10 +102,15 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
   const [showGradeDropdown, setShowGradeDropdown] = useState(false);
   const [showStrandDropdown, setShowStrandDropdown] = useState(false);
 
-  /* ✅ live data logic (auth + fetch + realtime), UI stays the same */
   const [teacherId, setTeacherId] = useState<string | null>(null);
   const [liveStudents, setLiveStudents] = useState<Student[]>([]);
   const allStudents: Student[] = liveStudents.length > 0 ? liveStudents : students;
+
+  // cache per student+type
+  const [perfCache, setPerfCache] = useState<Record<string, DerivedPerf>>({});
+  const [perfLoading, setPerfLoading] = useState<boolean>(false);
+  const perfKey = (studentId: string, type: PerformanceType) =>
+    `${studentId}::${type}`;
 
   const filteredStudents = useMemo(() => {
     return allStudents.filter((student) => {
@@ -80,26 +136,36 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
     };
   }, []);
 
-  /* ✅ live fetch + map (same as your earlier version; progress stays 0 here) */
+  /* ✅ live fetch of students under this teacher (verifies membership) */
   const fetchLive = useCallback(async () => {
     if (!teacherId) return;
 
-    const { data: ts } = await supabase
+    const { data: ts, error: tsErr } = await supabase
       .from("teacher_students")
       .select("student_id, grade_level, strand, status")
       .eq("teacher_id", teacherId);
+
+    if (tsErr) {
+      console.warn("teacher_students error:", tsErr);
+      setLiveStudents([]);
+      return;
+    }
 
     if (!ts?.length) {
       setLiveStudents([]);
       return;
     }
 
-    const ids = Array.from(new Set(ts.map((r) => r.student_id))).filter(Boolean);
+    const ids = Array.from(new Set(ts.map((r) => r.student_id))).filter(Boolean) as string[];
 
-    const { data: profs } = await supabase
+    const { data: profs, error: profErr } = await supabase
       .from("profiles")
       .select("id, name")
-      .in("id", ids as string[]);
+      .in("id", ids);
+
+    if (profErr) {
+      console.warn("profiles error:", profErr);
+    }
 
     const byProf: Record<string, any> = {};
     (profs || []).forEach((p) => (byProf[p.id] = p));
@@ -115,8 +181,8 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
         grade: r.grade_level || "",
         strand: r.strand || "",
         status: (r.status as "active" | "inactive") || "active",
-        progress: 0,          // stays 0 here to mirror your provided logic
-        satisfaction: 0,      // stays 0 here
+        progress: 0,
+        satisfaction: 0,
         initials,
         color: "#4F46E5",
         statusColor: r.status === "active" ? "text-green-400" : "text-gray-400",
@@ -126,7 +192,7 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
     setLiveStudents(mapped);
   }, [teacherId]);
 
-  /* ✅ realtime subscriptions (same behavior as the logic you gave) */
+  /* ✅ realtime subscriptions */
   useEffect(() => {
     if (!teacherId || !visible) return;
     fetchLive();
@@ -145,33 +211,251 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
       )
       .subscribe();
 
-    const chB = supabase
-      .channel(`student_progress:${teacherId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "student_progress" },
-        fetchLive
-      )
-      .subscribe();
-
     return () => {
       try {
         supabase.removeChannel(chA);
       } catch {}
-      try {
-        supabase.removeChannel(chB);
-      } catch {}
     };
   }, [teacherId, visible, fetchLive]);
+
+  /* ──────────────────────────────────────────────
+     Helpers
+     ────────────────────────────────────────────── */
+  const toAnxietyLevel = (val?: number | null): AnxietyLevel => {
+    if (val === null || val === undefined) return "medium";
+    if (val <= 33) return "low";
+    if (val <= 66) return "medium";
+    return "high";
+  };
+
+  const getFallbackPerf = (type: PerformanceType): DerivedPerf => {
+    const fb = defaultPerformanceData[type];
+    return {
+      moduleProgress: fb.moduleProgress,
+      confidenceLevel: fb.confidenceLevel,
+      anxietyLevel: fb.anxietyLevel as AnxietyLevel,
+      skillMastery: fb.skillMastery,
+      recentTasks: fb.recentTasks as any,
+      areasToImprove: fb.areasToImprove,
+      recommendations: fb.recommendations,
+    };
+  };
+
+  /* ──────────────────────────────────────────────
+     Load confidence + anxiety + 12-module progress + skill mastery
+     (with membership check)
+     ────────────────────────────────────────────── */
+  const loadPerformance = useCallback(
+    async (studentId: string, type: PerformanceType) => {
+      if (!teacherId) return;
+
+      setPerfLoading(true);
+      try {
+        // 1) Verify membership
+        const { data: membership, error: memErr } = await supabase
+          .from("teacher_students")
+          .select("student_id")
+          .eq("teacher_id", teacherId)
+          .eq("student_id", studentId)
+          .limit(1);
+
+        if (memErr) {
+          console.warn("teacher_students verify error:", memErr);
+          return;
+        }
+        if (!membership || membership.length === 0) {
+          console.warn("Student is not under this teacher.");
+          return;
+        }
+
+        const fallback = getFallbackPerf(type);
+        const cached = perfCache[perfKey(studentId, type)];
+
+        /* ============================
+           2) Confidence / Anxiety
+           ============================ */
+        const { data: casMaybe, error: casErr } = await supabase
+          .from("confidence_anxiety_score")
+          .select(
+            "student_id, confidence_score_speaking, confidence_score_reading, anxiety_level_speaking, anxiety_level_reading, total_speaking_attempts, total_reading_attempts, updated_at"
+          )
+          .eq("student_id", studentId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (casErr) console.warn("confidence_anxiety_score error:", casErr);
+
+        const casRow = (casMaybe ?? null) as ConfidenceAnxietyRow | null;
+
+        const confidenceLevel =
+          type === "speaking"
+            ? (casRow?.confidence_score_speaking ?? fallback.confidenceLevel)
+            : (casRow?.confidence_score_reading ?? fallback.confidenceLevel);
+
+        const anxietyLevel: AnxietyLevel =
+          type === "speaking"
+            ? toAnxietyLevel(casRow?.anxiety_level_speaking)
+            : toAnxietyLevel(casRow?.anxiety_level_reading);
+
+        /* ============================
+           3) 12-module Progress (6 basic + 6 advanced)
+           ============================ */
+        const MODULES_PER_LEVEL = 6;
+        const TOTAL_MODULES = MODULES_PER_LEVEL * 2; // 12
+
+        const { data: spRowsRaw, error: spErr } = await supabase
+          .from("student_progress")
+          .select("module_id, progress, completed, category")
+          .eq("student_id", studentId)
+          .eq("category", type);
+
+        if (spErr) console.warn("student_progress error:", spErr);
+
+        const spRows = (spRowsRaw ?? []) as StudentProgressRow[];
+        let moduleProgress = fallback.moduleProgress;
+
+        if (spRows && spRows.length > 0) {
+          // figure out level per module from full_analysis (latest)
+          const moduleIds = Array.from(
+            new Set(
+              spRows
+                .map((r) => r.module_id)
+                .filter((m): m is string => typeof m === "string" && m.length > 0)
+            )
+          );
+
+          let faLevelMap: Record<string, "basic" | "advanced"> = {};
+
+          if (moduleIds.length > 0) {
+            const { data: faRowsRaw, error: faErr } = await supabase
+              .from("full_analysis")
+              .select("module_id, level, created_at")
+              .eq("user_id", studentId)
+              .eq("category", type)
+              .in("module_id", moduleIds)
+              .order("created_at", { ascending: false });
+
+            if (faErr) {
+              console.warn("full_analysis(level) error:", faErr);
+            } else {
+              const faRows = (faRowsRaw ?? []) as FullAnalysisLevelRow[];
+              for (const row of faRows) {
+                const mid = row.module_id ?? "";
+                if (!mid) continue;
+                if (!faLevelMap[mid] && (row.level === "basic" || row.level === "advanced")) {
+                  faLevelMap[mid] = row.level; // first seen is latest due to desc order
+                }
+              }
+            }
+          }
+
+          // sum progress by level; missing modules count as 0
+          let sumBasic = 0;
+          let sumAdvanced = 0;
+          const clamp0to100 = (n: number) =>
+            Math.max(0, Math.min(100, Math.round(n)));
+
+          for (const r of spRows) {
+            const mid = r.module_id ?? "";
+            const lvl = faLevelMap[mid] ?? "basic"; // default to basic if unknown
+            const score =
+              typeof r.progress === "number" && Number.isFinite(r.progress)
+                ? clamp0to100(r.progress)
+                : r.completed
+                ? 100
+                : 0;
+
+            if (lvl === "advanced") sumAdvanced += score;
+            else sumBasic += score;
+          }
+
+          const totalPossible = TOTAL_MODULES * 100; // 12 * 100
+          const totalEarned = sumBasic + sumAdvanced;
+          moduleProgress = clamp0to100((totalEarned / totalPossible) * 100);
+        }
+
+        /* ============================
+           4) Skill Mastery from full_analysis (last 10 attempts)
+           ============================ */
+        const { data: faMetricsRaw, error: faMetricsErr } = await supabase
+          .from("full_analysis")
+          .select(
+            "id, created_at, metric_fluency, metric_clarity, metric_filler_reduction, metric_wpm, metric_accuracy, metric_volume, metric_phrasing, metric_grammar"
+          )
+          .eq("user_id", studentId)
+          .eq("category", type)
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (faMetricsErr) console.warn("full_analysis(metrics) error:", faMetricsErr);
+
+        const rows = (faMetricsRaw ?? []) as FullAnalysisMetricsRow[];
+
+        const takeNums = (xs: Array<number | null | undefined>) =>
+          xs.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+
+        const avg = (xs: number[]) =>
+          xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0;
+
+        const fluencyArr = takeNums(rows.map((r) => r.metric_fluency));
+        const clarityArr = takeNums(rows.map((r) => r.metric_clarity));
+        const fillerArr = takeNums(rows.map((r) => r.metric_filler_reduction));
+        const wpmArr = takeNums(rows.map((r) => r.metric_wpm)); // 0–300
+        const accuracyArr = takeNums(rows.map((r) => r.metric_accuracy));
+        const volumeArr = takeNums(rows.map((r) => r.metric_volume));
+        const phrasingArr = takeNums(rows.map((r) => r.metric_phrasing));
+        const grammarArr = takeNums(rows.map((r) => r.metric_grammar));
+
+        const normalizeWpmToPct = (n: number) =>
+          Math.max(0, Math.min(100, Math.round((n / 300) * 100)));
+        const wpmPctArr = wpmArr.map(normalizeWpmToPct);
+
+        const skillMastery: Record<string, number> = {
+          fluency: avg(fluencyArr),
+          clarity: avg(clarityArr),
+          filler_reduction: avg(fillerArr),
+          wpm: avg(wpmPctArr),
+          accuracy: avg(accuracyArr),
+          volume: avg(volumeArr),
+          phrasing: avg(phrasingArr),
+          grammar: avg(grammarArr),
+        };
+
+        /* ============================
+           5) Build derived & cache
+           ============================ */
+        const derived: DerivedPerf = {
+          ...(cached ?? fallback),
+          confidenceLevel: Math.max(0, Math.min(100, Math.round(confidenceLevel || 0))),
+          anxietyLevel,
+          moduleProgress,
+          skillMastery, // <-- now from full_analysis
+        };
+
+        setPerfCache((prev) => ({
+          ...prev,
+          [perfKey(studentId, type)]: derived,
+        }));
+      } finally {
+        setPerfLoading(false);
+      }
+    },
+    [teacherId, perfCache]
+  );
 
   const handleStudentPress = (student: Student) => {
     setSelectedStudent(student);
     setShowPerformanceTypeModal(true);
   };
 
-  const handlePerformanceTypeSelect = (type: PerformanceType) => {
+  const handlePerformanceTypeSelect = async (type: PerformanceType) => {
     setSelectedPerformanceType(type);
     setShowPerformanceTypeModal(false);
+
+    if (selectedStudent?.id) {
+      await loadPerformance(selectedStudent.id, type);
+    }
     setShowPerformanceModal(true);
   };
 
@@ -184,28 +468,25 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
   const renderPerformanceModal = () => {
     if (!selectedStudent || !showPerformanceModal) return null;
 
-    const data = defaultPerformanceData[selectedPerformanceType];
+    const cached = perfCache[perfKey(selectedStudent.id, selectedPerformanceType)];
+    const fallback = getFallbackPerf(selectedPerformanceType);
+    const data: DerivedPerf = cached ?? fallback;
+
     const anxietyColors = {
       low: {
-        bg: "bg-white/5",
         text: "text-green-400",
-        border: "border-white/20",
         dot: "bg-green-400",
         progress: 30,
         progressColor: "#10b981",
       },
       medium: {
-        bg: "bg-white/5",
         text: "text-yellow-400",
-        border: "border-white/20",
         dot: "bg-yellow-400",
         progress: 60,
         progressColor: "#f59e0b",
       },
       high: {
-        bg: "bg-white/5",
         text: "text-red-400",
-        border: "border-white/20",
         dot: "bg-red-400",
         progress: 90,
         progressColor: "#ef4444",
@@ -213,40 +494,6 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
     };
 
     const currentAnxiety = anxietyColors[data.anxietyLevel];
-
-    const renderProgressBar = (progress: number, color: string) => (
-      <View className="h-2 bg-white/20 rounded-full overflow-hidden">
-        <View
-          className="h-full rounded-full"
-          style={{
-            width: `${progress}%`,
-            backgroundColor: color,
-          }}
-        />
-      </View>
-    );
-
-    const renderInsightSection = (
-      title: string,
-      items: string[],
-      color: string
-    ) => (
-      <View
-        className={`bg-${color}-900/20 border-l-4 border-${color}-400 p-3 rounded-r-lg`}
-      >
-        <Text className={`text-sm font-medium text-${color}-400 mb-2`}>
-          {title}
-        </Text>
-        <View className="space-y-2">
-          {items.map((item, index) => (
-            <View key={index} className="flex-row items-start">
-              <Text className={`text-${color}-400 mr-2 mt-0.5`}>•</Text>
-              <Text className="text-white/90 text-sm flex-1">{item}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
 
     return (
       <Modal
@@ -298,8 +545,7 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                           Module Progress
                         </Text>
                         <Text className="text-white/60 text-sm">
-                          Overall completion of {selectedPerformanceType}{" "}
-                          modules
+                          Overall completion of {selectedPerformanceType} modules
                         </Text>
                       </View>
                       <View className="bg-white/10 border border-white/20 rounded-full px-2 py-0.5 min-w-[40px] items-center justify-center">
@@ -318,7 +564,7 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
 
                   {/* Confidence and Anxiety */}
                   <View className="flex-row justify-between mb-6 space-x-4">
-                    {/* Confidence Card */}
+                    {/* Confidence */}
                     <View className="bg-white/10 border border-white/30 rounded-2xl p-5 shadow-lg flex-1 backdrop-blur-md">
                       <View className="flex-row items-center justify-between mb-3">
                         <Text className="text-sm font-medium text-white/80">
@@ -345,20 +591,16 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                       </View>
                     </View>
 
-                    {/* Anxiety Level Card */}
+                    {/* Anxiety */}
                     <View className="bg-white/10 border border-white/30 rounded-2xl p-5 shadow-lg flex-1 backdrop-blur-md">
                       <View className="flex-row items-center justify-between mb-3">
                         <Text className="text-sm font-medium text-white/80">
                           Anxiety Level
                         </Text>
-                        <View
-                          className={`w-2 h-2 rounded-full ${currentAnxiety.dot}`}
-                        ></View>
+                        <View className={`w-2 h-2 rounded-full ${currentAnxiety.dot}`}></View>
                       </View>
                       <View className="mb-3">
-                        <Text
-                          className={`text-2xl font-bold ${currentAnxiety.text}`}
-                        >
+                        <Text className={`text-2xl font-bold ${currentAnxiety.text}`}>
                           {data.anxietyLevel.charAt(0).toUpperCase() +
                             data.anxietyLevel.slice(1)}
                         </Text>
@@ -375,7 +617,7 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                     </View>
                   </View>
 
-                  {/* Skill Mastery */}
+                  {/* Skill Mastery (from full_analysis) */}
                   <View className="bg-white/10 border border-white/30 rounded-2xl p-5 shadow-lg mb-6 backdrop-blur-md">
                     <View className="flex-row justify-between items-center mb-5">
                       <Text className="text-base font-semibold text-white">
@@ -387,42 +629,37 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                       </View>
                     </View>
                     <View className="space-y-5">
-                      {Object.entries(data.skillMastery).map(
-                        ([skill, value]) => {
-                          const getSkillColor = (value: number) => {
-                            if (value >= 80)
-                              return "from-emerald-500 to-green-400";
-                            if (value >= 60)
-                              return "from-amber-500 to-yellow-400";
-                            return "from-rose-500 to-pink-400";
-                          };
-
-                          return (
-                            <View key={skill} className="space-y-2">
-                              <View className="flex-row justify-between items-center">
-                                <Text className="text-sm font-medium text-white/90 capitalize">
-                                  {skill}
-                                </Text>
-                                <Text className="text-sm font-semibold text-white">
-                                  {value}%
-                                </Text>
-                              </View>
-                              <View className="h-2 bg-white/10 rounded-full overflow-hidden">
-                                <View
-                                  className={`h-full rounded-full bg-gradient-to-r ${getSkillColor(
-                                    value as number
-                                  )}`}
-                                  style={{ width: `${value}%` }}
-                                />
-                              </View>
+                      {Object.entries(data.skillMastery).map(([skill, value]) => {
+                        const getSkillColor = (value: number) => {
+                          if (value >= 80) return "from-emerald-500 to-green-400";
+                          if (value >= 60) return "from-amber-500 to-yellow-400";
+                          return "from-rose-500 to-pink-400";
+                        };
+                        return (
+                          <View key={skill} className="space-y-2">
+                            <View className="flex-row justify-between items-center">
+                              <Text className="text-sm font-medium text-white/90 capitalize">
+                                {skill}
+                              </Text>
+                              <Text className="text-sm font-semibold text-white">
+                                {value}%
+                              </Text>
                             </View>
-                          );
-                        }
-                      )}
+                            <View className="h-2 bg-white/10 rounded-full overflow-hidden">
+                              <View
+                                className={`h-full rounded-full bg-gradient-to-r ${getSkillColor(
+                                  value as number
+                                )}`}
+                                style={{ width: `${value}%` }}
+                              />
+                            </View>
+                          </View>
+                        );
+                      })}
                     </View>
                   </View>
 
-                  {/* Recent Tasks */}
+                  {/* Recent Tasks (kept from defaults unless you want real ones) */}
                   <View className="bg-white/10 border border-white/30 rounded-2xl p-5 shadow-lg mb-6 overflow-hidden backdrop-blur-md">
                     <View className="flex-row justify-between items-center mb-6">
                       <View>
@@ -447,7 +684,6 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                             : task.score >= 70
                             ? "text-yellow-400"
                             : "text-red-400";
-
                         return (
                           <View
                             key={task.id}
@@ -465,21 +701,16 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                                     color="rgba(255,255,255,0.5)"
                                   />
                                   <Text className="text-xs text-white/60 ml-1.5">
-                                    {new Date(task.date).toLocaleDateString(
-                                      "en-US",
-                                      {
-                                        month: "short",
-                                        day: "numeric",
-                                        year: "numeric",
-                                      }
-                                    )}
+                                    {new Date(task.date).toLocaleDateString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })}
                                   </Text>
                                 </View>
                               </View>
                               <View className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-full min-w-[70px] items-center">
-                                <Text
-                                  className={`text-sm font-bold ${scoreColor}`}
-                                >
+                                <Text className={`text-sm font-bold ${scoreColor}`}>
                                   {task.score}%
                                 </Text>
                               </View>
@@ -504,7 +735,7 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                     </View>
                   </View>
 
-                  {/* Insights */}
+                  {/* Insights (defaults) */}
                   <View className="space-y-4">
                     <View className="pb-2 border-b border-white/10 mb-2">
                       <Text className="text-base font-semibold text-white">
@@ -524,18 +755,13 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                           </Text>
                         </View>
                         <View className="space-y-3 pl-0">
-                          {data.areasToImprove.map(
-                            (item: string, index: number) => (
-                              <View
-                                key={index}
-                                className="flex-row items-start"
-                              >
-                                <Text className="text-white/90 text-sm leading-relaxed">
-                                  {item}
-                                </Text>
-                              </View>
-                            )
-                          )}
+                          {data.areasToImprove.map((item: string, index: number) => (
+                            <View key={index} className="flex-row items-start">
+                              <Text className="text-white/90 text-sm leading-relaxed">
+                                {item}
+                              </Text>
+                            </View>
+                          ))}
                         </View>
                       </View>
                     )}
@@ -549,18 +775,13 @@ const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
                           </Text>
                         </View>
                         <View className="space-y-3 pl-0">
-                          {data.recommendations.map(
-                            (item: string, index: number) => (
-                              <View
-                                key={index}
-                                className="flex-row items-start"
-                              >
-                                <Text className="text-white/90 text-sm leading-relaxed">
-                                  {item}
-                                </Text>
-                              </View>
-                            )
-                          )}
+                          {data.recommendations.map((item: string, index: number) => (
+                            <View key={index} className="flex-row items-start">
+                              <Text className="text-white/90 text-sm leading-relaxed">
+                                {item}
+                              </Text>
+                            </View>
+                          ))}
                         </View>
                       </View>
                     )}

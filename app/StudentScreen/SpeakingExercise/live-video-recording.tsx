@@ -20,17 +20,17 @@ import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
 import ProfileMenuNew from "../../../components/ProfileModal/ProfileMenuNew";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
 import LivesessionCommunityModal from "../../../components/StudentModal/LivesessionCommunityModal";
 import CompletionModal from "@/components/StudentModal/CompletionModal";
 
-// ⬇️ keep-awake + orientation
+// keep-awake + orientation
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import * as ScreenOrientation from "expo-screen-orientation";
 
-// ⬇️ Vision Camera
+// Vision Camera
 import {
   Camera,
   useCameraDevice,
@@ -39,18 +39,34 @@ import {
   VideoFile,
 } from "react-native-vision-camera";
 
-// ⬇️ Supabase (logic only; UI unchanged)
+// Supabase
 import { supabase } from "@/lib/supabaseClient";
 
-// ⬇️ AI API
+// AI API
 import axios from "axios";
+
+// expo-av for audio sidecar
+import { Audio } from "expo-av";
+
+/* ---- Base64 -> Uint8Array helper (for Supabase upload of audio) ---- */
+const base64ToUint8Array = (base64: string) => {
+  const binary =
+    // @ts-ignore
+    (global as any).atob
+      ? // @ts-ignore
+        (global as any).atob(base64)
+      : Buffer.from(base64, "base64").toString("binary");
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
 
 // ====== CONFIG (point to your FastAPI) ======
 const API_BASE =
   process.env.EXPO_PUBLIC_FASTAPI_URL ||
-  "https://your-fastapi.example.com"; // TODO: set EXPO_PUBLIC_FASTAPI_URL
+  "https://your-fastapi.example.com"; // set EXPO_PUBLIC_FASTAPI_URL in env
 
-// Constants
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
 const tips = [
@@ -95,18 +111,33 @@ const BackgroundDecor = () => (
 export default function LiveVideoRecording() {
   const router = useRouter();
   const pathname = usePathname();
+  const params = useLocalSearchParams();
 
-  // opening camera: state holders for recording and fullscreen UI
+  // (Optional) if you pass these in Live via route params, we'll forward to AI like Private
+  const criteria = (params.criteria as string) || undefined;
+  const generatedScript = (params.generatedScript as string) || undefined;
+
+  // camera / UI
   const [isRecording, setIsRecording] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [recordedVideoPath, setRecordedVideoPath] = useState<string | null>(null);
   const cameraRef = useRef<Camera>(null);
 
-  // opening camera: readiness flags used to auto-start when <Camera/> finishes init
+  // AUDIO SIDECAR (expo-av) — the only source for analysis
+  const audioRecordingRef = useRef<Audio.Recording | null>(null);
+  const [recordedAudioUri, setRecordedAudioUri] = useState<string | null>(null);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [audioSignedUrl, setAudioSignedUrl] = useState<string | null>(null);
+
+  // Private-style AI inputs
+  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null as any);
+  const [expectedText, setExpectedText] = useState<string | null>(generatedScript ?? null);
+
+  // camera readiness
   const [cameraReady, setCameraReady] = useState(false);
   const [pendingStart, setPendingStart] = useState(false);
 
-  // output: simple on-screen timer during capture
+  // timer
   const [elapsedMs, setElapsedMs] = useState(0);
   const timerRef = useRef<any>(null);
   const formatTime = (ms: number) => {
@@ -130,18 +161,16 @@ export default function LiveVideoRecording() {
     }
   };
 
-  // opening camera: pick devices (front preferred, back fallback)
+  // camera devices
   const deviceFront = useCameraDevice("front");
   const deviceBack = useCameraDevice("back");
   const [useBack, setUseBack] = useState(false);
   const device = useBack ? deviceBack : deviceFront;
 
-  // ===== Stable, fixed format selection (choose once and never change) =====
+  // stable format
   const stableFormat = React.useMemo(() => {
     if (!device) return undefined;
     const formats = device.formats ?? [];
-
-    // helper: pick an fps from a range that's closest to 30
     const pickFps = (range?: any) => {
       if (!range) return 30;
       const minFps = typeof range.minFps === "number" ? range.minFps : 15;
@@ -150,28 +179,24 @@ export default function LiveVideoRecording() {
       const mid = (minFps + maxFps) / 2;
       return Math.round(Math.abs(mid - 30) < Math.abs(maxFps - 30) ? mid : maxFps);
     };
-
     const scored = formats.map((f) => {
       const w = (f as any).videoWidth ?? 0;
       const h = (f as any).videoHeight ?? 0;
       const area = w * h;
-      const areaDelta = Math.abs(area - 1280 * 720); // prefer ~720p
+      const areaDelta = Math.abs(area - 1280 * 720);
       const fps = pickFps((f as any).frameRateRanges?.[0]);
       const fpsDelta = Math.abs(fps - 30);
       const supportsVideoStabilization = (f as any)?.supportsVideoStabilization ?? false;
-      // lower score is better; stabilize streams preferred slightly
       const score = areaDelta * 1.0 + fpsDelta * 500 - (supportsVideoStabilization ? 200 : 0);
       return { f, score };
     });
-
     scored.sort((a, b) => a.score - b.score);
     return (scored[0]?.f as any) ?? (formats[0] as any);
   }, [device]);
 
-  // Always keep audio enabled to avoid session restarts later
   const [audioEnabled] = useState(true);
 
-  // opening camera: permissions (request both up-front!)
+  // permissions
   const { hasPermission: hasCamPerm, requestPermission: reqCam } = useCameraPermission();
   const { hasPermission: hasMicPerm, requestPermission: reqMic } = useMicrophonePermission();
 
@@ -179,17 +204,18 @@ export default function LiveVideoRecording() {
     (async () => {
       try { if (!hasCamPerm) await reqCam(); } catch {}
       try { if (!hasMicPerm) await reqMic(); } catch {}
+      try { await Audio.requestPermissionsAsync(); } catch {}
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Mount once when we have device + perms (⚠️ do NOT block on stableFormat)
+  // mount camera when ready
   const [mountCamera, setMountCamera] = useState(false);
   useEffect(() => {
     setMountCamera(!!device && !!hasCamPerm && !!hasMicPerm);
   }, [device, hasCamPerm, hasMicPerm]);
 
-  // AppState awareness to avoid OS tearing down the session in background
+  // app state
   const [appActive, setAppActive] = useState(true);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -198,18 +224,15 @@ export default function LiveVideoRecording() {
     return () => sub.remove();
   }, []);
 
-  // ui: other modals and state unchanged
+  // ui states
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-
-  // ====== AI analysis states (added) ======
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showResultsPrompt, setShowResultsPrompt] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<string | null>(null);
-
   const [showContinueButton, setShowContinueButton] = useState(false);
   const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [currentFeedback, setCurrentFeedback] = useState("");
@@ -231,7 +254,7 @@ export default function LiveVideoRecording() {
     setIsDownloading,
   };
 
-  // 🔧 dynamic profile
+  // profile
   const [fullName, setFullName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -244,10 +267,9 @@ export default function LiveVideoRecording() {
 
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
-
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // status bar styling
+  // status bar
   useEffect(() => {
     StatusBar.setBarStyle("light-content");
     if (Platform.OS === "android") {
@@ -256,7 +278,7 @@ export default function LiveVideoRecording() {
     }
   }, []);
 
-  // user profile + signed avatar
+  // user profile + avatar
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -314,7 +336,7 @@ export default function LiveVideoRecording() {
     };
   }, []);
 
-  // rotate fallback tips
+  // tips rotate
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTipIndex((prevIndex) => (prevIndex + 1) % tips.length);
@@ -364,10 +386,8 @@ export default function LiveVideoRecording() {
     Animated.parallel(animations).start();
   }, [isProfileMenuVisible, slideAnim, opacityAnim]);
 
-  // ======== guards ========
+  // guards / watchdog
   const shuttingDownRef = useRef(false);
-
-  // ⬇️ Watchdog to avoid infinite "Initializing…" + one-time auto-remount
   const initWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initAttemptsRef = useRef(0);
   const [camKey, setCamKey] = useState(0);
@@ -376,9 +396,11 @@ export default function LiveVideoRecording() {
     if (initWatchdogRef.current) clearTimeout(initWatchdogRef.current);
     initWatchdogRef.current = setTimeout(() => {
       if (!cameraReady) {
-        console.warn("[LiveRec] init watchdog: still not ready after 3000ms, attempt:", initAttemptsRef.current);
+        console.warn(
+          "[LiveRec] init watchdog: still not ready after 3000ms, attempt:",
+          initAttemptsRef.current
+        );
         if (initAttemptsRef.current === 0) {
-          // one controlled remount of the camera session
           initAttemptsRef.current = 1;
           setCamKey((k) => k + 1);
           startInitWatchdog();
@@ -399,8 +421,6 @@ export default function LiveVideoRecording() {
     };
   }, []);
 
-  // ⬇️ Fallback: if preview is clearly active in fullscreen but onInitialized never fires,
-  // flip the UI to "Ready" after ~900ms so the button isn't stuck.
   useEffect(() => {
     if (!isFullScreen || !mountCamera || !device || cameraReady || !appActive) return;
     const t = setTimeout(() => {
@@ -411,7 +431,6 @@ export default function LiveVideoRecording() {
     return () => clearTimeout(t);
   }, [isFullScreen, mountCamera, device, appActive, cameraReady, camKey]);
 
-  // reset flags & timer when leaving fullscreen
   useEffect(() => {
     if (!isFullScreen) {
       setCameraReady(false);
@@ -427,7 +446,6 @@ export default function LiveVideoRecording() {
     }
   }, [isFullScreen]);
 
-  // keep-awake + lock orientation during fullscreen/recording
   useEffect(() => {
     const enable = async () => {
       try { await activateKeepAwakeAsync("live-rec"); } catch {}
@@ -437,15 +455,12 @@ export default function LiveVideoRecording() {
       try { deactivateKeepAwake("live-rec"); } catch {}
       (async () => { try { await ScreenOrientation.unlockAsync(); } catch {} })();
     };
-
     if (isFullScreen || isRecording) enable();
     else disable();
-
     return () => { disable(); };
   }, [isFullScreen, isRecording]);
 
   // ======== CAMERA HELPERS ========
-
   const ensurePermissions = async () => {
     let cam = hasCamPerm;
     let mic = hasMicPerm;
@@ -453,7 +468,9 @@ export default function LiveVideoRecording() {
     if (!cam) cam = await reqCam();
     if (!mic) mic = await reqMic();
 
-    if (!cam || !mic) {
+    const micPerm = await Audio.requestPermissionsAsync();
+
+    if (!cam || !mic || micPerm.status !== "granted") {
       Alert.alert(
         "Permissions required",
         "Camera and microphone permissions are needed to record.",
@@ -467,7 +484,141 @@ export default function LiveVideoRecording() {
     return true;
   };
 
-  // enter fullscreen and arm auto-start (camera is already mounted)
+  // ▶ audio mode helpers
+  async function setAudioModeCompatRecording() {
+    const A: any = Audio as any;
+    const mode: any = {
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    };
+    if (A?.InterruptionModeIOS?.DoNotMix != null) {
+      mode.interruptionModeIOS = A.InterruptionModeIOS.DoNotMix;
+    } else if (A?.INTERRUPTION_MODE_IOS_DO_NOT_MIX != null) {
+      mode.interruptionModeIOS = A.INTERRUPTION_MODE_IOS_DO_NOT_MIX;
+    }
+    if (A?.InterruptionModeAndroid?.DoNotMix != null) {
+      mode.interruptionModeAndroid = A.InterruptionModeAndroid.DoNotMix;
+    } else if (A?.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX != null) {
+      mode.interruptionModeAndroid = A.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX;
+    }
+    await Audio.setAudioModeAsync(mode);
+  }
+  async function setAudioModeCompatIdle() {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    } as any);
+  }
+
+  // ▶ start/stop audio sidecar
+  const startAudioRecording = async () => {
+    try {
+      await setAudioModeCompatRecording();
+      const rec = new Audio.Recording();
+      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await rec.startAsync();
+      audioRecordingRef.current = rec;
+      setRecordedAudioUri(null);
+      setAudioSignedUrl(null);
+      setSelectedAudioFile(null as any);
+      return true;
+    } catch (e: any) {
+      Alert.alert("Audio error", String(e?.message || e));
+      return false;
+    }
+  };
+
+  const stopAudioRecording = async () => {
+    try {
+      const rec = audioRecordingRef.current;
+      if (!rec) return null;
+
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      audioRecordingRef.current = null;
+
+      if (uri) {
+        setRecordedAudioUri(uri);
+
+        // create a File-like object for FormData (same as Private)
+        const audioFile = {
+          uri,
+          name: `recording-${Date.now()}.m4a`,
+          type: "audio/m4a",
+        } as any;
+        setSelectedAudioFile(audioFile);
+
+        // expected script (if provided)
+        if (generatedScript) setExpectedText(generatedScript);
+      }
+
+      await setAudioModeCompatIdle();
+      return uri;
+    } catch (e) {
+      console.error("Error stopping audio recording:", e);
+      return null;
+    }
+  };
+
+  // ▶ upload audio to Supabase (on Continue)
+  const uploadAudioToSupabase = async (): Promise<string | null> => {
+    if (!recordedAudioUri) {
+      Alert.alert("No audio", "There is no audio recording to upload.");
+      return null;
+    }
+    try {
+      setIsUploadingAudio(true);
+
+      const filename = `live-${Date.now()}.m4a`;
+      const objectPath = `${filename}`;
+
+      const base64 = await FileSystem.readAsStringAsync(recordedAudioUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const bytes = base64ToUint8Array(base64);
+      const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+
+      // try with audio/mp4 (m4a), fallback to octet-stream
+      let res = await supabase.storage
+        .from("recordings")
+        .upload(objectPath, buf as ArrayBuffer, {
+          contentType: "audio/mp4",
+          upsert: false,
+        });
+      if (res.error && /mime type .* not supported/i.test(res.error.message || "")) {
+        res = await supabase.storage
+          .from("recordings")
+          .upload(objectPath, buf as ArrayBuffer, {
+            contentType: "application/octet-stream",
+            upsert: false,
+          });
+      }
+      if (res.error) throw res.error;
+
+      const signed = await supabase.storage
+        .from("recordings")
+        .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
+      if (signed.error) throw signed.error;
+
+      const url = signed.data?.signedUrl ?? null;
+      setAudioSignedUrl(url);
+      return url;
+    } catch (e: any) {
+      console.warn("[audio upload] failed:", e?.message || e);
+      Alert.alert(
+        "Upload failed",
+        "Could not upload audio. Check your connection and the 'recordings' bucket policy."
+      );
+      return null;
+    } finally {
+      setIsUploadingAudio(false);
+    }
+  };
+
+  // enter fullscreen and arm auto-start
   const handleStartPress = async () => {
     const ok = await ensurePermissions();
     if (!ok) return;
@@ -481,27 +632,31 @@ export default function LiveVideoRecording() {
     startInitWatchdog();
   };
 
-  // start capture once camera is initialized
+  // start capture (video for UX; analysis uses only audio)
   const startRecordingNow = async () => {
     if (!cameraRef.current || !cameraReady || isRecording) return;
     try {
+      await startAudioRecording();
+
       setIsRecording(true);
       startTimer();
       await cameraRef.current.startRecording({
         flash: "off",
-        onRecordingFinished: (video: VideoFile) => {
+        onRecordingFinished: async (video: VideoFile) => {
           stopTimer();
           setRecordedVideoPath(video.path ?? null);
           setIsRecording(false);
           setIsFullScreen(false);
           setShowContinueButton(true);
+          await stopAudioRecording();
         },
-        onRecordingError: (err) => {
+        onRecordingError: async (err) => {
           console.error("Recording error:", err);
           stopTimer();
           setIsRecording(false);
           setIsFullScreen(false);
           setShowContinueButton(false);
+          await stopAudioRecording();
           Alert.alert("Recording failed", "Please try again.");
         },
       });
@@ -511,11 +666,12 @@ export default function LiveVideoRecording() {
       setIsRecording(false);
       setIsFullScreen(false);
       setShowContinueButton(false);
+      await stopAudioRecording();
       Alert.alert("Camera not ready", "Please try again.");
     }
   };
 
-  // stop capture safely (do NOT unmount camera, just exit fullscreen)
+  // stop capture
   const stopRecording = async () => {
     if (!isRecording) {
       setCameraReady(false);
@@ -536,66 +692,11 @@ export default function LiveVideoRecording() {
       stopTimer();
       setIsRecording(false);
       setShowContinueButton((prev) => prev || !!recordedVideoPath);
+      await stopAudioRecording();
     }
   };
 
-  // ===== Video upload (MOV) + signed URL (UPDATED to return URL for AI) =====
-  const uploadVideoAndGetSignedUrl = async (): Promise<{ objectPath: string; signedUrl: string } | null> => {
-    if (!recordedVideoPath) {
-      Alert.alert("No video", "Please record first.");
-      return null;
-    }
-    const ext = ".mov";
-    const mime = "video/quicktime";
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      const token =
-        sess?.session?.access_token ||
-        (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string);
-      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
-      if (!token || !SUPABASE_URL) throw new Error("Missing Supabase config");
-
-      const BUCKET = "recordings";
-      const objectPath = `live/${Date.now()}${ext}`;
-      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(
-        objectPath
-      )}`;
-
-      const res = await FileSystem.uploadAsync(uploadUrl, recordedVideoPath, {
-        httpMethod: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          apikey: token,
-          "Content-Type": mime, // MOV
-          "x-upsert": "false",
-        },
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      });
-
-      if (res.status !== 200 && res.status !== 201) {
-        throw new Error(`Upload failed (${res.status}): ${res.body?.slice(0, 160)}`);
-      }
-
-      const { data: signed, error } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
-      if (error || !signed?.signedUrl) throw error || new Error("No signed URL");
-
-      return { objectPath, signedUrl: signed.signedUrl };
-    } catch (e: any) {
-      console.warn("Upload error:", e?.message || e);
-      Alert.alert("Upload failed", "Please try again later.");
-      return null;
-    }
-  };
-
-  // Legacy hook (kept for “Upload to cloud” button)
-  const uploadVideo = async () => {
-    const up = await uploadVideoAndGetSignedUrl();
-    if (up) Alert.alert("Uploaded", `Saved as ${up.objectPath}`);
-  };
-
-  // ===== AI analysis trigger (ported from Private) =====
+  // ======= ANALYSIS (AUDIO-ONLY, Private-style) =======
   const handleViewAIAnalysis = async () => {
     try {
       setShowEndSessionModal(false);
@@ -603,36 +704,73 @@ export default function LiveVideoRecording() {
       setIsProcessing(true);
       setShowResultsPrompt(false);
 
-      // 1) ensure video is uploaded and get a signed URL
-      const uploaded = await uploadVideoAndGetSignedUrl();
-      if (!uploaded?.signedUrl) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
         setIsProcessing(false);
-        Alert.alert("Upload error", "Could not upload video for analysis.");
+        Alert.alert("Auth error", "You must be logged in to analyze.");
+        return;
+      }
+      const token = session.access_token;
+
+      // Must have a local File (preferred). If missing but uri exists, fabricate the File-like object now.
+      if (!selectedAudioFile && recordedAudioUri) {
+        setSelectedAudioFile({
+          uri: recordedAudioUri,
+          name: `recording-${Date.now()}.m4a`,
+          type: "audio/m4a",
+        } as any);
+      }
+
+      if (!selectedAudioFile && !recordedAudioUri) {
+        setIsProcessing(false);
+        Alert.alert("No audio", "Please record first. Audio file not found.");
         return;
       }
 
-      // 2) SERVER: extract/process audio from the video
-      //    Expect your FastAPI to accept { media_url, source } and return { audio_id }
-      const proc = await axios.post(`${API_BASE}/process-audio`, {
-        media_url: uploaded.signedUrl,
-        source: "video", // server should handle extracting audio from MOV
-      });
+      // Private-style: send multipart with field "file"
+      const formData = new FormData();
+      formData.append("file", (selectedAudioFile ||
+        ({
+          uri: recordedAudioUri,
+          name: `recording-${Date.now()}.m4a`,
+          type: "audio/m4a",
+        } as any)) as any);
 
-      const audio_id = proc?.data?.audio_id;
-      if (!audio_id) {
-        throw new Error("No audio_id returned from /process-audio");
-      }
+      if (expectedText) formData.append("expected_text", expectedText);
+      if (criteria) formData.append("criteria", String(criteria));
 
-      // 3) SERVER: analyze feedback for speaking (returns ai_feedback text or object)
-      const analysis = await axios.post(`${API_BASE}/analyze-feedback`, {
-        audio_id,
-        // include any extra fields you use on Private:
-        // lessonPrompt, topic, criteria, user info, etc.
-      });
+      const processAudioResponse = await axios.post(
+        `${API_BASE}/process-audio`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const { transcription, spacy_stats } = processAudioResponse.data || {};
+
+      const analyzeFeedbackResponse = await axios.post(
+        `${API_BASE}/analyze-feedback`,
+        {
+          speech_text: transcription,
+          spacy_stats,
+          category: "speaking",
+          ...(criteria ? { criteria } : {}),
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       const feedbackText =
-        analysis?.data?.ai_feedback ||
-        analysis?.data?.summary ||
+        analyzeFeedbackResponse.data?.ai_feedback ||
+        analyzeFeedbackResponse.data?.summary ||
         "Analysis complete. View your results.";
 
       setAiFeedback(typeof feedbackText === "string" ? feedbackText : JSON.stringify(feedbackText));
@@ -648,7 +786,6 @@ export default function LiveVideoRecording() {
   };
 
   // ===== SUB-COMPONENTS =====
-
   const Header = () => (
     <View className="mt-2">
       <View className="flex-row justify-between items-center mt-4 mb-3 w-full">
@@ -755,16 +892,13 @@ export default function LiveVideoRecording() {
     </View>
   );
 
-  // ===== Full Screen Recording View (overlays only; camera is a global layer) =====
   const FullScreenRecording = () => (
     <View style={StyleSheet.absoluteFill} className="bg-black">
-      {/* ui: right badge shows camera type */}
       <View className="absolute top-[60px] right-[24px] flex-row items-center bg-black/50 px-3 py-1.5 rounded-full z-10">
         <Ionicons name="camera" size={16} color="white" style={{ marginRight: 6, marginTop: 2 }} />
         <Text className="text-white text-sm">{useBack ? "Back Camera" : "Front Camera"}</Text>
       </View>
 
-      {/* ui: left badge shows recording status + timer */}
       <View className="absolute top-[60px] left-[24px] bg-black/50 px-3 py-1.5 rounded-full z-10">
         <View className="flex-row items-center">
           <View
@@ -784,10 +918,8 @@ export default function LiveVideoRecording() {
         </View>
       </View>
 
-      {/* ui: floating AI feedback / tips while recording */}
       <AIFeedback />
 
-      {/* controls: tap to start or stop recording */}
       {!isRecording ? (
         <TouchableOpacity
           className="absolute bottom-10 w-[80px] h-[80px] rounded-full bg-white/90 justify-center items-center z-10 self-center"
@@ -810,7 +942,6 @@ export default function LiveVideoRecording() {
         </TouchableOpacity>
       )}
 
-      {/* ui: rotating tip chip */}
       <View className="absolute bottom-[120px] self-center flex-row items-center bg-black/50 px-3 py-2 rounded-full z-10">
         <Image
           source={require("../../../assets/tips.png")}
@@ -822,7 +953,6 @@ export default function LiveVideoRecording() {
     </View>
   );
 
-  // ===== Page content =====
   const getActiveTab = (): string => {
     if (pathname.includes("StudentScreen/HomePage/home-page")) return "Home";
     if (
@@ -841,7 +971,6 @@ export default function LiveVideoRecording() {
   };
   const activeTab = getActiveTab();
 
-  // ===== GLOBAL SINGLE-MOUNT CAMERA LAYER (mounted when ready; shown when fullscreen) =====
   const cameraVisible = isFullScreen;
   const cameraActive = cameraVisible && appActive;
 
@@ -850,20 +979,33 @@ export default function LiveVideoRecording() {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <BackgroundDecor />
 
-      {/* DEV HUD to see gating flags (remove if you want) */}
       {__DEV__ && (
-        <View style={{ position: "absolute", top: 8, left: 8, zIndex: 9999, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
+        <View
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            zIndex: 9999,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            paddingHorizontal: 8,
+            paddingVertical: 6,
+            borderRadius: 8,
+          }}
+        >
           <Text style={{ color: "white", fontSize: 10 }}>
-            mountCamera: {String(mountCamera)}{"\n"}
-            device: {device ? (useBack ? "back" : "front") : "none"}{"\n"}
-            perms cam/mic: {String(hasCamPerm)}/{String(hasMicPerm)}{"\n"}
-            fullscreen: {String(isFullScreen)} active: {String(cameraActive)}{"\n"}
+            mountCamera: {String(mountCamera)}
+            {"\n"}
+            device: {device ? (useBack ? "back" : "front") : "none"}
+            {"\n"}
+            perms cam/mic: {String(hasCamPerm)}/{String(hasMicPerm)}
+            {"\n"}
+            fullscreen: {String(isFullScreen)} active: {String(cameraActive)}
+            {"\n"}
             ready: {String(cameraReady)} attempts: {initAttemptsRef.current}
           </Text>
         </View>
       )}
 
-      {/* GLOBAL CAMERA: single mount; no prop thrash; no remounts */}
       {mountCamera && device ? (
         <View
           key={camKey}
@@ -912,7 +1054,6 @@ export default function LiveVideoRecording() {
         </View>
       ) : null}
 
-      {/* Profile Menu */}
       <ProfileMenuNew
         visible={isProfileMenuVisible}
         onDismiss={() => setIsProfileMenuVisible(false)}
@@ -923,13 +1064,12 @@ export default function LiveVideoRecording() {
         }}
       />
 
-      {/* End Session Modal */}
       <EndSessionModal
         visible={showEndSessionModal}
         onDismiss={() => setShowEndSessionModal(false)}
         isDownloading={isDownloading}
         setIsDownloading={setIsDownloading}
-        onViewAIAnalysis={handleViewAIAnalysis} // 🔗 now runs the AI pipeline
+        onViewAIAnalysis={handleViewAIAnalysis} // AUDIO-ONLY (Private style)
         onDownloadVideo={async () => {
           try {
             setIsDownloading(true);
@@ -966,7 +1106,6 @@ export default function LiveVideoRecording() {
         }}
       />
 
-      {/* Completion Modal */}
       <CompletionModal
         visible={showCompletionModal}
         showResultsPrompt={showResultsPrompt}
@@ -993,7 +1132,6 @@ export default function LiveVideoRecording() {
         }}
       />
 
-      {/* Fullscreen recorder overlays */}
       {isFullScreen ? (
         <FullScreenRecording />
       ) : (
@@ -1004,12 +1142,10 @@ export default function LiveVideoRecording() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Header */}
             <View className="pt-2 px-5 z-10">
               <Header />
             </View>
 
-            {/* Main content */}
             <View className="flex-1 px-5 w-full max-w-[500px] mx-auto">
               <View className="w-full mb-4">
                 <View className="mb-4">
@@ -1068,18 +1204,26 @@ export default function LiveVideoRecording() {
                   <View className="w-full px-4 py-3 bg-gray-800/50 flex-row justify-center space-x-4">
                     <TouchableOpacity
                       onPress={async () => {
-                        // Upload first (for AI), then let user choose
-                        await uploadVideo();
+                        // Upload AUDIO ONLY (for persistence / parity with Private)
+                        const url = await uploadAudioToSupabase();
+                        if (url) {
+                          Alert.alert("Audio Uploaded", "Your audio has been uploaded.");
+                        }
                         setShowEndSessionModal(true);
                       }}
                       className="bg-violet-600 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
-                      <Text className="text-white font-semibold">Continue</Text>
+                      <Text className="text-white font-semibold">
+                        {isUploadingAudio ? "Uploading…" : "Continue"}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
                         setShowContinueButton(false);
                         setRecordedVideoPath(null);
+                        setRecordedAudioUri(null);
+                        setAudioSignedUrl(null);
+                        setSelectedAudioFile(null as any);
                       }}
                       className="bg-transparent border border-white/30 px-8 py-3 rounded-lg items-center flex-1 max-w-xs"
                     >
@@ -1088,20 +1232,22 @@ export default function LiveVideoRecording() {
                   </View>
                 )}
 
-                {/* Optional: quick upload button */}
+                {/* Optional: keep video local-save/upload UI if you want; analysis does NOT use it */}
                 {recordedVideoPath && (
                   <View className="px-4 pb-4">
                     <TouchableOpacity
-                      onPress={uploadVideo}
+                      onPress={async () => {
+                        // (Optional) disable cloud upload since analysis is audio-only.
+                        Alert.alert("Note", "Analysis uses audio only. Video upload skipped.");
+                      }}
                       className="mt-2 bg-white/10 border border-white/20 px-4 py-3 rounded-lg items-center"
                     >
-                      <Text className="text-white">Upload to cloud</Text>
+                      <Text className="text-white">Upload to cloud (disabled for analysis)</Text>
                     </TouchableOpacity>
                   </View>
                 )}
               </View>
 
-              {/* Status Row */}
               <StatusRow />
             </View>
           </ScrollView>
