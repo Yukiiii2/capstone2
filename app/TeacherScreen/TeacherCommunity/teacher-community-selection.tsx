@@ -314,8 +314,20 @@ const StudentPresentation = () => {
   const sheetY = useRef(new Animated.Value(300)).current;
   const sheetOpacity = useRef(new Animated.Value(0)).current;
 
+  const handleIconPress = (type: string) => {
+    if (type === "/ButtonIcon/add-student") {
+      router.push("/ButtonIcon/add-student");
+    } else if (type === "modules") {
+      router.push("/ButtonIcon/post-module");
+    }
+  };
+
   const handleAddStudent = () => {
     router.push("/ButtonIcon/add-student");
+  };
+
+  const handleModules = () => {
+    handleIconPress("modules");
   };
 
   useEffect(() => {
@@ -401,6 +413,18 @@ const StudentPresentation = () => {
           </View>
 
           <View className="flex-row items-center right-2">
+            <TouchableOpacity
+              onPress={handleModules}
+              activeOpacity={0.7}
+              className="p-2 bg-white/10 rounded-full mr-4"
+            >
+              <Image
+                source={require("../../../assets/Modules.png")}
+                className="w-5 h-5"
+                resizeMode="contain"
+                tintColor="white"
+              />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={handleAddStudent}
               activeOpacity={0.7}

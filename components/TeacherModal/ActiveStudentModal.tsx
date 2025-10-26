@@ -7,7 +7,6 @@ import {
   Animated,
   Dimensions,
   ScrollView,
-  StyleSheet,
   PanResponder,
   TouchableWithoutFeedback,
 } from "react-native";
@@ -48,6 +47,7 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       ? student.status === 'active' 
       : student.status === 'inactive'
   );
+  
   const slideAnim = useRef(new Animated.Value(height)).current;
   const pan = useRef(new Animated.ValueXY()).current;
   const lastGestureDy = useRef(0);
@@ -63,11 +63,9 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to vertical swipes
         return Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3);
       },
       onPanResponderMove: (_, gestureState) => {
-        // Only allow swiping down
         if (gestureState.dy > 0) {
           pan.setValue({ x: 0, y: gestureState.dy });
         }
@@ -75,10 +73,8 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       },
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dy > 100 || gestureState.vy > 0.5) {
-          // If swiped down enough or fast enough, close the modal
           onClose();
         } else {
-          // Otherwise, reset position
           resetPosition();
         }
       },
@@ -87,7 +83,6 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      // Reset pan position when modal becomes visible
       pan.setValue({ x: 0, y: 0 });
       Animated.timing(slideAnim, {
         toValue: 0,
@@ -111,12 +106,12 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       animationType="none"
     >
       <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.modalContainer}>
-          <View style={styles.overlay} />
+        <View className="flex-1">
+          <View className="absolute inset-0 bg-black/50" />
           <Animated.View
             {...panResponder.panHandlers}
+            className="absolute bottom-0 left-0 right-0 bg-[#1A1F2E] rounded-t-3xl p-6"
             style={[
-              styles.modalContent,
               {
                 height: height * 0.85,
                 transform: [
@@ -125,70 +120,70 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
               },
             ]}
           >
-          <View style={styles.header}>
-            <Text style={styles.headerText}>
-              {activeTab === 'active' ? 'Active' : 'Inactive'} Students ({filteredStudents.length})
-            </Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="white" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Tab Selector */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'active' && styles.activeTab]}
-              onPress={() => setActiveTab('active')}
-            >
-              <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>
-                Active
+            <View className="flex-row justify-between items-center mb-6">
+              <Text className="text-white text-2xl font-bold">
+                {activeTab === 'active' ? 'Active' : 'Inactive'} Students ({filteredStudents.length})
               </Text>
-              {activeTab === 'active' && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'inactive' && styles.activeTab]}
-              onPress={() => setActiveTab('inactive')}
-            >
-              <Text style={[styles.tabText, activeTab === 'inactive' && styles.activeTabText]}>
-                Inactive
-              </Text>
-              {activeTab === 'inactive' && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity onPress={onClose} className="p-2">
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
 
-          <ScrollView style={styles.scrollView}>
-            {filteredStudents.length > 0 ? (
-              filteredStudents.map((student) => (
-                <StudentCard 
-                  key={student.id} 
-                  student={student} 
-                  isInactive={student.status === 'inactive'} 
-                />
-              ))
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons 
-                  name="people-outline" 
-                  size={48} 
-                  color="#6B7280" 
-                  style={styles.emptyIcon}
-                />
-                <Text style={styles.emptyText}>
-                  No {activeTab} students found
+            {/* Tab Selector */}
+            <View className="flex-row border-b border-white/10 mb-4 px-4">
+              <TouchableOpacity
+                className={`flex-1 py-3 items-center ${activeTab === 'active' ? 'border-b-2 border-indigo-400' : ''}`}
+                onPress={() => setActiveTab('active')}
+              >
+                <Text className={`font-medium text-base ${activeTab === 'active' ? 'text-white' : 'text-gray-400'}`}>
+                  Active
                 </Text>
-              </View>
-            )}
-          </ScrollView>
+                {activeTab === 'active' && <View className="absolute bottom-0 h-0.5 w-full bg-indigo-400" />}
+              </TouchableOpacity>
+              <TouchableOpacity
+                className={`flex-1 py-3 items-center ${activeTab === 'inactive' ? 'border-b-2 border-indigo-400' : ''}`}
+                onPress={() => setActiveTab('inactive')}
+              >
+                <Text className={`font-medium text-base ${activeTab === 'inactive' ? 'text-white' : 'text-gray-400'}`}>
+                  Inactive
+                </Text>
+                {activeTab === 'inactive' && <View className="absolute bottom-0 h-0.5 w-full bg-indigo-400" />}
+              </TouchableOpacity>
+            </View>
 
-          <TouchableOpacity
-            onPress={onClose}
-            style={styles.closeButtonLarge}
-          >
-            <Text style={styles.closeButtonTextLarge}>Close</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </TouchableWithoutFeedback>
+            <ScrollView className="flex-1">
+              {filteredStudents.length > 0 ? (
+                filteredStudents.map((student) => (
+                  <StudentCard 
+                    key={student.id} 
+                    student={student} 
+                    isInactive={student.status === 'inactive'} 
+                  />
+                ))
+              ) : (
+                <View className="items-center justify-center py-10">
+                  <Ionicons 
+                    name="people-outline" 
+                    size={48} 
+                    color="#6B7280" 
+                    className="opacity-50 mb-3"
+                  />
+                  <Text className="text-gray-400 text-base text-center">
+                    No {activeTab} students found
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={onClose}
+              className="bg-purple-600 py-3 rounded-xl mt-4"
+            >
+              <Text className="text-white font-medium text-center">Close</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
@@ -200,250 +195,52 @@ interface StudentCardProps {
 }
 
 const StudentCard: React.FC<StudentCardProps> = ({ student, isInactive = false }) => (
-  <View style={[
-    styles.studentCard,
-    isInactive && styles.inactiveStudentCard
-  ]}>
-    <View style={styles.studentInfo}>
-      <View style={[
-        styles.avatar,
-        isInactive && { opacity: 0.7 }
-      ]}>
-        <Text style={[
-          styles.avatarText,
-          isInactive && { opacity: 0.7 }
-        ]}>
+  <View className={`p-4 mb-3 rounded-xl border ${
+    isInactive 
+      ? 'bg-white/5 border-white/20 opacity-70' 
+      : 'bg-white/10 border-white/50'
+  }`}>
+    <View className="flex-row items-center mb-3">
+      <View className={`w-10 h-10 rounded-full bg-white/10 border border-white/30 items-center justify-center mr-3 ${
+        isInactive ? 'opacity-70' : ''
+      }`}>
+        <Text className={`text-white font-bold ${isInactive ? 'opacity-70' : ''}`}>
           {student.initials}
         </Text>
       </View>
       <View>
-        <Text style={[
-          styles.studentName,
-          isInactive && styles.inactiveText
-        ]}>
+        <Text className={`font-bold text-base ${isInactive ? 'text-white/60' : 'text-white'}`}>
           {student.name}
         </Text>
-        <Text style={[
-          styles.studentDetails,
-          isInactive && styles.inactiveText
-        ]}>
+        <Text className={`text-xs ${isInactive ? 'text-white/60' : 'text-white opacity-80'}`}>
           Grade {student.grade} - {student.strand}
         </Text>
       </View>
     </View>
 
-    <View style={styles.metricsContainer}>
-      <View style={styles.metricItem}>
-        <View style={styles.metricHeader}>
-          <Text style={[
-            styles.metricLabel,
-            isInactive && styles.inactiveText
-          ]}>
+    <View className="mt-2">
+      <View className="mb-2">
+        <View className="flex-row justify-between mb-1">
+          <Text className={`text-xs ${isInactive ? 'text-white/60' : 'text-white opacity-80'}`}>
             Progress
           </Text>
-          <Text style={[
-            styles.metricValue,
-            isInactive && styles.inactiveText
-          ]}>
+          <Text className={`text-xs font-medium ${isInactive ? 'text-white/60' : 'text-white'}`}>
             {student.progress}%
           </Text>
         </View>
-        <View style={styles.progressBar}>
+        <View className="h-1.5 bg-white/20 rounded-full overflow-hidden">
           <View
-            style={[
-              styles.progressFill,
-              {
-                width: `${student.progress}%`,
-                backgroundColor: isInactive ? '#6b7280' : '#a78bfa', // gray-500 when inactive
-                opacity: isInactive ? 0.6 : 1,
-              },
-            ]}
+            className="h-full rounded-full"
+            style={{
+              width: `${student.progress}%`,
+              backgroundColor: isInactive ? '#6b7280' : '#a78bfa',
+              opacity: isInactive ? 0.6 : 1,
+            }}
           />
         </View>
       </View>
     </View>
   </View>
 );
-
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 16,
-    paddingHorizontal: 16,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#818CF8',
-  },
-  tabText: {
-    color: '#9CA3AF',
-    fontWeight: '500',
-    fontSize: 16,
-  },
-  activeTabText: {
-    color: 'white',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: -1,
-    height: 2,
-    width: '100%',
-    backgroundColor: '#818CF8',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  emptyIcon: {
-    opacity: 0.5,
-    marginBottom: 12,
-  },
-  emptyText: {
-    color: '#9CA3AF',
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  modalContainer: {
-    flex: 1,
-  },
-  modalContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#1A1F2E',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  headerText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  sectionHeader: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    color: 'white',
-    fontSize: 18,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  studentCard: {
-    padding: 16,
-    marginBottom: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  inactiveStudentCard: {
-    opacity: 0.7,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  inactiveText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  studentInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  avatarText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  studentName: {
-    fontWeight: 'bold',
-    color: 'white',
-    fontSize: 16,
-  },
-  studentDetails: {
-    color: 'white',
-    fontSize: 12,
-    opacity: 0.8,
-  },
-  metricsContainer: {
-    marginTop: 8,
-  },
-  metricItem: {
-    marginBottom: 8,
-  },
-  metricHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  metricLabel: {
-    color: 'white',
-    fontSize: 12,
-    opacity: 0.8,
-  },
-  metricValue: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  closeButtonLarge: {
-    backgroundColor: '#7c3aed', // violet-600
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
-  },
-  closeButtonTextLarge: {
-    color: 'white',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-});
 
 export default ActiveStudentModal;

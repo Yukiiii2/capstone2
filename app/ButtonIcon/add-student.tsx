@@ -398,8 +398,6 @@ export default function StudentApprovalScreen() {
   };
 
   const pendingStudents = students.filter(student => student.status === "pending");
-  console.log('Pending students:', pendingStudents);
-  console.log('All students:', students);
 
   return (
     <View className="flex-1 bg-[#0F172A]">

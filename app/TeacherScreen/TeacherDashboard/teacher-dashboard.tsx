@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,12 +9,14 @@ import {
   Modal,
   Animated,
   Image,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import NavigationBar from '@/components/NavigationBar/nav-bar-teacher';
-import StudentManagementModal from "@/components/TeacherModal/StudentManagementModal";
+import StrandGradeModal from "@/components/TeacherModal/StrandGradeModal";
 import TotalStudentModal from "@/components/TeacherModal/TotalStudentModal";
 import ActiveStudentModal from "@/components/TeacherModal/ActiveStudentModal";
+import StudentManagementModal from "@/components/TeacherModal/StudentManagementModal";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import ProfileMenuTeacher from "@/components/ProfileModal/ProfileMenuTeacher";
@@ -866,19 +868,39 @@ const allStudents: Student[] = [
 ];
 
 export default function TeacherDashboard() {
+  const [isStrandModalVisible, setIsStrandModalVisible] = useState(false);
   const [isStudentModalVisible, setIsStudentModalVisible] = useState(false);
-  const [isTotalStudentsModalVisible, setIsTotalStudentsModalVisible] =
-    useState(false);
-  const [isActiveStudentsModalVisible, setIsActiveStudentsModalVisible] =
-    useState(false);
+  const [selectedGrade11Strand, setSelectedGrade11Strand] = useState<string | null>(null);
+  const [selectedGrade12Strand, setSelectedGrade12Strand] = useState<string | null>(null);
+  const [selectedStrand, setSelectedStrand] = useState<string | null>(null);
+  const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
+  const [isActiveStudentsModalVisible, setIsActiveStudentsModalVisible] = useState(false);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
-
+  const [isTotalStudentsModalVisible, setIsTotalStudentsModalVisible] = useState(false);
+  
   const user = {
     name: "Teacher Name",
     email: "teacher@example.com",
     image: { uri: "https://randomuser.me/api/portraits/women/44.jpg" },
   };
+  
   const [students, setStudents] = useState<Student[]>(allStudents);
+  
+  // Handle strand selection
+  const handleSelectStrand = (grade: '11' | '12', strand: string) => {
+    setSelectedGrade(grade);
+    setSelectedStrand(strand);
+    setIsStrandModalVisible(false);
+    setIsStudentModalVisible(true);
+  };
+
+  // Filter students based on selected grade and strand
+  const filteredStudents = useMemo(() => {
+    if (!selectedGrade || !selectedStrand) return [];
+    return students.filter(
+      (student) => student.grade === selectedGrade && student.strand === selectedStrand
+    );
+  }, [students, selectedGrade, selectedStrand]);
   const activeStudents = students.filter(
     (student) => student.status === "active"
   );
@@ -894,6 +916,10 @@ export default function TeacherDashboard() {
   const router = useRouter();
   const handleAddStudent = () => {
     router.push("/ButtonIcon/add-student");
+  };
+
+  const handleModules = () => {
+    router.push("/ButtonIcon/post-module");
   };
 
   // Calculate stats whenever component mounts or allStudents changes
@@ -963,6 +989,15 @@ export default function TeacherDashboard() {
     setIsTotalStudentsModalVisible(true);
   };
 
+  const handleCloseModal = () => {
+    setIsTotalStudentsModalVisible(false);
+  };
+
+  const handleRemoveStudent = (studentId: string) => {
+    // Handle student removal logic here
+    console.log('Remove student:', studentId);
+  };
+
   const handleActiveStudentsPress = () => {
     setIsActiveStudentsModalVisible(true);
   };
@@ -1019,6 +1054,18 @@ export default function TeacherDashboard() {
 
           <View className="flex-row items-center right-2">
             <TouchableOpacity
+              onPress={handleModules}
+              activeOpacity={0.7}
+              className="p-2 bg-white/10 rounded-full mr-4"
+            >
+              <Image
+                source={require("../../../assets/Modules.png")}
+                className="w-5 h-5"
+                resizeMode="contain"
+                tintColor="white"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
               onPress={handleAddStudent}
               activeOpacity={0.7}
               className="p-2 bg-white/10 rounded-full mr-4"
@@ -1057,74 +1104,82 @@ export default function TeacherDashboard() {
           <Text className="text-gray-400">Here's your classroom overview</Text>
         </View>
 
-        {/* Metrics Grid */}
-        <View className="flex-row flex-wrap justify-between mb-4">
-          <MetricCard
-            title="Total Students"
-            value={stats.totalStudents.toString()}
-            color="#4f46e5"
-            icon={
-              <Image
-                source={require("../../../assets/Students.png")}
-                style={{ width: 40, height: 40 }}
-                resizeMode="contain"
-              />
-            }
-            trend={{ value: 12, isPositive: true }}
-            progress={Math.round((stats.totalStudents / 50) * 100)}
-            onPress={handleTotalStudentsPress}
-          />
-
-          <MetricCard
-            title="Active Students"
-            value={stats.activeStudents.toString()}
-            color="#10b981"
-            icon={
-              <Image
-                source={require("../../../assets/active.png")}
-                style={{ width: 40, height: 40 }}
-                resizeMode="contain"
-              />
-            }
-            trend={{ value: 8, isPositive: true }}
-            progress={Math.round(
-              (stats.activeStudents / stats.totalStudents) * 100
-            )}
-            onPress={handleActiveStudentsPress}
-          />
-
-          <MetricCard
-            title="Avg. Progress"
-            value={`${stats.averageProgress}%`}
-            color="#3b82f6"
-            icon={
-              <Image
-                source={require("../../../assets/progress.png")}
-                style={{ width: 40, height: 36 }}
-                resizeMode="contain"
-              />
-            }
-            trend={{ value: 5, isPositive: true }}
-            progress={stats.averageProgress}
-          />
-
-          <MetricCard
-            title="Satisfaction"
-            value={`${stats.averageSatisfaction}%`}
-            color="#8b5cf6"
-            icon={
-              <Image
-                source={require("../../../assets/satisfaction.png")}
-                style={{ width: 40, height: 36 }}
-                resizeMode="contain"
-              />
-            }
-            trend={{ value: 2, isPositive: false }}
-            progress={stats.averageSatisfaction}
-          />
+        {/* Class Code Section */}
+        <View className="w-full mb-4">
+          <View 
+            className="p-4 rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: "rgba(155, 146, 146, 0.1)",
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.15)",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 15,
+            }}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <View>
+                  <Text className="text-white font-bold text-lg">Class Code</Text>
+                  <Text className="text-gray-400 text-xs">Share this code with students</Text>
+                </View>
+              </View>
+              <View className="flex-row items-center bg-white/10 px-3 py-2 rounded-xl">
+                <Text className="text-white font-bold text-lg mr-2">FVWYQN</Text>
+                <TouchableOpacity onPress={() => {
+                  // Add copy to clipboard functionality here
+                  Alert.alert('Copied!', 'Class code copied to clipboard');
+                }}>
+                  <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
         </View>
 
-        <View className="mb-6">
+        {/* Metrics Grid */}
+        <View className="flex-row flex-wrap justify-between mb-1">
+          <View style={{ width: '48%' }}>
+            <MetricCard
+              title="Total Students"
+              value={stats.totalStudents.toString()}
+              color="#4f46e5"
+              icon={
+                <Image
+                  source={require("../../../assets/Students.png")}
+                  style={{ width: 40, height: 40 }}
+                  resizeMode="contain"
+                />
+              }
+              trend={{ value: 12, isPositive: true }}
+              progress={Math.round((stats.totalStudents / 50) * 100)}
+              onPress={handleTotalStudentsPress}
+            />
+          </View>
+
+          <View style={{ width: '48%' }}>
+            <MetricCard
+              title="Active Students"
+              value={stats.activeStudents.toString()}
+              color="#10b981"
+              icon={
+                <Image
+                  source={require("../../../assets/active.png")}
+                  style={{ width: 40, height: 40 }}
+                  resizeMode="contain"
+                />
+              }
+              trend={{ value: 8, isPositive: true }}
+              progress={Math.round(
+                (stats.activeStudents / stats.totalStudents) * 100
+              )}
+              onPress={handleActiveStudentsPress}
+            />
+          </View>
+        </View>
+
+        <View className="mb-4">
           <Text className="text-lg font-bold text-white mb-3">
             Student Management
           </Text>
@@ -1145,13 +1200,13 @@ export default function TeacherDashboard() {
                 Manage Your Students
               </Text>
               <Text className="text-white/60 text-center text-xs mb-4">
-                View and manage all your students in one place. Track their
-                progress, check performance metrics, and provide personalized
+                View and manage all your students. Track their progress,
+                check performance metrics, and provide personalized
                 support.
               </Text>
             </View>
             <TouchableOpacity
-              onPress={() => setIsStudentModalVisible(true)}
+              onPress={() => setIsStrandModalVisible(true)}
               className="bg-violet-600 py-3 bottom-2 w-full rounded-xl flex-row items-center justify-center space-x-2"
               activeOpacity={0.9}
             >
@@ -1160,83 +1215,12 @@ export default function TeacherDashboard() {
           </View>
         </View>
 
-        <View className="mb-6">
-          <Text className="text-lg font-bold text-center text-white mb-3">
-            Confidence & Anxiety Tracking
-          </Text>
-          <View className="bg-white/10 border border-white/20 rounded-2xl p-5">
-            <View className="flex-row justify-between items-center mb-4">
-              <View className="items-center flex-1">
-                <Text className="text-white font-bold text-2xl">
-                  {stats.averageConfidence}%
-                </Text>
-                <Text className="text-white/80 text-xs">Confidence Overall</Text>
-              </View>
-              <View className="h-10 w-px bg-white/20" />
-              <View className="items-center flex-1">
-                <Text className="text-white font-bold text-2xl">
-                  {100 - stats.averageConfidence}%
-                </Text>
-                <Text className="text-white/80 text-xs">Anxiety Level</Text>
-              </View>
-            </View>
-
-            <View className="mt-4">
-              <View className="flex-row justify-between mb-2">
-                <Text className="text-white font-medium text-sm">
-                  Confidence Overall
-                </Text>
-                <Text className="text-white/80 text-sm">
-                  {stats.averageConfidence}%
-                </Text>
-              </View>
-              <View className="h-2 bg-white/10 rounded-full overflow-hidden">
-                <View
-                  className="h-full rounded-full"
-                  style={{ 
-                    width: `${stats.averageConfidence}%`,
-                    backgroundColor: '#8b5cf6', // violet-500
-                    shadowColor: '#8b5cf6',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.5,
-                    shadowRadius: 5,
-                    elevation: 5
-                  }}
-                />
-              </View>
-
-              <View className="flex-row justify-between mt-4 mb-2">
-                <Text className="text-white font-medium text-sm">
-                  Anxiety During Practice
-                </Text>
-                <Text className="text-white/80 text-sm">
-                  {100 - stats.averageConfidence}%
-                </Text>
-              </View>
-              <View className="h-2 bg-white/10 rounded-full overflow-hidden">
-                <View
-                  className="h-full rounded-full"
-                  style={{ 
-                    width: `${100 - stats.averageConfidence}%`,
-                    backgroundColor: '#8b5cf6', // violet-500
-                    shadowColor: '#8b5cf6',
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.5,
-                    shadowRadius: 5,
-                    elevation: 5
-                  }}
-                />
-              </View>
-            </View>
-          </View>
-        </View>
 
         {/* Featured Students Section */}
         <View className="mb-6">
           <Text className="text-lg top-3 font-bold text-white mb-3">
-            Ranking Students
+            Student Ranking
           </Text>
-
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1324,24 +1308,45 @@ export default function TeacherDashboard() {
         students={activeStudents}
       />
 
-      <StudentManagementModal
-        visible={isStudentModalVisible}
-        onClose={() => setIsStudentModalVisible(false)}
-        students={students}
+      <StrandGradeModal
+        visible={isStrandModalVisible}
+        onClose={() => {
+          setSelectedGrade11Strand(null);
+          setSelectedGrade12Strand(null);
+          setIsStrandModalVisible(false);
+        }}
+        selectedGrade11Strand={selectedGrade11Strand}
+        selectedGrade12Strand={selectedGrade12Strand}
+        onSelectStrand={handleSelectStrand}
       />
       
-      <TotalStudentModal
-        visible={isTotalStudentsModalVisible}
-        onClose={() => setIsTotalStudentsModalVisible(false)}
-        students={students}
-        onRemoveStudent={(studentId) => {
-          setStudents(prevStudents => 
-            prevStudents.filter(student => student.id !== studentId)
-          );
+      <StudentManagementModal
+        visible={isStudentModalVisible}
+        onClose={() => {
+          setIsStudentModalVisible(false);
+          setSelectedGrade(null);
+          setSelectedStrand(null);
+        }}
+        students={filteredStudents}
+        grade={selectedGrade || ''}
+        strand={selectedStrand || ''}
+        onStudentsUpdate={(updatedStudents: Student[]) => {
+          // Update the main students array with the changes
+          const updatedAllStudents = allStudents.map((student: Student) => {
+            const updatedStudent = updatedStudents.find((s: Student) => s.id === student.id);
+            return updatedStudent || student;
+          });
+          setStudents(updatedAllStudents);
         }}
       />
       
       <NavigationBar defaultActiveTab="Dashboard" />
+      <TotalStudentModal
+        visible={isTotalStudentsModalVisible}
+        onClose={handleCloseModal}
+        students={students} // Pass the main students array
+        onRemoveStudent={handleRemoveStudent}
+      />
     </View>
   );
 }

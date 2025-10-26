@@ -11,8 +11,8 @@ export interface Student {
   statusColor: string;
   confidence?: number;
   anxiety?: number;
-  progress?: number;
-  satisfaction?: number;
+  progress: number;
+  satisfaction: number;
 }
 
 export interface PerformanceData {

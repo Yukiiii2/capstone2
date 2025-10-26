@@ -283,6 +283,8 @@ const CommunityPage: React.FC = () => {
   const handleIconPress = (type: string) => {
     if (type === "/ButtonIcon/add-student") {
       router.push("/ButtonIcon/add-student");
+    } else if (type === "modules") {
+      router.push("/ButtonIcon/post-module");
     }
   };
 
@@ -449,6 +451,18 @@ const CommunityPage: React.FC = () => {
               </View>
 
               <View className="flex-row items-center right-2">
+                          <TouchableOpacity
+                            onPress={() => handleIconPress("modules")}
+                            activeOpacity={0.7}
+                            className="p-2 bg-white/10 rounded-full mr-4"
+                          >
+                            <Image
+                              source={require("../../../assets/Modules.png")}
+                              className="w-5 h-5"
+                              resizeMode="contain"
+                              tintColor="white"
+                            />
+                          </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleIconPress("add-student")}
                             activeOpacity={0.7}

@@ -95,6 +95,8 @@ export default function LiveSession() {
   const handleIconPress = (icon: string) => {
     if (icon === "/ButtonIcon/add-student") {
       router.push("/ButtonIcon/add-student");
+    } else if (icon === "modules") {
+      router.push("/ButtonIcon/post-module");
     }
   };
 
@@ -143,6 +145,18 @@ export default function LiveSession() {
                   </View>
 
                   <View className="flex-row items-center right-2">
+                    <TouchableOpacity
+                      onPress={() => handleIconPress("modules")}
+                      activeOpacity={0.7}
+                      className="p-2 bg-white/10 left-6 rounded-full mr-4"
+                    >
+                      <Image
+                        source={require("../../../assets/Modules.png")}
+                        className="w-5 h-5"
+                        resizeMode="contain"
+                        tintColor="white"
+                      />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleIconPress("/ButtonIcon/add-student")}
                       activeOpacity={0.7}
