@@ -7,18 +7,20 @@ import {
   Animated,
   Dimensions,
   ScrollView,
-  StyleSheet,
   PanResponder,
   TouchableWithoutFeedback,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-/* ✅ Supabase (logic only; UI untouched) */
+/* ✅ Supabase client for auth / data / realtime */
 import { supabase } from "@/lib/supabaseClient";
 
 const { height } = Dimensions.get("window");
 
-interface Student {
+/* ─────────────────────────────────────────
+   Types
+   ───────────────────────────────────────── */
+export interface Student {
   id: string;
   name: string;
   grade: string;
@@ -36,31 +38,188 @@ interface Student {
 interface ActiveStudentModalProps {
   visible: boolean;
   onClose: () => void;
-  students: Student[];
+  students: Student[]; // fallback from dashboard
 }
 
+/* rows from DB we'll map */
+type TeacherStudentsRow = {
+  student_id: string;
+  grade_level: string | null;
+  strand: string | null;
+  status: string | null;
+};
+
+type ProfileRow = {
+  id: string;
+  name: string | null;
+};
+
+type Prog = {
+  student_id: string;
+  module_id: string | null;
+  progress: number | null;
+  completed: boolean | null;
+  category: "speaking" | "reading" | null;
+};
+
+type ConfidenceRow = {
+  student_id: string;
+  confidence_score_speaking?: number | null;
+  confidence_score_reading?: number | null;
+  anxiety_level_speaking?: number | null;
+  anxiety_level_reading?: number | null;
+  updated_at?: string | null;
+};
+
+/* ─────────────────────────────────────────
+   Helpers for transforming DB → UI
+   ───────────────────────────────────────── */
+const clamp0to100 = (n: number) =>
+  Math.max(0, Math.min(100, Math.round(n)));
+
+function pctFromRows(rows: Prog[] | undefined, cat: "speaking" | "reading") {
+  // We treat completion as 12 modules total (6 basic + 6 advanced)
+  // each worth 100pts ⇒ 1200 max
+  const MODULES_PER_CATEGORY = 12;
+  const TOTAL_PTS = MODULES_PER_CATEGORY * 100; // 1200
+
+  const rs = (rows || []).filter((r) => r.category === cat);
+
+  const earned = rs.reduce((sum, r) => {
+    const val =
+      typeof r.progress === "number" && Number.isFinite(r.progress)
+        ? clamp0to100(r.progress)
+        : r.completed
+        ? 100
+        : 0;
+    return sum + val;
+  }, 0);
+
+  return clamp0to100((earned / TOTAL_PTS) * 100);
+}
+
+function makeInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return "ST";
+}
+
+/* ─────────────────────────────────────────
+   StudentCard subcomponent (UI from your new version)
+   ───────────────────────────────────────── */
+interface StudentCardProps {
+  student: Student;
+  isInactive?: boolean;
+}
+
+const StudentCard: React.FC<StudentCardProps> = ({ student, isInactive = false }) => (
+  <View
+    className={`p-4 mb-3 rounded-xl border ${
+      isInactive
+        ? "bg-white/5 border-white/20 opacity-70"
+        : "bg-white/10 border-white/50"
+    }`}
+  >
+    {/* top row: avatar + info */}
+    <View className="flex-row items-center mb-3">
+      <View
+        className={`w-10 h-10 rounded-full bg-white/10 border border-white/30 items-center justify-center mr-3 ${
+          isInactive ? "opacity-70" : ""
+        }`}
+      >
+        <Text
+          className={`text-white font-bold ${
+            isInactive ? "opacity-70" : ""
+          }`}
+        >
+          {student.initials}
+        </Text>
+      </View>
+
+      <View>
+        <Text
+          className={`font-bold text-base ${
+            isInactive ? "text-white/60" : "text-white"
+          }`}
+        >
+          {student.name}
+        </Text>
+        <Text
+          className={`text-xs ${
+            isInactive ? "text-white/60" : "text-white opacity-80"
+          }`}
+        >
+          Grade {student.grade} - {student.strand}
+        </Text>
+      </View>
+    </View>
+
+    {/* progress metric */}
+    <View className="mt-2">
+      <View className="mb-2">
+        <View className="flex-row justify-between mb-1">
+          <Text
+            className={`text-xs ${
+              isInactive ? "text-white/60" : "text-white opacity-80"
+            }`}
+          >
+            Progress
+          </Text>
+          <Text
+            className={`text-xs font-medium ${
+              isInactive ? "text-white/60" : "text-white"
+            }`}
+          >
+            {student.progress}%
+          </Text>
+        </View>
+        <View className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+          <View
+            className="h-full rounded-full"
+            style={{
+              width: `${student.progress}%`,
+              backgroundColor: isInactive ? "#6b7280" : "#a78bfa",
+              opacity: isInactive ? 0.6 : 1,
+            }}
+          />
+        </View>
+      </View>
+    </View>
+  </View>
+);
+
+/* ─────────────────────────────────────────
+   MAIN COMPONENT
+   ───────────────────────────────────────── */
 const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
   visible,
   onClose,
   students,
 }) => {
-  const [activeTab, setActiveTab] = useState<'active' | 'inactive'>('active');
+  // which tab ("active"/"inactive")
+  const [activeTab, setActiveTab] = useState<"active" | "inactive">("active");
 
-  /* ====== Added logic: live data & auth (no UI changes) ====== */
+  // teacher + live data state
   const [teacherId, setTeacherId] = useState<string | null>(null);
   const [liveStudents, setLiveStudents] = useState<Student[]>([]);
   const idsRef = useRef<Set<string>>(new Set());
 
-  // Use live students when available; otherwise fall back to prop
-  const sourceStudents = liveStudents.length > 0 ? liveStudents : students;
+  // we show live supabase students if we have them, else fallback from parent prop
+  const sourceStudents =
+    liveStudents.length > 0 ? liveStudents : students;
 
-  const filteredStudents = sourceStudents.filter(student =>
-    activeTab === 'active'
-      ? student.status === 'active'
-      : student.status === 'inactive'
+  // filter list based on tab
+  const filteredStudents = sourceStudents.filter((student) =>
+    activeTab === "active"
+      ? student.status === "active"
+      : student.status === "inactive"
   );
 
-  /* ====== Animation as provided (unchanged) ====== */
+  /* ─────────────────────────────────────────
+     Bottom sheet animation / swipe to dismiss
+     (exactly like your new UI version)
+     ───────────────────────────────────────── */
   const slideAnim = useRef(new Animated.Value(height)).current;
   const pan = useRef(new Animated.ValueXY()).current;
   const lastGestureDy = useRef(0);
@@ -76,11 +235,10 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to vertical swipes
+        // Only respond to vertical drag
         return Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3);
       },
       onPanResponderMove: (_, gestureState) => {
-        // Only allow swiping down
         if (gestureState.dy > 0) {
           pan.setValue({ x: 0, y: gestureState.dy });
         }
@@ -88,19 +246,17 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       },
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dy > 100 || gestureState.vy > 0.5) {
-          // If swiped down enough or fast enough, close the modal
           onClose();
         } else {
-          // Otherwise, reset position
           resetPosition();
         }
       },
     })
   ).current;
 
+  // open/close animation
   useEffect(() => {
     if (visible) {
-      // Reset pan position when modal becomes visible
       pan.setValue({ x: 0, y: 0 });
       Animated.timing(slideAnim, {
         toValue: 0,
@@ -116,58 +272,76 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
     }
   }, [visible, pan, slideAnim]);
 
-  /* ====== Auth bootstrap (logic only) ====== */
+  /* ─────────────────────────────────────────
+     Auth bootstrap: get teacherId once
+     ───────────────────────────────────────── */
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const { data } = await supabase.auth.getUser();
-        if (alive) setTeacherId(data?.user?.id ?? null);
+        if (alive) {
+          setTeacherId(data?.user?.id ?? null);
+        }
       } catch {
-        if (alive) setTeacherId(null);
+        if (alive) {
+          setTeacherId(null);
+        }
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  /* ====== Live fetch + mapping (logic only) ====== */
-  // ...imports & component setup above stay the same
-
-  /* ====== Live fetch + mapping (logic only) ====== */
+  /* ─────────────────────────────────────────
+     Live fetch + mapping from Supabase
+     (this is the big logic from old file)
+     ───────────────────────────────────────── */
   const fetchLiveRaw = useCallback(async () => {
     if (!teacherId) return;
 
     try {
+      // 1. Get teacher_students for this teacher
       const { data: ts, error: e1 } = await supabase
         .from("teacher_students")
         .select("student_id, grade_level, strand, status")
         .eq("teacher_id", teacherId);
 
       if (e1) throw e1;
+
       if (!ts || ts.length === 0) {
         setLiveStudents([]);
         idsRef.current = new Set();
         return;
       }
 
-      const ids = Array.from(new Set(ts.map(r => r.student_id))).filter(Boolean) as string[];
+      const rowsTS = ts as TeacherStudentsRow[];
+
+      const ids = Array.from(
+        new Set(rowsTS.map((r) => r.student_id))
+      ).filter(Boolean) as string[];
+
       idsRef.current = new Set(ids);
 
-      // Pull profiles, per-module progress, and latest confidence/anxiety
+      // 2. Parallel fetch: profiles, student_progress, confidence/anxiety
       const [
         { data: profs, error: e2 },
         { data: progRows, error: e3 },
         { data: caRows, error: e4 },
       ] = await Promise.all([
-        supabase.from("profiles").select("id, name").in("id", ids),
+        supabase
+          .from("profiles")
+          .select("id, name")
+          .in("id", ids),
 
-        // Per-module progress rows for both categories
         supabase
           .from("student_progress")
-          .select("student_id, module_id, progress, completed, category")
+          .select(
+            "student_id, module_id, progress, completed, category"
+          )
           .in("student_id", ids),
 
-        // Latest confidence/anxiety per student
         supabase
           .from("confidence_anxiety_score")
           .select(
@@ -181,73 +355,55 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       if (e3) throw e3;
       if (e4) throw e4;
 
-      // Index helpers
-      const byProf: Record<string, { id: string; name: string }> = {};
-      (profs || []).forEach((p) => (byProf[p.id] = p));
-
-      // Keep only the latest CA row per student
-      const latestCA: Record<string, {
-        confidence_score_speaking?: number | null;
-        confidence_score_reading?: number | null;
-        anxiety_level_speaking?: number | null;
-        anxiety_level_reading?: number | null;
-      }> = {};
-      (caRows || []).forEach((r) => {
-        if (!latestCA[r.student_id]) latestCA[r.student_id] = r;
+      // Index profiles by id
+      const byProf: Record<string, ProfileRow> = {};
+      (profs || []).forEach((p: ProfileRow) => {
+        byProf[p.id] = p;
       });
 
-      // Group progress rows by student + category
-      type Prog = { student_id: string; module_id: string | null; progress: number | null; completed: boolean | null; category: "speaking" | "reading" | null; };
+      // Keep only the latest confidence/anxiety row per student
+      const latestCA: Record<string, ConfidenceRow> = {};
+      (caRows || []).forEach((r: ConfidenceRow) => {
+        if (!latestCA[r.student_id]) {
+          latestCA[r.student_id] = r;
+        }
+      });
+
+      // Group progress rows by student
       const progByStudent: Record<string, Prog[]> = {};
       (progRows || []).forEach((row: Prog) => {
-        if (!progByStudent[row.student_id]) progByStudent[row.student_id] = [];
+        if (!progByStudent[row.student_id]) {
+          progByStudent[row.student_id] = [];
+        }
         progByStudent[row.student_id].push(row);
       });
 
-      const clamp0to100 = (n: number) =>
-        Math.max(0, Math.min(100, Math.round(n)));
-
-      const MODULES_PER_CATEGORY = 12;        // 6 basic + 6 advanced
-      const TOTAL_PTS = MODULES_PER_CATEGORY * 100; // 1200
-
-      const pctFromRows = (rows: Prog[] | undefined, cat: "speaking" | "reading") => {
-        const rs = (rows || []).filter(r => r.category === cat);
-        // Sum progress per module (completed -> 100, missing modules -> 0)
-        const earned = rs.reduce((sum, r) => {
-          const val = typeof r.progress === "number" && Number.isFinite(r.progress)
-            ? clamp0to100(r.progress)
-            : r.completed ? 100 : 0;
-          return sum + val;
-        }, 0);
-        return clamp0to100((earned / TOTAL_PTS) * 100);
-      };
-
-      const makeInitials = (name: string) => {
-        const parts = name.trim().split(/\s+/).filter(Boolean);
-        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-        return "ST";
-      };
-
-      const mapped: Student[] = (ts || []).map((r) => {
+      // Build Student objects
+      const mapped: Student[] = rowsTS.map((r) => {
         const prof = byProf[r.student_id];
         const rawName = (prof?.name || "Student").trim();
         const initials = makeInitials(rawName);
 
-        const rows = progByStudent[r.student_id] || [];
-        const speakingPct = pctFromRows(rows, "speaking");
-        const readingPct  = pctFromRows(rows, "reading");
-        const overall     = Math.round((speakingPct + readingPct) / 2);
+        const theseProgRows = progByStudent[r.student_id] || [];
+        const speakingPct = pctFromRows(theseProgRows, "speaking");
+        const readingPct = pctFromRows(theseProgRows, "reading");
+        const overall = Math.round((speakingPct + readingPct) / 2);
 
         const ca = latestCA[r.student_id] || {};
-        // Choose speaking confidence/anxiety if present; fallback to reading; fallback defaults.
-        const confidence =
-          (typeof ca.confidence_score_speaking === "number" ? ca.confidence_score_speaking :
-           typeof ca.confidence_score_reading === "number" ? ca.confidence_score_reading : 0);
 
-        const anxiety =
-          (typeof ca.anxiety_level_speaking === "number" ? ca.anxiety_level_speaking :
-           typeof ca.anxiety_level_reading === "number" ? ca.anxiety_level_reading : 100);
+        const confidenceSource =
+          typeof ca.confidence_score_speaking === "number"
+            ? ca.confidence_score_speaking
+            : typeof ca.confidence_score_reading === "number"
+            ? ca.confidence_score_reading
+            : 0;
+
+        const anxietySource =
+          typeof ca.anxiety_level_speaking === "number"
+            ? ca.anxiety_level_speaking
+            : typeof ca.anxiety_level_reading === "number"
+            ? ca.anxiety_level_reading
+            : 100;
 
         return {
           id: r.student_id,
@@ -257,32 +413,40 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
           status: (r.status as "active" | "inactive") || "active",
           progress: overall,
           satisfaction: 0,
-          confidence: clamp0to100(confidence),
-          anxiety: clamp0to100(anxiety),
+          confidence: clamp0to100(confidenceSource ?? 0),
+          anxiety: clamp0to100(anxietySource ?? 100),
           initials,
           color: "#4F46E5",
-          statusColor: r.status === "active" ? "text-green-400" : "text-gray-400",
+          statusColor:
+            r.status === "active"
+              ? "text-green-400"
+              : "text-gray-400",
         };
       });
 
       setLiveStudents(mapped);
-    } catch (err) {
-      console.warn("ActiveStudentModal fetchLive:", (err as any)?.message || err);
-      // Keep current list; do not crash UI
+    } catch (err: any) {
+      console.warn(
+        "ActiveStudentModal fetchLiveRaw error:",
+        err?.message || err
+      );
+      // we'll just fall back to the students prop if fetch fails
     }
   }, [teacherId]);
 
-
-  /* ====== Realtime subscriptions (logic only; UI untouched) ====== */
+  /* ─────────────────────────────────────────
+     Realtime subscription logic
+     ───────────────────────────────────────── */
   useEffect(() => {
     if (!teacherId || !visible) return;
 
     let chA: ReturnType<typeof supabase.channel> | null = null;
     let chB: ReturnType<typeof supabase.channel> | null = null;
 
-    // Initial fetch
-    fetchLiveRaw().then(() => {
-      // Only subscribe after we know the initial ids
+    (async () => {
+      await fetchLiveRaw();
+
+      // Subscribe: any change in teacher_students for this teacher
       chA = supabase
         .channel(`teacher_students:${teacherId}`)
         .on(
@@ -297,26 +461,42 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
         )
         .subscribe();
 
+      // Subscribe: any change in student_progress
+      // We refetch only if that student is in the teacher's roster
       chB = supabase
         .channel(`student_progress:${teacherId}`)
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "student_progress" },
+          {
+            event: "*",
+            schema: "public",
+            table: "student_progress",
+          },
           (payload: any) => {
-            const sid = payload?.new?.student_id ?? payload?.old?.student_id;
+            const sid =
+              payload?.new?.student_id ??
+              payload?.old?.student_id;
             if (!sid) return;
-            if (!idsRef.current.has(sid)) return; // ignore unrelated students
+            if (!idsRef.current.has(sid)) return;
             fetchLiveRaw();
           }
         )
         .subscribe();
-    });
+    })();
 
     return () => {
-      try { if (chA) supabase.removeChannel(chA); } catch {}
-      try { if (chB) supabase.removeChannel(chB); } catch {}
+      try {
+        if (chA) supabase.removeChannel(chA);
+      } catch {}
+      try {
+        if (chB) supabase.removeChannel(chB);
+      } catch {}
     };
   }, [teacherId, visible, fetchLiveRaw]);
+
+  /* ─────────────────────────────────────────
+     RENDER (this is 100% your new UI JSX)
+     ───────────────────────────────────────── */
 
   return (
     <Modal
@@ -326,339 +506,120 @@ const ActiveStudentModal: React.FC<ActiveStudentModalProps> = ({
       animationType="none"
     >
       <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.modalContainer}>
-          <View style={styles.overlay} />
+        <View className="flex-1">
+          {/* dark overlay */}
+          <View className="absolute inset-0 bg-black/50" />
+
+          {/* bottom sheet */}
           <Animated.View
             {...panResponder.panHandlers}
-            style={[
-              styles.modalContent,
-              {
-                height: height * 0.85,
-                transform: [
-                  { translateY: Animated.add(slideAnim, pan.y) },
-                ],
-              },
-            ]}
+            className="absolute bottom-0 left-0 right-0 bg-[#1A1F2E] rounded-t-3xl p-6"
+            style={{
+              height: height * 0.85,
+              transform: [
+                {
+                  translateY: Animated.add(slideAnim, pan.y),
+                },
+              ],
+            }}
           >
-          <View style={styles.header}>
-            <Text style={styles.headerText}>
-              {activeTab === 'active' ? 'Active' : 'Inactive'} Students ({filteredStudents.length})
-            </Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="white" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Tab Selector */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'active' && styles.activeTab]}
-              onPress={() => setActiveTab('active')}
-            >
-              <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>
-                Active
+            {/* header row */}
+            <View className="flex-row justify-between items-center mb-6">
+              <Text className="text-white text-2xl font-bold">
+                {activeTab === "active" ? "Active" : "Inactive"} Students (
+                {filteredStudents.length})
               </Text>
-              {activeTab === 'active' && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'inactive' && styles.activeTab]}
-              onPress={() => setActiveTab('inactive')}
-            >
-              <Text style={[styles.tabText, activeTab === 'inactive' && styles.activeTabText]}>
-                Inactive
-              </Text>
-              {activeTab === 'inactive' && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity onPress={onClose} className="p-2">
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
 
-          <ScrollView style={styles.scrollView}>
-            {filteredStudents.length > 0 ? (
-              filteredStudents.map((student) => (
-                <StudentCard 
-                  key={student.id} 
-                  student={student} 
-                  isInactive={student.status === 'inactive'} 
-                />
-              ))
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons 
-                  name="people-outline" 
-                  size={48} 
-                  color="#6B7280" 
-                  style={styles.emptyIcon}
-                />
-                <Text style={styles.emptyText}>
-                  No {activeTab} students found
+            {/* Tab Selector */}
+            <View className="flex-row border-b border-white/10 mb-4 px-4">
+              <TouchableOpacity
+                className={`flex-1 py-3 items-center ${
+                  activeTab === "active"
+                    ? "border-b-2 border-indigo-400"
+                    : ""
+                }`}
+                onPress={() => setActiveTab("active")}
+              >
+                <Text
+                  className={`font-medium text-base ${
+                    activeTab === "active"
+                      ? "text-white"
+                      : "text-gray-400"
+                  }`}
+                >
+                  Active
                 </Text>
-              </View>
-            )}
-          </ScrollView>
+                {activeTab === "active" && (
+                  <View className="absolute bottom-0 h-0.5 w-full bg-indigo-400" />
+                )}
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={onClose}
-            style={styles.closeButtonLarge}
-          >
-            <Text style={styles.closeButtonTextLarge}>Close</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </TouchableWithoutFeedback>
+              <TouchableOpacity
+                className={`flex-1 py-3 items-center ${
+                  activeTab === "inactive"
+                    ? "border-b-2 border-indigo-400"
+                    : ""
+                }`}
+                onPress={() => setActiveTab("inactive")}
+              >
+                <Text
+                  className={`font-medium text-base ${
+                    activeTab === "inactive"
+                      ? "text-white"
+                      : "text-gray-400"
+                  }`}
+                >
+                  Inactive
+                </Text>
+                {activeTab === "inactive" && (
+                  <View className="absolute bottom-0 h-0.5 w-full bg-indigo-400" />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Student list */}
+            <ScrollView className="flex-1">
+              {filteredStudents.length > 0 ? (
+                filteredStudents.map((student) => (
+                  <StudentCard
+                    key={student.id}
+                    student={student}
+                    isInactive={student.status === "inactive"}
+                  />
+                ))
+              ) : (
+                <View className="items-center justify-center py-10">
+                  <Ionicons
+                    name="people-outline"
+                    size={48}
+                    color="#6B7280"
+                    className="opacity-50 mb-3"
+                  />
+                  <Text className="text-gray-400 text-base text-center">
+                    No {activeTab} students found
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Close button */}
+            <TouchableOpacity
+              onPress={onClose}
+              className="bg-purple-600 py-3 rounded-xl mt-4"
+            >
+              <Text className="text-white font-medium text-center">
+                Close
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
-
-// Student Card Component
-interface StudentCardProps {
-  student: Student;
-  isInactive?: boolean;
-}
-
-const StudentCard: React.FC<StudentCardProps> = ({ student, isInactive = false }) => (
-  <View style={[
-    styles.studentCard,
-    isInactive && styles.inactiveStudentCard
-  ]}>
-    <View style={styles.studentInfo}>
-      <View style={[
-        styles.avatar,
-        isInactive && { opacity: 0.7 }
-      ]}>
-        <Text style={[
-          styles.avatarText,
-          isInactive && { opacity: 0.7 }
-        ]}>
-          {student.initials}
-        </Text>
-      </View>
-      <View>
-        <Text style={[
-          styles.studentName,
-          isInactive && styles.inactiveText
-        ]}>
-          {student.name}
-        </Text>
-        <Text style={[
-          styles.studentDetails,
-          isInactive && styles.inactiveText
-        ]}>
-          Grade {student.grade} - {student.strand}
-        </Text>
-      </View>
-    </View>
-
-    <View style={styles.metricsContainer}>
-      <View style={styles.metricItem}>
-        <View style={styles.metricHeader}>
-          <Text style={[
-            styles.metricLabel,
-            isInactive && styles.inactiveText
-          ]}>
-            Progress
-          </Text>
-          <Text style={[
-            styles.metricValue,
-            isInactive && styles.inactiveText
-          ]}>
-            {student.progress}%
-          </Text>
-        </View>
-        <View style={styles.progressBar}>
-          <View
-            style={[
-              styles.progressFill,
-              {
-                width: `${student.progress}%`,
-                backgroundColor: isInactive ? '#6b7280' : '#a78bfa', // gray-500 when inactive
-                opacity: isInactive ? 0.6 : 1,
-              },
-            ]}
-          />
-        </View>
-      </View>
-    </View>
-  </View>
-);
-
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 16,
-    paddingHorizontal: 16,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#818CF8',
-  },
-  tabText: {
-    color: '#9CA3AF',
-    fontWeight: '500',
-    fontSize: 16,
-  },
-  activeTabText: {
-    color: 'white',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: -1,
-    height: 2,
-    width: '100%',
-    backgroundColor: '#818CF8',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  emptyIcon: {
-    opacity: 0.5,
-    marginBottom: 12,
-  },
-  emptyText: {
-    color: '#9CA3AF',
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  modalContainer: {
-    flex: 1,
-  },
-  modalContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#1A1F2E',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  headerText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  sectionHeader: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    color: 'white',
-    fontSize: 18,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  studentCard: {
-    padding: 16,
-    marginBottom: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  inactiveStudentCard: {
-    opacity: 0.7,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  inactiveText: {
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  studentInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  avatarText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  studentName: {
-    fontWeight: 'bold',
-    color: 'white',
-    fontSize: 16,
-  },
-  studentDetails: {
-    color: 'white',
-    fontSize: 12,
-    opacity: 0.8,
-  },
-  metricsContainer: {
-    marginTop: 8,
-  },
-  metricItem: {
-    marginBottom: 8,
-  },
-  metricHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  metricLabel: {
-    color: 'white',
-    fontSize: 12,
-    opacity: 0.8,
-  },
-  metricValue: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  closeButtonLarge: {
-    backgroundColor: '#7c3aed', // violet-600
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
-  },
-  closeButtonTextLarge: {
-    color: 'white',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-});
 
 export default ActiveStudentModal;

@@ -1,5 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Ionicons } from "@expo/vector-icons";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import {
   View,
   Text,
@@ -8,11 +13,11 @@ import {
   Animated,
   Dimensions,
   ScrollView,
-  StyleSheet,
   Alert,
   PanResponder,
   TouchableWithoutFeedback,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 /* ⬇️ Supabase client */
 import { supabase } from "@/lib/supabaseClient";
@@ -20,7 +25,7 @@ import { supabase } from "@/lib/supabaseClient";
 const { height } = Dimensions.get("window");
 
 /* ──────────────────────────────────────────────
-   Row types (for strong typing)
+   Row types (for strong typing from Supabase)
    ────────────────────────────────────────────── */
 type TeacherStudentsRow = {
   teacher_id: string;
@@ -53,6 +58,9 @@ type ConfidenceAnxietyRow = {
   updated_at: string | null;
 };
 
+/* ──────────────────────────────────────────────
+   UI Student type (what dashboard expects)
+   ────────────────────────────────────────────── */
 interface Student {
   id: string;
   name: string;
@@ -71,12 +79,12 @@ interface Student {
 interface TotalStudentModalProps {
   visible: boolean;
   onClose: () => void;
-  students: Student[];
+  students: Student[]; // fallback if live fetch fails / before auth
   onRemoveStudent?: (studentId: string) => void;
 }
 
 /* ──────────────────────────────────────────────
-   Helpers
+   Small helpers (logic only)
    ────────────────────────────────────────────── */
 const makeInitials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -88,8 +96,9 @@ const makeInitials = (name: string) => {
 const clampPct = (n: number | null | undefined) =>
   Math.max(0, Math.min(100, Math.round(Number(n ?? 0))));
 
-/* Build a latest-per-student lookup for confidence/anxiety.
-   We take the row with the max updated_at per student. */
+/**
+ * Build a "latest per student" map for confidence/anxiety rows
+ */
 function latestConfidenceAnxietyMap(rows: ConfidenceAnxietyRow[]) {
   const map: Record<
     string,
@@ -130,14 +139,23 @@ function latestConfidenceAnxietyMap(rows: ConfidenceAnxietyRow[]) {
   return map;
 }
 
-/* Decide which confidence/anxiety to show (speaking vs reading).
-   This uses simple averaging; adjust to your product rules if needed. */
+/**
+ * Decide which confidence/anxiety % to show.
+ * We average speaking+reading if both exist, else fallback to whichever exists.
+ * If nothing, default 0 for confidence / 100 for anxiety.
+ */
 const deriveConfidence = (r?: {
   confidence_score_speaking?: number | null;
   confidence_score_reading?: number | null;
 }) => {
-  const s = typeof r?.confidence_score_speaking === "number" ? r!.confidence_score_speaking! : null;
-  const rd = typeof r?.confidence_score_reading === "number" ? r!.confidence_score_reading! : null;
+  const s =
+    typeof r?.confidence_score_speaking === "number"
+      ? r.confidence_score_speaking
+      : null;
+  const rd =
+    typeof r?.confidence_score_reading === "number"
+      ? r.confidence_score_reading
+      : null;
   if (s == null && rd == null) return 0;
   if (s != null && rd == null) return clampPct(s);
   if (s == null && rd != null) return clampPct(rd);
@@ -148,8 +166,14 @@ const deriveAnxiety = (r?: {
   anxiety_level_speaking?: number | null;
   anxiety_level_reading?: number | null;
 }) => {
-  const s = typeof r?.anxiety_level_speaking === "number" ? r!.anxiety_level_speaking! : null;
-  const rd = typeof r?.anxiety_level_reading === "number" ? r!.anxiety_level_reading! : null;
+  const s =
+    typeof r?.anxiety_level_speaking === "number"
+      ? r.anxiety_level_speaking
+      : null;
+  const rd =
+    typeof r?.anxiety_level_reading === "number"
+      ? r.anxiety_level_reading
+      : null;
   if (s == null && rd == null) return 100; // default high if none
   if (s != null && rd == null) return clampPct(s);
   if (s == null && rd != null) return clampPct(rd);
@@ -157,7 +181,7 @@ const deriveAnxiety = (r?: {
 };
 
 /* ──────────────────────────────────────────────
-   Component
+   COMPONENT
    ────────────────────────────────────────────── */
 const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
   visible,
@@ -165,14 +189,18 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
   students,
   onRemoveStudent,
 }) => {
+  // ====== UI state (from new UI version)
   const [studentToRemove, setStudentToRemove] = useState<Student | null>(null);
+
+  const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
+  const [selectedStrand, setSelectedStrand] = useState<string | null>(null);
+  const [showGradeDropdown, setShowGradeDropdown] = useState(false);
+  const [showStrandDropdown, setShowStrandDropdown] = useState(false);
+
+  // ====== animation / drag-to-close (from logic version, ported to new UI classes)
   const slideAnim = useRef(new Animated.Value(height)).current;
   const pan = useRef(new Animated.ValueXY()).current;
   const lastGestureDy = useRef(0);
-
-  const [teacherId, setTeacherId] = useState<string | null>(null);
-  const [liveStudents, setLiveStudents] = useState<Student[]>([]);
-  const renderStudents: Student[] = liveStudents.length > 0 ? liveStudents : students;
 
   const resetPosition = useCallback(() => {
     Animated.spring(pan, {
@@ -184,8 +212,10 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3),
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // only vertical, not horizontal scroll
+        return Math.abs(gestureState.dy) > Math.abs(gestureState.dx * 3);
+      },
       onPanResponderMove: (_, gestureState) => {
         if (gestureState.dy > 0) {
           pan.setValue({ x: 0, y: gestureState.dy });
@@ -216,22 +246,40 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
         duration: 200,
         useNativeDriver: true,
       }).start();
+
+      // reset filters when closed
+      setSelectedGrade(null);
+      setSelectedStrand(null);
+      setShowGradeDropdown(false);
+      setShowStrandDropdown(false);
     }
   }, [visible, pan, slideAnim]);
 
-  /* Auth */
+  // ====== Supabase state + live sync (all logic from old version)
+  const [teacherId, setTeacherId] = useState<string | null>(null);
+  const [liveStudents, setLiveStudents] = useState<Student[]>([]);
+
+  // choose which list to render:
+  // - use liveStudents if we successfully loaded from DB
+  // - otherwise fallback to the prop `students` passed by dashboard
+  const renderStudents: Student[] =
+    liveStudents.length > 0 ? liveStudents : students;
+
+  // auth bootstrap
   useEffect(() => {
     let mounted = true;
     (async () => {
       const { data, error } = await supabase.auth.getUser();
-      if (mounted) setTeacherId(error ? null : data?.user?.id ?? null);
+      if (mounted) {
+        setTeacherId(error ? null : data?.user?.id ?? null);
+      }
     })();
     return () => {
       mounted = false;
     };
   }, []);
 
-  /* Map rows to UI Student */
+  // row mapping (copied from logic version, but does NOT touch UI)
   const mapRowsToStudents = useCallback(
     (
       tsRows: TeacherStudentsRow[],
@@ -241,6 +289,7 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
     ): Student[] => {
       const byProf: Record<string, ProfileRow> = {};
       const byProg: Record<string, StudentProgressRow> = {};
+
       (profRows || []).forEach((p) => {
         byProf[p.id] = p;
       });
@@ -258,16 +307,15 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
         const pv = byProg[r.student_id] || {};
         const ca = latestCA[r.student_id]; // may be undefined
 
-        // Prefer student_progress confidence/anxiety if you store it there; else from CA table
-        const confidence =
-          typeof pv.confidence === "number"
-            ? clampPct(pv.confidence)
-            : deriveConfidence(ca);
+        // Prefer student_progress confidence/anxiety if stored there;
+        // else derive from CA table
+        const confidence = typeof pv.confidence === "number"
+          ? clampPct(pv.confidence)
+          : deriveConfidence(ca);
 
-        const anxiety =
-          typeof pv.anxiety === "number"
-            ? clampPct(pv.anxiety)
-            : deriveAnxiety(ca);
+        const anxiety = typeof pv.anxiety === "number"
+          ? clampPct(pv.anxiety)
+          : deriveAnxiety(ca);
 
         return {
           id: r.student_id,
@@ -281,14 +329,15 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
           anxiety,
           initials,
           color: "#4F46E5",
-          statusColor: r.status === "active" ? "text-green-400" : "text-gray-400",
+          statusColor:
+            r.status === "active" ? "text-green-400" : "text-gray-400",
         } as Student;
       });
     },
     []
   );
 
-  /* Fetch live */
+  // live fetch (logic)
   const fetchLive = useCallback(async () => {
     if (!teacherId) return;
 
@@ -304,7 +353,9 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
       return;
     }
 
-    const ids = Array.from(new Set(ts.map((r) => r.student_id))).filter(Boolean) as string[];
+    const ids = Array.from(
+      new Set(ts.map((r) => r.student_id))
+    ).filter(Boolean) as string[];
 
     // profiles
     const { data: profs } = await supabase
@@ -313,14 +364,14 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
       .in("id", ids)
       .returns<ProfileRow[]>();
 
-    // student_progress (progress/satisfaction; confidence/anxiety optional here)
+    // student_progress (progress/satisfaction; confidence/anxiety MAY also be here)
     const { data: prog } = await supabase
       .from("student_progress")
       .select("student_id, progress, satisfaction, confidence, anxiety")
       .in("student_id", ids)
       .returns<StudentProgressRow[]>();
 
-    // confidence_anxiety_score (latest rows; we’ll pick latest per student)
+    // confidence_anxiety_score (take latest per student)
     const { data: caRows } = await supabase
       .from("confidence_anxiety_score")
       .select(
@@ -335,7 +386,7 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
     );
   }, [teacherId, mapRowsToStudents]);
 
-  /* Realtime */
+  // realtime subs (logic)
   useEffect(() => {
     if (!teacherId || !visible) return;
 
@@ -345,7 +396,12 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
       .channel(`teacher_students:${teacherId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "teacher_students", filter: `teacher_id=eq.${teacherId}` },
+        {
+          event: "*",
+          schema: "public",
+          table: "teacher_students",
+          filter: `teacher_id=eq.${teacherId}`,
+        },
         fetchLive
       )
       .subscribe();
@@ -369,20 +425,79 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
       .subscribe();
 
     return () => {
-      try { supabase.removeChannel(chA); } catch {}
-      try { supabase.removeChannel(chB); } catch {}
-      try { supabase.removeChannel(chC); } catch {}
+      try {
+        supabase.removeChannel(chA);
+      } catch {}
+      try {
+        supabase.removeChannel(chB);
+      } catch {}
+      try {
+        supabase.removeChannel(chC);
+      } catch {}
     };
   }, [teacherId, visible, fetchLive]);
 
-  const handleRemoveStudent = (student: Student) => setStudentToRemove(student);
+  // ====== filter logic (from new UI, but use renderStudents instead of raw students)
+  const filteredStudents = useMemo(() => {
+    return renderStudents.filter((student) => {
+      const matchesGrade =
+        !selectedGrade || student.grade === selectedGrade;
+      const matchesStrand =
+        !selectedStrand || student.strand === selectedStrand;
+      return matchesGrade && matchesStrand;
+    });
+  }, [renderStudents, selectedGrade, selectedStrand]);
 
-  /* Hard delete from teacher_students (RLS policy ts_delete allows this) */
+  const clearFilters = useCallback(() => {
+    setSelectedGrade(null);
+    setSelectedStrand(null);
+  }, []);
+
+  // dropdown renderer from new UI
+  const renderDropdownItem = (
+    value: string,
+    currentValue: string | null,
+    onSelect: (value: string | null) => void,
+    closeDropdown: () => void
+  ) => {
+    const isSelected = value === currentValue;
+    return (
+      <TouchableOpacity
+        key={value}
+        className={`p-3 flex-row justify-between items-center ${
+          isSelected ? "bg-white/20" : ""
+        }`}
+        onPress={() => {
+          onSelect(isSelected ? null : value);
+          closeDropdown();
+        }}
+      >
+        <Text
+          className={`text-white text-sm ${
+            isSelected ? "font-medium" : ""
+          }`}
+        >
+          {value}
+        </Text>
+        {isSelected && (
+          <Ionicons name="checkmark" size={16} color="#ffffff" />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  // ====== remove student logic (merge old logic + new UI flow)
+  const handleRemoveStudent = (student: Student) => {
+    setStudentToRemove(student);
+  };
+
   const confirmRemoveStudent = async () => {
     try {
       if (studentToRemove && onRemoveStudent) {
+        // parent wants to handle removal (maybe optimistic on client only)
         onRemoveStudent(studentToRemove.id);
       } else if (studentToRemove && teacherId) {
+        // hard-remove from teacher_students in supabase (RLS must allow)
         const { error } = await supabase
           .from("teacher_students")
           .delete()
@@ -390,88 +505,262 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
           .eq("student_id", studentToRemove.id);
 
         if (error) throw error;
+
+        // refresh live list
         await fetchLive();
       }
     } catch (e: any) {
-      Alert.alert("Unable to remove", e?.message || "Please try again.");
+      Alert.alert(
+        "Unable to remove",
+        e?.message || "Please try again."
+      );
     } finally {
-      setStudentToRemove(null);
+        setStudentToRemove(null);
     }
   };
 
-  const cancelRemoveStudent = () => setStudentToRemove(null);
+  const cancelRemoveStudent = () => {
+    setStudentToRemove(null);
+  };
 
+  // ====== RENDER
   return (
     <>
-      <Modal transparent visible={visible} onRequestClose={onClose} animationType="none">
+      {/* MAIN SLIDE-UP MODAL */}
+      <Modal
+        transparent
+        visible={visible}
+        onRequestClose={onClose}
+        animationType="none"
+      >
         <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.modalContainer}>
-            <View style={styles.overlay} />
+          <View className="flex-1">
+            {/* overlay */}
+            <View className="absolute inset-0 bg-black/50" />
+
+            {/* panel */}
             <Animated.View
               {...panResponder.panHandlers}
+              className="absolute bottom-0 left-0 right-0 bg-[#1A1F2E] rounded-t-3xl p-6"
               style={[
-                styles.modalContent,
-                { height: height * 0.85, transform: [{ translateY: Animated.add(slideAnim, pan.y) }] },
+                {
+                  height: height * 0.85,
+                  transform: [
+                    { translateY: Animated.add(slideAnim, pan.y) },
+                  ],
+                },
               ]}
             >
-              <View style={styles.header}>
-                <Text style={styles.headerText}>All Students ({renderStudents.length})</Text>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                  <Text style={styles.closeButtonText}>✕</Text>
+              {/* Header row */}
+              <View className="flex-row justify-between items-center mb-6">
+                <Text className="text-white text-2xl font-bold">
+                  All Students ({filteredStudents.length})
+                </Text>
+                <TouchableOpacity
+                  onPress={onClose}
+                  className="p-2"
+                >
+                  <Text className="text-white text-lg">✕</Text>
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={styles.scrollView}>
-                {renderStudents.map((student) => (
-                  <View key={student.id} style={styles.studentCard}>
-                    <View style={styles.studentInfo}>
-                      <View style={styles.avatar}>
-                        <Text style={styles.avatarText}>{student.initials}</Text>
+              {/* Filters */}
+              <View className="mb-4">
+                <View className="flex-row justify-between mb-2.5">
+                  {/* Grade Filter */}
+                  <View className="flex-1 mx-1.5 relative">
+                    <TouchableOpacity
+                      className={`flex-row items-center justify-between rounded-xl py-2.5 px-4 border ${
+                        selectedGrade
+                          ? "bg-white/10 border-white/30"
+                          : "bg-white/5 border-white/20"
+                      }`}
+                      onPress={() => {
+                        setShowGradeDropdown(!showGradeDropdown);
+                        setShowStrandDropdown(false);
+                      }}
+                    >
+                      <Text
+                        className={`text-sm ${
+                          selectedGrade
+                            ? "text-white font-medium"
+                            : "text-white/70"
+                        }`}
+                      >
+                        {selectedGrade
+                          ? `Grade ${selectedGrade}`
+                          : "Select Grade"}
+                      </Text>
+                      <Text className="text-white/50 text-xs ml-2">
+                        {showGradeDropdown ? "▲" : "▼"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {showGradeDropdown && (
+                      <View className="absolute top-full left-0 right-0 bg-[#2A3142] rounded-xl border border-white/10 mt-1.5 z-50 shadow-lg shadow-black/25">
+                        {["11", "12"].map((grade) =>
+                          renderDropdownItem(
+                            `Grade ${grade}`,
+                            selectedGrade,
+                            (val) =>
+                              setSelectedGrade(
+                                val?.replace("Grade ", "") || null
+                              ),
+                            () => setShowGradeDropdown(false)
+                          )
+                        )}
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Strand Filter */}
+                  <View className="flex-1 mx-1.5 relative">
+                    <TouchableOpacity
+                      className={`flex-row items-center justify-between rounded-xl py-2.5 px-4 border ${
+                        selectedStrand
+                          ? "bg-white/10 border-white/30"
+                          : "bg-white/5 border-white/20"
+                      }`}
+                      onPress={() => {
+                        setShowStrandDropdown(!showStrandDropdown);
+                        setShowGradeDropdown(false);
+                      }}
+                    >
+                      <Text
+                        className={`text-sm ${
+                          selectedStrand
+                            ? "text-white font-medium"
+                            : "text-white/70"
+                        }`}
+                      >
+                        {selectedStrand || "Select Strand"}
+                      </Text>
+                      <Text className="text-white/50 text-xs ml-2">
+                        {showStrandDropdown ? "▲" : "▼"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {showStrandDropdown && (
+                      <View className="absolute top-full left-0 right-0 bg-[#2A3142] rounded-xl border border-white/10 mt-1.5 z-50 shadow-lg shadow-black/25">
+                        {["STEM", "HUMSS", "ABM", "GAS", "TVL"].map(
+                          (strand) =>
+                            renderDropdownItem(
+                              strand,
+                              selectedStrand,
+                              setSelectedStrand,
+                              () => setShowStrandDropdown(false)
+                            )
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Clear Filters Button (only if something is selected) */}
+                {(selectedGrade || selectedStrand) && (
+                  <TouchableOpacity
+                    className="bg-purple-500 rounded-xl py-2.5 items-center mt-2.5"
+                    onPress={clearFilters}
+                  >
+                    <Text className="text-white font-medium text-sm">
+                      Clear All Filters
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Student list */}
+              <ScrollView className="flex-1">
+                {filteredStudents.map((student) => (
+                  <View
+                    key={student.id}
+                    className="p-4 mb-3 bg-white/10 rounded-xl border border-white/20"
+                  >
+                    {/* top row: avatar + info */}
+                    <View className="flex-row items-center mb-3">
+                      <View className="w-10 h-10 rounded-full bg-white/10 border border-white/30 items-center justify-center mr-3">
+                        <Text className="text-white font-bold">
+                          {student.initials}
+                        </Text>
                       </View>
                       <View>
-                        <Text style={styles.studentName}>{student.name}</Text>
-                        <Text style={styles.studentDetails}>
+                        <Text className="text-white font-bold text-base">
+                          {student.name}
+                        </Text>
+                        <Text className="text-white text-xs opacity-80">
                           Grade {student.grade} - {student.strand}
                         </Text>
                       </View>
                     </View>
 
-                    <View style={styles.studentActions}>
-                      <TouchableOpacity onPress={() => handleRemoveStudent(student)} style={styles.modalRemoveButton}>
-                        <Text style={styles.removeText}>Remove</Text>
-                        <Ionicons name="trash-outline" size={16} color="#EF4444" style={styles.removeIcon} />
+                    {/* remove button (top-right) */}
+                    <View className="absolute top-4 right-4">
+                      <TouchableOpacity
+                        onPress={() => handleRemoveStudent(student)}
+                        className="flex-row items-center justify-center py-2 px-4 rounded-lg bg-white/5 border border-white/10 min-w-[100px]"
+                      >
+                        <Text className="text-white/90 text-sm font-medium">
+                          Remove
+                        </Text>
+                        <Ionicons
+                          name="trash-outline"
+                          size={16}
+                          color="#FFFFFF"
+                          className="ml-1"
+                        />
                       </TouchableOpacity>
                     </View>
 
-                    <View style={styles.metricsContainer}>
+                    {/* metrics: Confidence / Anxiety */}
+                    <View className="mt-2">
                       {/* Confidence */}
-                      <View style={styles.metricItem}>
-                        <View style={styles.metricHeader}>
-                          <Text style={styles.metricLabel}>Confidence Level</Text>
-                          <Text style={styles.metricValue}>{student.confidence ?? 0}%</Text>
+                      <View className="mb-2">
+                        <View className="flex-row justify-between mb-1">
+                          <Text className="text-white text-xs opacity-80">
+                            Confidence Level
+                          </Text>
+                          <Text className="text-white text-xs font-medium">
+                            {student.confidence ??
+                              Math.floor(Math.random() * 30) + 70}
+                            %
+                          </Text>
                         </View>
-                        <View style={styles.progressBar}>
+                        <View className="h-1.5 bg-white/20 rounded-full overflow-hidden">
                           <View
-                            style={[
-                              styles.progressFill,
-                              { width: `${student.confidence ?? 0}%`, backgroundColor: "#a78bfa" },
-                            ]}
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${
+                                student.confidence ??
+                                Math.floor(Math.random() * 30) + 70
+                              }%`,
+                              backgroundColor: "#a78bfa",
+                            }}
                           />
                         </View>
                       </View>
 
                       {/* Anxiety */}
-                      <View style={styles.metricItem}>
-                        <View style={styles.metricHeader}>
-                          <Text style={styles.metricLabel}>Anxiety Level</Text>
-                          <Text style={styles.metricValue}>{student.anxiety ?? 100}%</Text>
+                      <View>
+                        <View className="flex-row justify-between mb-1">
+                          <Text className="text-white text-xs opacity-80">
+                            Anxiety Level
+                          </Text>
+                          <Text className="text-white text-xs font-medium">
+                            {student.anxiety ??
+                              Math.floor(Math.random() * 30) + 10}
+                            %
+                          </Text>
                         </View>
-                        <View style={styles.progressBar}>
+                        <View className="h-1.5 bg-white/20 rounded-full overflow-hidden">
                           <View
-                            style={[
-                              styles.progressFill,
-                              { width: `${student.anxiety ?? 100}%`, backgroundColor: "#a78bfa" },
-                            ]}
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${
+                                student.anxiety ??
+                                Math.floor(Math.random() * 30) + 10
+                              }%`,
+                              backgroundColor: "#a78bfa",
+                            }}
                           />
                         </View>
                       </View>
@@ -480,15 +769,21 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
                 ))}
               </ScrollView>
 
-              <TouchableOpacity onPress={onClose} style={styles.closeButtonLarge}>
-                <Text style={styles.closeButtonTextLarge}>Close</Text>
+              {/* Close button bottom */}
+              <TouchableOpacity
+                onPress={onClose}
+                className="bg-purple-600 py-3 rounded-xl mt-4"
+              >
+                <Text className="text-white font-medium text-center">
+                  Close
+                </Text>
               </TouchableOpacity>
             </Animated.View>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Confirmation Dialog */}
+      {/* CONFIRMATION POPUP */}
       <Modal
         transparent
         visible={!!studentToRemove}
@@ -496,23 +791,40 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
         statusBarTranslucent
         onRequestClose={cancelRemoveStudent}
       >
-        <View style={styles.confirmationOverlay}>
-          <View style={styles.confirmationDialog}>
-            <View style={styles.dialogHeader}>
-              <Text style={styles.confirmationTitle}>Remove Student</Text>
-              <Text style={styles.confirmationMessage}>
+        <View className="flex-1 bg-black/60 justify-center items-center p-6">
+          <View className="bg-[#1A1F2E]/95 rounded-2xl w-full max-w-[380px] border border-white/10 shadow-xl shadow-black/30 overflow-hidden">
+            <View className="p-6 pb-5">
+              <Text className="text-white text-xl font-bold mb-3 text-center tracking-wide">
+                Remove Student
+              </Text>
+              <Text className="text-white/80 text-base leading-6 text-center mt-2">
                 Are you sure you want to remove{" "}
-                <Text style={styles.studentNameHighlight}>{studentToRemove?.name}</Text> from your class? This
-                action cannot be undone.
+                <Text className="text-white font-semibold">
+                  {studentToRemove?.name}
+                </Text>{" "}
+                from your class? This action cannot be undone.
               </Text>
             </View>
 
-            <View style={styles.confirmationButtons}>
-              <TouchableOpacity style={styles.popupCancelButton} onPress={cancelRemoveStudent} activeOpacity={0.8}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+            <View className="flex-row border-t border-white/5 p-5 bg-black/20 justify-between items-center gap-6">
+              <TouchableOpacity
+                className="flex-1 max-w-[140px] py-3 rounded-lg bg-white/5 border border-white/10 items-center justify-center"
+                onPress={cancelRemoveStudent}
+                activeOpacity={0.8}
+              >
+                <Text className="text-white/95 font-semibold text-base tracking-wide">
+                  Cancel
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.popupRemoveButton} onPress={confirmRemoveStudent} activeOpacity={0.8}>
-                <Text style={styles.removeButtonText}>Remove</Text>
+
+              <TouchableOpacity
+                className="flex-1 max-w-[140px] py-3 rounded-lg bg-red-500/20 border border-red-500/30 items-center justify-center"
+                onPress={confirmRemoveStudent}
+                activeOpacity={0.8}
+              >
+                <Text className="text-red-400 font-semibold text-base tracking-wide">
+                  Remove
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -521,196 +833,5 @@ const TotalStudentModal: React.FC<TotalStudentModalProps> = ({
     </>
   );
 };
-
-const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  confirmationOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  confirmationDialog: {
-    backgroundColor: "rgba(26, 31, 46, 0.95)",
-    borderRadius: 20,
-    width: "100%",
-    maxWidth: 380,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    overflow: "hidden",
-  },
-  dialogHeader: {
-    padding: 24,
-    paddingBottom: 20,
-  },
-  confirmationTitle: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 12,
-    textAlign: "center",
-    letterSpacing: 0.3,
-  },
-  studentNameHighlight: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  confirmationMessage: {
-    color: "rgba(255, 255, 255, 0.8)",
-    fontSize: 15,
-    lineHeight: 24,
-    textAlign: "center",
-    marginTop: 8,
-  },
-  confirmationButtons: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255, 255, 255, 0.05)",
-    padding: 20,
-    backgroundColor: "rgba(0, 0, 0, 0.2)",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 24,
-  },
-  // Popup buttons
-  popupCancelButton: {
-    flex: 1,
-    maxWidth: 140,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  popupRemoveButton: {
-    flex: 1,
-    maxWidth: 140,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.3)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButtonText: {
-    color: "rgba(255, 255, 255, 0.95)",
-    fontWeight: "600",
-    fontSize: 15,
-    letterSpacing: 0.3,
-  },
-  removeButtonText: {
-    color: "#FF6B6B",
-    fontWeight: "600",
-    fontSize: 15,
-    letterSpacing: 0.3,
-  },
-
-  // Modal header/actions
-  modalContainer: { flex: 1 },
-  modalContent: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#1A1F2E",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 24,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  headerText: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
-  },
-  closeButton: { padding: 8 },
-  closeButtonText: { color: "white", fontSize: 18 },
-
-  // List
-  scrollView: { flex: 1 },
-  studentCard: {
-    padding: 16,
-    marginBottom: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.5)",
-  },
-  studentInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
-  },
-  avatarText: { color: "white", fontWeight: "bold" },
-  studentName: { fontWeight: "bold", color: "white", fontSize: 16 },
-  studentDetails: { color: "white", fontSize: 12, opacity: 0.8 },
-
-  // Metrics
-  metricsContainer: { marginTop: 8 },
-  metricItem: { marginBottom: 8 },
-  metricHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  metricLabel: { color: "white", fontSize: 12, opacity: 0.8 },
-  metricValue: { color: "white", fontSize: 12, fontWeight: "500" },
-  progressBar: {
-    height: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: { height: "100%", borderRadius: 3 },
-
-  // Footer
-  closeButtonLarge: {
-    backgroundColor: "#7c3aed",
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 16,
-  },
-  closeButtonTextLarge: { color: "white", fontWeight: "500", textAlign: "center" },
-
-  // Remove button on each card
-  studentActions: { position: "absolute", top: 16, right: 16 },
-  modalRemoveButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    minWidth: 100,
-  },
-  removeIcon: { marginLeft: 4 },
-  removeText: { color: "rgba(255, 255, 255, 0.9)", fontSize: 13, fontWeight: "500" },
-});
 
 export default TotalStudentModal;
