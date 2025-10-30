@@ -1805,7 +1805,7 @@ async def full_analysis(request: FullAnalysisRequest):
 
         print(f"Transformed metrics: {transformed_metrics}")  # Debug log
 
-        # Store the analysis in database
+        # Prepare analysis record
         analysis_record = {
             "student_id": request.student_id,
             "module_id": request.module_id,
@@ -1821,8 +1821,27 @@ async def full_analysis(request: FullAnalysisRequest):
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
 
-        response = supabase.table("full_analysis_statistics").insert(analysis_record).execute()
+        # Check if record exists for this module_id
+        existing = supabase.table("full_analysis_scores")\
+            .select("*")\
+            .eq("module_id", request.module_id)\
+            .execute()
 
+        if existing.data and len(existing.data) > 0:
+            # Update existing record
+            print(f"Updating analysis for module_id: {request.module_id}")
+            response = supabase.table("full_analysis_scores")\
+                .update(analysis_record)\
+                .eq("module_id", request.module_id)\
+                .execute()
+        else:
+            # Insert new record
+            print(f"Creating new analysis for module_id: {request.module_id}")
+            response = supabase.table("full_analysis_statistics")\
+                .insert(analysis_record)\
+                .execute()
+
+        # Return response with analysis results
         return {
             "success": True,
             "metrics": transformed_metrics,
@@ -1830,7 +1849,8 @@ async def full_analysis(request: FullAnalysisRequest):
                 "speech_delivery": speech_metrics,
                 "language_clarity": language_metrics
             },
-            "improvement_suggestions": generate_improvement_suggestions(speech_metrics, language_metrics)
+            "improvement_suggestions": generate_improvement_suggestions(speech_metrics, language_metrics),
+            "operation": "updated" if existing.data else "created"
         }
 
     except Exception as e:
