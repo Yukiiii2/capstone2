@@ -122,6 +122,7 @@ class FullAnalysisRequest(BaseModel):
     speech_text: str
     category: str
     student_id: str
+    module_id: str  # Make this required
     attempt_id: Optional[str] = None
     session_id: Optional[str] = None
 
@@ -250,285 +251,155 @@ async def process_pre_assessment(request: PreAssessmentRequest):
             detail=f"Failed to process pre-assessment: {str(e)}"
         )
     
+async def store_ai_analysis_scores(
+    student_id: str,
+    module_id: str,
+    skills_data: dict,
+    metrics: dict,
+    confidence_score: int,
+    attempt_id: Optional[str] = None,
+    session_id: Optional[str] = None
+) -> dict:
+    """Store AI analysis scores in the full_analysis_scores table"""
+    try:
+        scores_data = {
+            "student_id": student_id,
+            "module_id": module_id,
+            "speaking_pace": round(skills_data.get("Speaking Pace", {}).get("score", 70)),
+            "filler_words_score": round(skills_data.get("Filler Words", {}).get("score", 70)),
+            "clarity_score": round(skills_data.get("Clarity & Pronunciation", {}).get("score", 70)),
+            "vocabulary_score": round(metrics.get("vocabulary_diversity", 70)),
+            "grammar_score": round(metrics.get("grammar_score", 70)),
+            "pause_score": round(metrics.get("pause_score", 70)),
+            "overall_confidence": round(confidence_score),
+            "attempt_id": attempt_id,
+            "session_id": session_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        response = supabase.table("full_analysis_scores").insert(scores_data).execute()
+        
+        if "error" in response:
+            raise Exception(f"Failed to store analysis scores: {response.get('error')}")
+            
+        return response.data[0]
+
+    except Exception as e:
+        print(f"Error storing analysis scores: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to store analysis scores: {str(e)}")
+
 @app.post("/full-analysis")
 async def full_analysis(request: FullAnalysisRequest):
-    """Generate detailed skill ratings based on AI feedback with historical context"""
+    """Generate comprehensive speech analysis with detailed metrics"""
     try:
-        if not request.student_id:
-            raise HTTPException(status_code=400, detail="student_id is required")
+        # Process text and calculate base metrics
+        doc = nlp(request.speech_text)
+        speech_metrics = calculate_speech_metrics(request.speech_text, doc, 180)
+        language_metrics = calculate_language_metrics(doc)
 
-        # Prepare historical context
-        historical_context = await get_historical_context(request.student_id)
+        # Initialize scores with default values from calculated metrics
+        scores = {
+            'speaking_pace': speech_metrics["speaking_pace"]["score"],
+            'clarity_score': language_metrics["clarity"]["score"],
+            'filler_words_score': speech_metrics["filler_words"]["score"],
+            'vocabulary_score': language_metrics["vocabulary"]["score"],
+            'grammar_score': 70,
+            'pause_score': speech_metrics["pauses"]["score"]
+        }
 
-        # Shortened prompt for faster analysis
+        # Create analysis prompt for Llama
         analysis_prompt = f"""
-        Analyze this speaking performance concisely.
-        Feedback: {request.feedback}
-        Text: {request.speech_text}
-        History: {historical_context}
+        Analyze this speaking performance with current metrics:
 
-        Rate these skills (0-100):
-        1. Fluency
-        2. Clarity
-        3. Grammar
-        4. Engagement
-        5. Pronunciation
-        6. Voice
-        7. Pacing
-        8. Speaking Rate
-        9. Filler Words
+        Speech Text: {request.speech_text}
 
-        Format:
-        skill: [name]
-        score: [0-100]
-        trend: [up/down]
-        explanation: [brief]
-        suggestions: [brief]
-        ---
+        Current Metrics:
+        - Speaking Pace: {speech_metrics["speaking_pace"]["wpm"]} WPM
+        - Filler Words: {speech_metrics["filler_words"]["count"]} instances
+        - Clarity Score: {language_metrics["clarity"]["readability_score"]}
+        - Vocabulary Score: {language_metrics["vocabulary"]["diversity_score"]}
+
+        Rate each category from 0-100 and explain why:
+        1. Speaking Pace (ideal is 120-150 words per minute)
+        2. Filler Words Usage (um, uh, like, etc.)
+        3. Clarity & Pronunciation
+        4. Vocabulary Diversity
+        5. Grammar Accuracy
+        6. Pause Usage & Timing
+
+        Format response exactly as:
+        speaking_pace: [score]
+        filler_words: [score]
+        clarity: [score]
+        vocabulary: [score]
+        grammar: [score]
+        pause_usage: [score]
+        explanation: [brief analysis of each score]
         """
 
-        # Get Llama3 analysis with increased timeout and fallback
-        analyzer = FeedbackAnalyzer()
+        # Get Llama analysis with timeout
         try:
             analysis_result = await asyncio.wait_for(
                 asyncio.to_thread(analyzer.llm.analyze, analysis_prompt),
-                timeout=60.0  # Increased to 60 seconds
+                timeout=30.0
             )
-        except asyncio.TimeoutError:
-            # Fallback to quick analysis
-            analysis_result = generate_fallback_analysis(request.feedback, request.speech_text)
-            print("Using fallback analysis due to timeout")
+            print(f"Raw Llama analysis: {analysis_result}")  # Debug log
+            
+            # Update scores with Llama analysis if available
+            for line in str(analysis_result).split('\n'):
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    try:
+                        if key in ['speaking_pace', 'filler_words', 'clarity', 'vocabulary', 'grammar', 'pause_usage']:
+                            value = int(float(value.strip()))
+                            if 0 <= value <= 100:
+                                scores[key.replace('_usage', '_score')] = value
+                    except ValueError:
+                        continue
 
-        # Process results
-        try:
-            skills_data = parse_skills_analysis(str(analysis_result))
-            metrics = format_metrics(skills_data, request.speech_text)
-            confidence_score = calculate_confidence_score(skills_data)
-        except Exception as parse_error:
-            print(f"Parsing error: {str(parse_error)}")
-            skills_data = generate_default_skills()
-            metrics = format_metrics(skills_data, request.speech_text)
-            confidence_score = 75
+        except Exception as e:
+            print(f"Llama analysis failed: {e}")
+            # scores will keep their default values from metrics
 
-        # Store results asynchronously
-        asyncio.create_task(store_analysis_results(
-            request.student_id,
-            request.attempt_id,
-            request.session_id,
-            skills_data,
-            metrics,
-            confidence_score,
-            str(analysis_result)
-        ))
+        print(f"Final scores: {scores}")  # Debug log
+
+        # Store analysis in database
+        analysis_record = {
+            "student_id": request.student_id,
+            "module_id": request.module_id,
+            "attempt_id": request.attempt_id,
+            "session_id": request.session_id,
+            "speaking_pace": scores['speaking_pace'],
+            "clarity_score": scores['clarity_score'],  # Using correct column name
+            "filler_words_score": scores['filler_words_score'],
+            "vocabulary_score": scores['vocabulary_score'],
+            "grammar_score": scores['grammar_score'],
+            "pause_score": scores['pause_score'],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        stored = supabase.table("full_analysis_scores").insert(analysis_record).execute()
 
         return {
             "success": True,
-            "confidence_score": confidence_score,
-            "metrics": metrics,
-            "skills": {
-                "strengths": get_top_skills(skills_data, threshold=65),
-                "improvements": get_bottom_skills(skills_data, threshold=65)
-            },
-            "suggestions": extract_suggestions(skills_data)
+            "speaking_pace": scores['speaking_pace'],
+            "clarity_score": scores['clarity_score'],
+            "filler_words_score": scores['filler_words_score'],
+            "vocabulary_score": scores['vocabulary_score'],
+            "grammar_score": scores['grammar_score'],
+            "pause_score": scores['pause_score'],
+            "analysis": {
+                "speech_delivery": speech_metrics,
+                "language_clarity": language_metrics
+            }
         }
 
     except Exception as e:
         print(f"Error in full analysis: {str(e)}")
-        return {
-            "success": False,
-            "confidence_score": 75,
-            "metrics": generate_default_metrics(),
-            "skills": {
-                "strengths": [],
-                "improvements": []
-            },
-            "suggestions": []
-        }
-
-# Add these helper functions
-async def get_historical_context(student_id: str) -> str:
-    try:
-        response = supabase.table("feedback_ai")\
-            .select("*")\
-            .eq("student_id", student_id)\
-            .order("created_at", desc=True)\
-            .limit(3)\
-            .execute()
-        
-        historical_data = response.data if response else []
-        return "\n".join([entry.get("evaluation", "") for entry in historical_data])
-    except Exception:
-        return ""
-
-def generate_fallback_analysis(feedback: str, speech_text: str) -> str:
-    # Simple rule-based analysis
-    word_count = len(speech_text.split())
-    filler_words = len([w for w in speech_text.split() if w.lower() in ["um", "uh", "like"]])
-    
-    return f"""
-    skill: Fluency
-    score: {min(100, max(0, 75 - (filler_words * 5)))}
-    trend: up
-    explanation: Basic fluency analysis
-    suggestions: Practice speaking smoothly
-
-    skill: Speaking Rate
-    score: {min(100, max(0, word_count / 2))}
-    trend: up
-    explanation: Word count analysis
-    suggestions: Maintain consistent pace
-    """
-
-def generate_default_metrics() -> list:
-    return [
-        {
-            "label": "Overall Score",
-            "value": 75,
-            "icon": "bar-chart",
-            "trend": "up",
-            "change": 0
-        }
-    ]
-
-def generate_default_skills() -> dict:
-    return {
-        "general": {
-            "name": "general",
-            "score": 75,
-            "trend": "up",
-            "explanation": "Default analysis",
-            "suggestions": "Continue practicing"
-        }
-    }
-
-async def store_analysis_results(student_id, attempt_id, session_id, skills_data, metrics, confidence_score, raw_analysis):
-    """Store analysis results in the database with proper JSON handling and UUID validation"""
-    try:
-        # Validate UUIDs
-        if not student_id:
-            raise ValueError("student_id is required")
-            
-        # Convert analysis result to proper JSON structure
-        analysis_data = {
-            "student_id": student_id,
-            "attempt_id": attempt_id if attempt_id else None,
-            "session_id": session_id if session_id else None,
-            "status": "completed",
-            "processed_at": datetime.now(timezone.utc).isoformat(),
-            "analysis_result": {
-                "skills_data": skills_data,
-                "metrics": metrics,
-                "confidence_score": confidence_score,
-                # Clean and format raw analysis
-                "raw_analysis": str(raw_analysis).replace('\n', ' ').strip()
-            },
-            "feedback": str(raw_analysis),  # Store original feedback
-            "speech_text": str(raw_analysis)  # Store original speech text
-        }
-
-        # Insert into database
-        response = await supabase.table("full_analysis_queue")\
-            .upsert(analysis_data)\
-            .execute()
-
-        if "error" in response:
-            print(f"Database error: {response['error']}")
-            raise Exception(f"Failed to store analysis: {response['error']}")
-
-        return True
-
-    except Exception as e:
-        print(f"Failed to store analysis results: {e}")
-        return False
-
-    except HTTPException as he:
-        raise he
-    except asyncio.CancelledError:
-        print("Request was cancelled")
-        raise HTTPException(status_code=499, detail="Request cancelled")
-    except Exception as e:
-        print(f"Error in full analysis: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate full analysis: {str(e)}"
-        )
-
-def parse_skills_analysis(analysis: str) -> dict:
-    """Parse the LLM response into structured skill data with better error handling"""
-    try:
-        # Clean up the input string
-        clean_analysis = analysis.strip()
-        if not clean_analysis:
-            return generate_default_skills()
-
-        skills_data = {}
-        current_skill = None
-        skill_name = None
-        
-        for line in clean_analysis.split('\n'):
-            line = line.strip().lower()
-            if not line:
-                continue
-                
-            if line.startswith('skill:'):
-                # Save previous skill if exists
-                if current_skill and skill_name:
-                    skills_data[skill_name] = current_skill
-                
-                # Start new skill
-                skill_name = line.split(':', 1)[1].strip()
-                current_skill = {
-                    'name': skill_name,
-                    'score': 70,  # Default score
-                    'trend': 'up',  # Default trend
-                    'explanation': '',
-                    'suggestions': ''
-                }
-            elif line.startswith('score:') and current_skill:
-                try:
-                    score = int(line.split(':', 1)[1].strip())
-                    current_skill['score'] = min(100, max(0, score))
-                except ValueError:
-                    current_skill['score'] = 70
-            elif line.startswith('trend:') and current_skill:
-                trend_value = line.split(':', 1)[1].strip()
-                current_skill['trend'] = 'up' if 'up' in trend_value or 'improving' in trend_value else 'down'
-            elif line.startswith('explanation:') and current_skill:
-                current_skill['explanation'] = line.split(':', 1)[1].strip()
-            elif line.startswith('suggestions:') and current_skill:
-                current_skill['suggestions'] = line.split(':', 1)[1].strip()
-        
-        # Don't forget to add the last skill
-        if current_skill and skill_name:
-            skills_data[skill_name] = current_skill
-        
-        return skills_data if skills_data else generate_default_skills()
-
-    except Exception as e:
-        print(f"Error parsing skills analysis: {e}")
-        return generate_default_skills()
-
-def calculate_confidence_score(skills_data: dict) -> int:
-    """Calculate overall confidence score from individual skill scores"""
-    weights = {
-        "Fluency": 0.2,
-        "Clarity and Pronunciation": 0.2,
-        "Grammar and Language Use": 0.15,
-        "Engagement and Audience Connection": 0.15,
-        "Pacing and Timing": 0.1,
-        "Vocal Tone Variation": 0.1,
-        "Gestures and Body Language": 0.1
-    }
-    
-    weighted_sum = 0
-    total_weight = 0
-    
-    for skill, weight in weights.items():
-        if skill in skills_data:
-            weighted_sum += skills_data[skill]["score"] * weight
-            total_weight += weight
-    
-    return round(weighted_sum / total_weight if total_weight > 0 else 70)
+        raise HTTPException(status_code=500, detail=str(e))
     
 def extract_suggestions(skills_data: dict) -> list:
     """Extract all improvement suggestions from skills data"""
@@ -540,7 +411,416 @@ def extract_suggestions(skills_data: dict) -> list:
                 'suggestion': data['suggestions']
             })
     return suggestions
+def generate_fallback_analysis(feedback: str, speech_text: str) -> dict:
+    """Generate fallback analysis when LLM analysis fails"""
+    try:
+        # Basic text analysis
+        words = speech_text.split()
+        word_count = len(words)
+        
+        # Calculate basic metrics
+        filler_words = ["um", "uh", "like", "you know", "well"]
+        filler_count = sum(1 for word in words if word.lower() in filler_words)
+        filler_ratio = (filler_count / word_count) if word_count > 0 else 0
+        
+        # Generate fallback skills data
+        skills_data = {
+            "Speaking Pace": {
+                "score": 70,
+                "observation": "Default pace assessment",
+                "tip": "Maintain a steady speaking rhythm"
+            },
+            "Clarity & Pronunciation": {
+                "score": max(0, 100 - (filler_ratio * 100)),
+                "observation": f"Found {filler_count} filler words",
+                "tip": "Focus on reducing filler words"
+            },
+            "Voice Quality": {
+                "score": 75,
+                "observation": "Basic voice assessment",
+                "tip": "Practice voice projection"
+            },
+            "Language Usage": {
+                "score": 70,
+                "observation": "Default language assessment",
+                "tip": "Continue practicing clear speech"
+            }
+        }
+        
+        return {
+            "skills_data": skills_data,
+            "analysis": "Fallback analysis generated due to processing limitations."
+        }
+        
+    except Exception as e:
+        print(f"Error in fallback analysis: {e}")
+        return generate_default_skills()
+    
+def generate_default_skills() -> dict:
+    """Generate default skills data when analysis fails"""
+    return {
+        "Speaking Pace": {
+            "name": "Speaking Pace",
+            "score": 70,
+            "observation": "Default pace assessment needed",
+            "tip": "Aim for 120-150 words per minute"
+        },
+        "Clarity & Pronunciation": {
+            "name": "Clarity & Pronunciation",
+            "score": 70,
+            "observation": "Initial clarity assessment needed",
+            "tip": "Focus on clear enunciation"
+        },
+        "Filler Words": {
+            "name": "Filler Words",
+            "score": 70,
+            "observation": "Filler word analysis needed",
+            "tip": "Be mindful of using um, uh, and like"
+        },
+        "Voice Quality": {
+            "name": "Voice Quality",
+            "score": 70,
+            "observation": "Voice quality assessment needed",
+            "tip": "Practice varying tone and volume"
+        },
+        "Language Usage": {
+            "name": "Language Usage",
+            "score": 70,
+            "observation": "Language assessment needed",
+            "tip": "Focus on clear and concise expression"
+        }
+    }
 
+async def get_previous_score(student_id: str) -> int:
+    """Get student's previous confidence score"""
+    try:
+        response = supabase.table("confidence_anxiety_score")\
+            .select("confidence_score_speaking")\
+            .eq("student_id", student_id)\
+            .order("updated_at", desc=True)\
+            .limit(1)\
+            .execute()
+        
+        if response.data:
+            return response.data[0].get("confidence_score_speaking", 70)
+        return 70  # Default starting score
+        
+    except Exception as e:
+        print(f"Error getting previous score: {e}")
+        return 70
+def extract_top_skills(skills_data: dict, limit: int = 2) -> list:
+    """Extract top performing skills based on scores"""
+    sorted_skills = sorted(
+        [
+            {"name": name, **data} 
+            for name, data in skills_data.items()
+        ],
+        key=lambda x: x.get('score', 0),
+        reverse=True
+    )
+    
+    return [
+        {
+            "skill": skill["name"],
+            "score": skill["score"],
+            "observation": skill.get("observation", ""),
+            "tip": skill.get("tip", "")
+        }
+        for skill in sorted_skills[:limit]
+    ]
+async def get_historical_context(student_id: str) -> str:
+    """
+    Fetch and format historical speech analysis data for a student.
+    
+    Args:
+        student_id (str): The unique identifier for the student
+        
+    Returns:
+        str: A formatted string containing historical context
+    """
+    try:
+        # Fetch recent feedback entries
+        feedback_response = supabase.table("feedback_ai")\
+            .select("*")\
+            .eq("student_id", student_id)\
+            .order("created_at", desc=True)\
+            .limit(3)\
+            .execute()
+
+        # Fetch confidence scores
+        confidence_response = supabase.table("confidence_anxiety_score")\
+            .select("*")\
+            .eq("student_id", student_id)\
+            .order("updated_at", desc=True)\
+            .limit(1)\
+            .execute()
+
+        # Format historical context
+        context_parts = []
+
+        # Add confidence score context
+        if confidence_response.data:
+            latest_scores = confidence_response.data[0]
+            context_parts.append(
+                f"Current confidence levels: Speaking {latest_scores.get('confidence_score_speaking', 0)}/100, "
+                f"Reading {latest_scores.get('confidence_score_reading', 0)}/100"
+            )
+
+        # Add recent feedback context
+        if feedback_response.data:
+            context_parts.append("Recent feedback summary:")
+            for entry in feedback_response.data:
+                evaluation = entry.get("evaluation", "").strip()
+                if evaluation:
+                    # Truncate long feedback entries
+                    if len(evaluation) > 100:
+                        evaluation = evaluation[:97] + "..."
+                    context_parts.append(f"- {evaluation}")
+
+        # If no historical data found
+        if not context_parts:
+            return "No previous speech analysis data available."
+
+        return "\n".join(context_parts)
+
+    except Exception as e:
+        print(f"Error fetching historical context: {e}")
+        return "Unable to retrieve historical context."
+
+def extract_bottom_skills(skills_data: dict, limit: int = 2) -> list:
+    """Extract skills that need the most improvement"""
+    sorted_skills = sorted(
+        [
+            {"name": name, **data} 
+            for name, data in skills_data.items()
+        ],
+        key=lambda x: x.get('score', 0)
+    )
+    
+    return [
+        {
+            "skill": skill["name"],
+            "score": skill["score"],
+            "observation": skill.get("observation", ""),
+            "tip": skill.get("tip", "")
+        }
+        for skill in sorted_skills[:limit]
+    ]
+
+def generate_focused_tips(skills_data: dict, metrics: dict) -> list:
+    """Generate focused improvement tips based on skills and metrics"""
+    tips = []
+    
+    # Add pace-related tip if needed
+    wpm = metrics.get("words_per_minute", 0)
+    if wpm < 120 or wpm > 150:
+        tips.append({
+            "category": "Speaking Pace",
+            "tip": get_pace_tip(wpm)
+        })
+    
+    # Add clarity-related tip if needed
+    clarity_score = metrics.get("clarity_score", 0)
+    if clarity_score < 85:
+        tips.append({
+            "category": "Clarity",
+            "tip": get_clarity_suggestion(clarity_score)
+        })
+    
+    # Add filler words tip if needed
+    if metrics.get("filler_frequency", 0) > 5:
+        tips.append({
+            "category": "Filler Words",
+            "tip": "Practice reducing filler words like 'um', 'uh', and 'like'"
+        })
+    
+    # Add voice quality tips
+    voice_suggestions = get_voice_suggestions(metrics)
+    if voice_suggestions:
+        tips.extend([
+            {"category": "Voice Quality", "tip": suggestion}
+            for suggestion in voice_suggestions
+        ])
+    
+    return tips[:3]  # Return top 3 most important tips
+
+def generate_fallback_response() -> dict:
+    """Generate a fallback response when analysis fails"""
+    return {
+        "success": True,
+        "confidence_score": 70,
+        "core_metrics": {
+            "speaking_pace": {
+                "score": 70,
+                "target": "120-150 words per minute",
+                "status": "Needs Assessment",
+                "tip": "Try to maintain a steady speaking pace"
+            },
+            "clarity": {
+                "score": 70,
+                "issues": [],
+                "improvement": "Focus on clear pronunciation"
+            },
+            "filler_words": {
+                "count": 0,
+                "common": [],
+                "frequency": "0%"
+            },
+            "voice_quality": {
+                "volume_score": 70,
+                "pitch_score": 70,
+                "suggestions": ["Practice with varying tone and volume"]
+            },
+            "language": {
+                "grammar_score": 70,
+                "vocabulary_score": 70,
+                "top_issues": []
+            }
+        },
+        "progress": {
+            "previous_score": 70,
+            "improvement": {"change": 0, "trend": "stable"},
+            "practice_streak": {"current_streak": 0, "best_streak": 0},
+            "top_growth": {"skill": "Overall Speaking", "improvement": 0}
+        },
+        "key_strengths": [],
+        "focus_areas": [
+            {
+                "skill": "Speaking Practice",
+                "score": 70,
+                "observation": "Initial assessment needed",
+                "tip": "Complete more speaking exercises for personalized feedback"
+            }
+        ],
+        "practice_tips": [
+            {
+                "category": "Getting Started",
+                "tip": "Complete more speaking exercises to receive personalized feedback"
+            }
+        ]
+    }
+def calculate_improvement(student_id: str, current_score: int) -> dict:
+    """Calculate improvement metrics"""
+    try:
+        # Get historical scores
+        response = supabase.table("confidence_anxiety_score")\
+            .select("confidence_score_speaking, updated_at")\
+            .eq("student_id", student_id)\
+            .order("updated_at", asc=True)\
+            .execute()
+        
+        if not response.data:
+            return {"change": 0, "trend": "stable"}
+            
+        scores = [entry.get("confidence_score_speaking", 0) for entry in response.data]
+        
+        # Calculate changes
+        last_score = scores[-1] if scores else 0
+        score_change = current_score - last_score
+        
+        # Determine trend
+        if score_change > 5:
+            trend = "improving"
+        elif score_change < -5:
+            trend = "declining"
+        else:
+            trend = "stable"
+            
+        return {
+            "change": score_change,
+            "trend": trend,
+            "history": scores[-5:] if len(scores) > 5 else scores
+        }
+        
+    except Exception as e:
+        print(f"Error calculating improvement: {e}")
+        return {"change": 0, "trend": "stable"}
+
+async def get_practice_streak(student_id: str) -> dict:
+    """Calculate student's practice streak"""
+    try:
+        # Get recent attempts
+        response = supabase.table("attempts")\
+            .select("created_at")\
+            .eq("student_id", student_id)\
+            .order("created_at", desc=True)\
+            .execute()
+            
+        if not response.data:
+            return {"current_streak": 0, "best_streak": 0}
+            
+        # Convert dates to datetime objects
+        dates = [datetime.fromisoformat(entry["created_at"].replace("Z", "+00:00")) 
+                for entry in response.data]
+        
+        # Calculate current streak
+        current_streak = 0
+        today = datetime.now(timezone.utc)
+        
+        for i, date in enumerate(dates):
+            if i == 0 and (today - date).days > 1:
+                break
+            if i > 0 and (dates[i-1] - date).days > 1:
+                break
+            current_streak += 1
+            
+        # Calculate best streak
+        best_streak = current_streak
+        temp_streak = 0
+        
+        for i in range(len(dates)):
+            if i == 0 or (dates[i-1] - dates[i]).days <= 1:
+                temp_streak += 1
+            else:
+                best_streak = max(best_streak, temp_streak)
+                temp_streak = 1
+                
+        return {
+            "current_streak": current_streak,
+            "best_streak": best_streak
+        }
+        
+    except Exception as e:
+        print(f"Error calculating practice streak: {e}")
+        return {"current_streak": 0, "best_streak": 0}
+
+def identify_most_improved(student_id: str, current_skills: dict) -> dict:
+    """Identify most improved speaking skills"""
+    try:
+        # Get previous skills assessment
+        response = supabase.table("full_analysis_queue")\
+            .select("analysis_result")\
+            .eq("student_id", student_id)\
+            .order("processed_at", desc=True)\
+            .limit(1)\
+            .execute()
+            
+        if not response.data:
+            return {"skill": "Overall Speaking", "improvement": 0}
+            
+        previous_skills = response.data[0].get("analysis_result", {}).get("skills_data", {})
+        
+        # Calculate improvements
+        improvements = {}
+        for skill, data in current_skills.items():
+            previous_score = previous_skills.get(skill, {}).get("score", 0)
+            current_score = data.get("score", 0)
+            improvement = current_score - previous_score
+            improvements[skill] = improvement
+            
+        # Find most improved skill
+        if improvements:
+            most_improved = max(improvements.items(), key=lambda x: x[1])
+            return {
+                "skill": most_improved[0],
+                "improvement": most_improved[1]
+            }
+            
+        return {"skill": "Overall Speaking", "improvement": 0}
+        
+    except Exception as e:
+        print(f"Error identifying most improved skill: {e}")
+        return {"skill": "Overall Speaking", "improvement": 0}
 # ...existing code...    
 def format_metrics(skills_data: dict, speech_text: str) -> list:
     """Format metrics with enhanced calculations"""
@@ -616,6 +896,166 @@ def calculate_change(skills_data: dict, skill_name: str) -> float:
     }
     trend = skills_data.get(skill_name, {}).get("trend", "up")
     return base_changes.get(skill_name, 1.0) * (1 if trend == "up" else -1)
+
+# Add these helper functions after the existing imports
+
+def process_speaking_metrics(speech_text: str) -> dict:
+    """Calculate detailed speaking metrics from speech text"""
+    try:
+        words = speech_text.split()
+        word_count = len(words)
+        
+        # Calculate words per minute (assuming average speaking duration)
+        words_per_minute = word_count * (60 / 180)  # Assuming 3 minutes average
+        
+        # Count filler words
+        filler_words = ["um", "uh", "like", "you know", "well", "so"]
+        filler_count = sum(1 for word in words if word.lower() in filler_words)
+        common_fillers = [word for word in words if word.lower() in filler_words]
+        filler_frequency = (filler_count / word_count) * 100 if word_count > 0 else 0
+        
+        # Calculate clarity score
+        doc = nlp(speech_text)
+        clarity_score = 100 - (filler_frequency * 2)  # Reduce score based on filler words
+        unclear_words = [token.text for token in doc if token.is_stop or token.like_num]
+        
+        # Calculate voice metrics (placeholder values since we can't actually measure audio)
+        volume_consistency = 85  # Placeholder
+        pitch_variation = 75    # Placeholder
+        
+        # Calculate vocabulary diversity
+        unique_words = len(set(word.lower() for word in words))
+        vocabulary_diversity = (unique_words / word_count * 100) if word_count > 0 else 0
+        
+        # Grammar analysis
+        grammar_issues = []
+        grammar_score = 85  # Placeholder - would need actual grammar checking
+        
+        return {
+            "words_per_minute": words_per_minute,
+            "clarity_score": clarity_score,
+            "filler_count": filler_count,
+            "common_fillers": common_fillers[:5],  # Top 5 most common fillers
+            "filler_frequency": filler_frequency,
+            "volume_consistency": volume_consistency,
+            "pitch_variation": pitch_variation,
+            "vocabulary_diversity": vocabulary_diversity,
+            "grammar_score": grammar_score,
+            "grammar_issues": grammar_issues,
+            "unclear_words": unclear_words[:5]  # Top 5 unclear words
+        }
+    except Exception as e:
+        print(f"Error processing speaking metrics: {e}")
+        return generate_default_metrics()
+
+def parse_focused_skills(analysis_text: str) -> dict:
+    """Parse the analysis text into structured skill data"""
+    skills_data = {}
+    current_skill = None
+    
+    try:
+        lines = analysis_text.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith('skill:'):
+                if current_skill:
+                    skills_data[current_skill['name']] = current_skill
+                current_skill = {
+                    'name': line.split(':', 1)[1].strip(),
+                    'score': 70,
+                    'observation': '',
+                    'tip': ''
+                }
+            elif current_skill:
+                if line.startswith('score:'):
+                    try:
+                        score = int(line.split(':', 1)[1].strip())
+                        current_skill['score'] = min(100, max(0, score))
+                    except ValueError:
+                        current_skill['score'] = 70
+                elif line.startswith('observation:'):
+                    current_skill['observation'] = line.split(':', 1)[1].strip()
+                elif line.startswith('tip:'):
+                    current_skill['tip'] = line.split(':', 1)[1].strip()
+                    
+        if current_skill:
+            skills_data[current_skill['name']] = current_skill
+            
+        return skills_data
+    except Exception as e:
+        print(f"Error parsing skills: {e}")
+        return generate_default_skills()
+
+def calculate_weighted_confidence(skills_data: dict) -> int:
+    """Calculate weighted confidence score from skills data"""
+    weights = {
+        "Speaking Pace": 0.25,
+        "Clarity & Pronunciation": 0.25,
+        "Filler Words": 0.20,
+        "Voice Quality": 0.15,
+        "Language Usage": 0.15
+    }
+    
+    weighted_sum = 0
+    total_weight = 0
+    
+    for skill, data in skills_data.items():
+        weight = weights.get(skill, 0.1)  # Default weight 0.1 for unknown skills
+        weighted_sum += data['score'] * weight
+        total_weight += weight
+    
+    return round(weighted_sum / total_weight) if total_weight > 0 else 70
+
+def get_pace_rating(wpm: float) -> str:
+    """Get rating for speaking pace"""
+    if 120 <= wpm <= 150:
+        return "Ideal"
+    elif 100 <= wpm < 120 or 150 < wpm <= 170:
+        return "Good"
+    elif wpm < 100:
+        return "Too Slow"
+    else:
+        return "Too Fast"
+
+def get_pace_tip(wpm: float) -> str:
+    """Get improvement tip based on speaking pace"""
+    if wpm < 100:
+        return "Try to speak a bit faster while maintaining clarity"
+    elif wpm > 170:
+        return "Slow down slightly to improve understanding"
+    elif 150 < wpm <= 170:
+        return "Good pace, but could be slightly slower for better clarity"
+    elif 100 <= wpm < 120:
+        return "Good pace, but could be slightly faster for better engagement"
+    else:
+        return "Excellent pace! Keep maintaining this speed"
+
+def get_clarity_suggestion(score: float) -> str:
+    """Get suggestion for improving clarity"""
+    if score >= 90:
+        return "Excellent clarity - maintain this level"
+    elif score >= 80:
+        return "Good clarity - focus on consistent pronunciation"
+    elif score >= 70:
+        return "Decent clarity - practice enunciating difficult words"
+    else:
+        return "Focus on speaking more clearly and reducing filler words"
+
+def get_voice_suggestions(metrics: dict) -> list:
+    """Get suggestions for voice quality improvement"""
+    suggestions = []
+    
+    if metrics['volume_consistency'] < 80:
+        suggestions.append("Work on maintaining consistent volume")
+    if metrics['pitch_variation'] < 70:
+        suggestions.append("Try varying your tone more for emphasis")
+    if len(metrics['common_fillers']) > 3:
+        suggestions.append("Practice reducing filler words")
+        
+    return suggestions[:2]  # Return top 2 suggestions
 
 @app.get("/analyze-confidence/{student_id}")
 async def analyze_confidence(student_id: str):
@@ -1148,3 +1588,311 @@ async def general_exception_handler(request, exc):
         status_code=500,
         content={"detail": "Internal server error"}
     )
+
+def calculate_speech_metrics(speech_text: str, doc: spacy.tokens.Doc, duration: float) -> dict:
+    """Calculate detailed speech metrics"""
+    words = speech_text.split()
+    word_count = len(words)
+    wpm = word_count / (duration / 60) if duration > 0 else 0
+    
+    # Analyze pauses using punctuation and spacing
+    pauses = len([t for t in doc if t.text in ['.', ',', ';', '...'] or t.is_space])
+    pause_ratio = pauses / word_count if word_count > 0 else 0
+    
+    # Filler word analysis
+    filler_words = ["um", "uh", "like", "you know", "well", "so"]
+    filler_count = sum(1 for word in words if word.lower() in filler_words)
+    
+    return {
+        "speaking_pace": {
+            "wpm": round(wpm, 2),
+            "target_range": "120-150",
+            "score": calculate_pace_score(wpm)
+        },
+        "pauses": {
+            "count": pauses,
+            "ratio": round(pause_ratio * 100, 2),
+            "score": calculate_pause_score(pause_ratio)
+        },
+        "filler_words": {
+            "count": filler_count,
+            "ratio": round((filler_count / word_count * 100), 2) if word_count > 0 else 0,
+            "instances": [w for w in words if w.lower() in filler_words],
+            "score": calculate_filler_word_score(filler_count, word_count)
+        }
+    }
+
+def calculate_language_metrics(doc: spacy.tokens.Doc) -> dict:
+    """Calculate language and clarity metrics"""
+    # Vocabulary diversity
+    unique_words = len(set([token.text.lower() for token in doc if token.is_alpha]))
+    total_words = len([token for token in doc if token.is_alpha])
+    vocab_diversity = (unique_words / total_words * 100) if total_words > 0 else 0
+    
+    # Grammar analysis using simple rules
+    grammar_issues = []
+    sentence_count = len(list(doc.sents))
+    
+    return {
+        "vocabulary": {
+            "diversity_score": round(vocab_diversity, 2),
+            "unique_words": unique_words,
+            "total_words": total_words,
+            "score": calculate_vocabulary_score(vocab_diversity)
+        },
+        "clarity": {
+            "readability_score": textstat.flesch_reading_ease(doc.text),
+            "sentence_count": sentence_count,
+            "avg_sentence_length": round(total_words / sentence_count if sentence_count > 0 else 0, 2),
+            "score": calculate_clarity_score(doc.text)
+        },
+        "grammar": {
+            "issues": grammar_issues,
+            "score": calculate_grammar_score(doc)
+        }
+    }
+
+# Add scoring helper functions
+def calculate_pace_score(wpm: float) -> int:
+    """Calculate score for speaking pace"""
+    if 120 <= wpm <= 150:
+        return 100
+    elif 100 <= wpm < 120 or 150 < wpm <= 170:
+        return 80
+    elif 80 <= wpm < 100 or 170 < wpm <= 190:
+        return 60
+    else:
+        return 40
+
+def calculate_pause_score(pause_ratio: float) -> int:
+    """Calculate score for pause usage"""
+    optimal_ratio = 0.15  # 15% of speech should be pauses
+    difference = abs(pause_ratio - optimal_ratio)
+    return max(0, 100 - int(difference * 200))
+
+def calculate_filler_word_score(filler_count: int, word_count: int) -> int:
+    """Calculate score for filler word usage"""
+    ratio = (filler_count / word_count * 100) if word_count > 0 else 0
+    return max(0, 100 - int(ratio * 5))
+
+def calculate_vocabulary_score(diversity: float) -> int:
+    """Calculate score for vocabulary diversity"""
+    if diversity >= 60:
+        return 100
+    elif diversity >= 45:
+        return 80
+    elif diversity >= 30:
+        return 60
+    else:
+        return 40
+
+def calculate_clarity_score(text: str) -> int:
+    """Calculate score for speech clarity"""
+    flesch_score = textstat.flesch_reading_ease(text)
+    if flesch_score >= 80:
+        return 100
+    elif flesch_score >= 60:
+        return 80
+    elif flesch_score >= 40:
+        return 60
+    else:
+        return 40
+
+def calculate_grammar_score(doc: spacy.tokens.Doc) -> int:
+    """Calculate score for grammar usage"""
+    # Simplified grammar scoring - can be enhanced with more sophisticated rules
+    return 80  # Placeholder score
+
+@app.post("/full-analysis")
+async def full_analysis(request: FullAnalysisRequest):
+    """Generate comprehensive speech analysis with detailed metrics"""
+    try:
+        # Process the speech text with spaCy
+        doc = nlp(request.speech_text)
+        
+        # Calculate metrics first
+        speech_metrics = calculate_speech_metrics(request.speech_text, doc, 180)
+        language_metrics = calculate_language_metrics(doc)
+
+        # Create analysis prompt for Llama
+        analysis_prompt = f"""
+        Analyze this speaking performance with current metrics:
+
+        Speech Text: {request.speech_text}
+
+        Current Metrics:
+        - Speaking Pace: {speech_metrics["speaking_pace"]["wpm"]} WPM
+        - Filler Words: {speech_metrics["filler_words"]["count"]} instances
+        - Clarity Score: {language_metrics["clarity"]["readability_score"]}
+        - Vocabulary Score: {language_metrics["vocabulary"]["diversity_score"]}
+
+        Rate each category from 0-100 and explain why:
+        1. Speaking Pace (ideal is 120-150 words per minute)
+        2. Filler Words Usage (um, uh, like, etc.)
+        3. Clarity & Pronunciation
+        4. Vocabulary Diversity
+        5. Grammar Accuracy
+        6. Pause Usage & Timing
+
+        Format response exactly as:
+        speaking_pace: [score]
+        filler_words: [score]
+        clarity: [score]
+        vocabulary: [score]
+        grammar: [score]
+        pause_usage: [score]
+        explanation: [brief analysis of each score]
+        """
+
+        # Get Llama analysis with timeout
+        try:
+            analysis_result = await asyncio.wait_for(
+                asyncio.to_thread(analyzer.llm.analyze, analysis_prompt),
+                timeout=30.0
+            )
+            print(f"Raw Llama analysis: {analysis_result}")  # Debug log
+            
+            # Parse scores with better error handling
+            scores = {}
+            lines = str(analysis_result).split('\n')
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    try:
+                        if key in ['speaking_pace', 'filler_words', 'clarity', 'vocabulary', 'grammar', 'pause_usage']:
+                            value = int(value.strip())
+                            if 0 <= value <= 100:
+                                scores[key] = value
+                    except ValueError:
+                        continue
+
+        except Exception as e:
+            print(f"Llama analysis failed: {e}")
+            scores = {}
+
+        # Transform metrics with dynamic values
+        transformed_metrics = [
+            {
+                "label": "Speaking Pace",
+                "value": scores.get('speaking_pace', speech_metrics["speaking_pace"]["score"]),
+                "icon": "speedometer",
+                "trend": "up" if speech_metrics["speaking_pace"]["wpm"] >= 120 else "down",
+                "change": abs(speech_metrics["speaking_pace"]["wpm"] - 135) / 135  # Deviation from ideal pace
+            },
+            {
+                "label": "Clarity",
+                "value": scores.get('clarity', language_metrics["clarity"]["score"]),
+                "icon": "mic",
+                "trend": "up" if language_metrics["clarity"]["readability_score"] >= 60 else "down",
+                "change": language_metrics["clarity"]["readability_score"] / 100
+            },
+            {
+                "label": "Filler Words",
+                "value": scores.get('filler_words', speech_metrics["filler_words"]["score"]),
+                "icon": "warning",
+                "trend": "down" if speech_metrics["filler_words"]["ratio"] < 5 else "up",
+                "change": speech_metrics["filler_words"]["ratio"] / 100
+            },
+            {
+                "label": "Vocabulary",
+                "value": scores.get('vocabulary', language_metrics["vocabulary"]["score"]),
+                "icon": "book",
+                "trend": "up" if language_metrics["vocabulary"]["diversity_score"] >= 45 else "down",
+                "change": language_metrics["vocabulary"]["diversity_score"] / 100
+            }
+        ]
+
+        print(f"Transformed metrics: {transformed_metrics}")  # Debug log
+
+        # Prepare analysis record
+        analysis_record = {
+            "student_id": request.student_id,
+            "module_id": request.module_id,
+            "attempt_id": request.attempt_id,
+            "session_id": request.session_id,
+            "speaking_pace": transformed_metrics[0]["value"],
+            "filler_words_score": transformed_metrics[2]["value"],
+            "clarity_score": transformed_metrics[1]["value"],
+            "vocabulary_score": transformed_metrics[3]["value"],
+            "grammar_score": scores.get('grammar', 70),
+            "pause_score": scores.get('pause_usage', speech_metrics["pauses"]["score"]),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        # Check if record exists for this module_id
+        existing = supabase.table("full_analysis_scores")\
+            .select("*")\
+            .eq("module_id", request.module_id)\
+            .execute()
+
+        if existing.data and len(existing.data) > 0:
+            # Update existing record
+            print(f"Updating analysis for module_id: {request.module_id}")
+            response = supabase.table("full_analysis_scores")\
+                .update(analysis_record)\
+                .eq("module_id", request.module_id)\
+                .execute()
+        else:
+            # Insert new record
+            print(f"Creating new analysis for module_id: {request.module_id}")
+            response = supabase.table("full_analysis_statistics")\
+                .insert(analysis_record)\
+                .execute()
+
+        # Return response with analysis results
+        return {
+            "success": True,
+            "metrics": transformed_metrics,
+            "analysis": {
+                "speech_delivery": speech_metrics,
+                "language_clarity": language_metrics
+            },
+            "improvement_suggestions": generate_improvement_suggestions(speech_metrics, language_metrics),
+            "operation": "updated" if existing.data else "created"
+        }
+
+    except Exception as e:
+        print(f"Error in full analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def generate_improvement_suggestions(speech_metrics: dict, language_metrics: dict) -> list:
+    """Generate specific improvement suggestions based on metrics"""
+    suggestions = []
+    
+    # Speaking pace suggestions
+    wpm = speech_metrics["speaking_pace"]["wpm"]
+    if wpm < 120:
+        suggestions.append({
+            "category": "Speaking Pace",
+            "suggestion": "Try to speak a bit faster while maintaining clarity."
+        })
+    elif wpm > 150:
+        suggestions.append({
+            "category": "Speaking Pace",
+            "suggestion": "Slow down slightly to improve understanding."
+        })
+    
+    # Filler words suggestions
+    if speech_metrics["filler_words"]["ratio"] > 5:
+        suggestions.append({
+            "category": "Filler Words",
+            "suggestion": f"Work on reducing filler words like: {', '.join(speech_metrics['filler_words']['instances'][:3])}"
+        })
+    
+    # Vocabulary suggestions
+    if language_metrics["vocabulary"]["diversity_score"] < 45:
+        suggestions.append({
+            "category": "Vocabulary",
+            "suggestion": "Try to use more varied vocabulary to enhance expression."
+        })
+    
+    # Clarity suggestions
+    if language_metrics["clarity"]["readability_score"] < 60:
+        suggestions.append({
+            "category": "Clarity",
+            "suggestion": "Use simpler sentences to improve clarity."
+        })
+    
+    return suggestions

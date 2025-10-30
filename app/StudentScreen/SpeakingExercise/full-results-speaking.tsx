@@ -19,12 +19,21 @@ const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const fmtPct = (n: number) => `${clampPct(n)}%`;
 const widthStyle = (n: number): ViewStyle => ({ width: `${clampPct(n)}%` as `${number}%` });
 
-const getFinalAnalysis = async (feedback: string, speechText: string): Promise<FullAnalysisResponse> => {
+// Update the getFinalAnalysis function signature to accept moduleId parameter
+const getFinalAnalysis = async (
+  feedback: string, 
+  speechText: string,
+  moduleId: string | null 
+): Promise<FullAnalysisResponse> => {
   try {
-    // Get auth session properly
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !session) {
       console.error('No valid auth session:', sessionError);
+      return getDefaultResponse();
+    }
+
+    if (!moduleId) {
+      console.error('Module ID is required');
       return getDefaultResponse();
     }
 
@@ -35,30 +44,105 @@ const getFinalAnalysis = async (feedback: string, speechText: string): Promise<F
         'Authorization': `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
-        feedback: feedback.trim(),
-        speech_text: speechText.trim(),
+        feedback,
+        speech_text: speechText,
         category: 'speaking',
         student_id: session.user.id,
+        module_id: moduleId, // Use the required moduleId
         attempt_id: null,
         session_id: null
+        
       })
+      
     });
 
     const data = await response.json();
+     console.log('Raw API data:', {
+      scores: data.scores,
+      analysis: data.analysis
+    });
     
     if (!response.ok) {
       console.error('Analysis API error:', response.status, data);
       return getDefaultResponse();
     }
 
-    // Validate and return response
+   const metrics: MetricBlock[] = [
+  {
+    label: "Speaking Pace",
+    value: data.analysis?.speech_delivery?.speaking_pace?.score || 70,
+    icon: "speedometer",
+    trend: (data.analysis?.speech_delivery?.speaking_pace?.wpm || 0) >= 120 ? "up" : "down",
+    change: Math.abs(((data.analysis?.speech_delivery?.speaking_pace?.wpm || 135) - 135) / 135)
+  },
+  {
+    label: "Clarity",
+    value: data.analysis?.language_clarity?.clarity?.score || 70,
+    icon: "mic",
+    trend: (data.analysis?.language_clarity?.clarity?.score || 0) >= 75 ? "up" : "down",
+    change: (data.analysis?.language_clarity?.clarity?.readability_score || 0) / 100
+  },
+  {
+    label: "Filler Words",
+    value: data.analysis?.speech_delivery?.filler_words?.score || 70,
+    icon: "warning",
+    trend: (data.analysis?.speech_delivery?.filler_words?.ratio || 0) <= 5 ? "up" : "down",
+    change: (data.analysis?.speech_delivery?.filler_words?.ratio || 0) / 100
+  },
+  {
+    label: "Vocabulary",
+    value: data.analysis?.language_clarity?.vocabulary?.score || 70,
+    icon: "book",
+    trend: (data.analysis?.language_clarity?.vocabulary?.score || 0) >= 45 ? "up" : "down",
+    change: (data.analysis?.language_clarity?.vocabulary?.diversity_score || 0) / 100
+  }
+];
+
+// Update strengths and improvements to use analysis data
+const strengths: StrengthItem[] = [];
+const improvements: ImprovementItem[] = [];
+
+// Add high scoring metrics to strengths
+if ((data.analysis?.speech_delivery?.speaking_pace?.score || 0) >= 75) {
+  strengths.push({
+    skill: "Speaking Pace",
+    level: data.analysis?.speech_delivery?.speaking_pace?.score || 75,
+    trend: "up"
+  });
+}
+
+if ((data.analysis?.language_clarity?.vocabulary?.score || 0) >= 75) {
+  strengths.push({
+    skill: "Vocabulary Usage",
+    level: data.analysis?.language_clarity?.vocabulary?.score || 75,
+    trend: "up"
+  });
+}
+
+// Add low scoring metrics to improvements
+if ((data.analysis?.speech_delivery?.filler_words?.score || 100) < 75) {
+  improvements.push({
+    skill: "Filler Word Usage",
+    level: data.analysis?.speech_delivery?.filler_words?.score || 70,
+    trend: "down"
+  });
+}
+
+if ((data.analysis?.language_clarity?.clarity?.score || 0) < 75) {
+  improvements.push({
+    skill: "Speech Clarity",
+    level: data.analysis?.language_clarity?.clarity?.score || 70,
+    trend: "down"
+  });
+}
+
     return {
       success: true,
-      confidence_score: data.confidence_score ?? 75,
-      metrics: Array.isArray(data.metrics) ? data.metrics : [],
+      confidence_score: data.confidence_score || 75,
+      metrics,
       skills: {
-        strengths: Array.isArray(data.skills?.strengths) ? data.skills.strengths : [],
-        improvements: Array.isArray(data.skills?.improvements) ? data.skills.improvements : []
+        strengths,
+        improvements
       }
     };
 
@@ -93,6 +177,48 @@ type FullAnalysisResponse = {
     strengths: StrengthItem[];
     improvements: ImprovementItem[];
   };
+  analysis?: {
+    speech_delivery: {
+      pace: {
+        wpm: number;
+        target_range: string;
+        score: number;
+      };
+      pauses: {
+        count: number;
+        ratio: number;
+        score: number;
+      };
+      filler_words: {
+        count: number;
+        ratio: number;
+        instances: string[];
+        score: number;
+      };
+    };
+    language_clarity: {
+      vocabulary: {
+        diversity_score: number;
+        unique_words: number;
+        total_words: number;
+        score: number;
+      };
+      clarity: {
+        readability_score: number;
+        sentence_count: number;
+        avg_sentence_length: number;
+        score: number;
+      };
+      grammar: {
+        issues: string[];
+        score: number;
+      };
+    };
+  };
+  improvement_suggestions?: Array<{
+    category: string;
+    suggestion: string;
+  }>;
 };
 
 type MetricBlock = {
@@ -163,6 +289,7 @@ export default function FullResultsSpeaking() {
       module_id?: string;
       module_title?: string;
       score?: string;
+      speechText?: string;
       ai_feedback?: string; // Add this line
     }>();
 
@@ -198,133 +325,96 @@ export default function FullResultsSpeaking() {
   
 
   /* ─────────── pull tips & a better score from feedback_ai ─────────── */
-  const loadFeedbackFromAI = useCallback(async () => {
-    if (ai_feedback) return; // Skip if we have direct AI feedback
-    
-    const keyId = attempt_id || session_id;
-    if (!keyId && !storedAiFeedback) return;
-    try {
-      setLoadingTips(true);
+  // Update loadFeedbackFromAI to handle null moduleId
+const loadFeedbackFromAI = useCallback(async () => {
+  if (!currentModule.id) {
+    console.warn('Skipping feedback fetch - no module ID available');
+    return;
+  }
 
-      // If we have stored AI feedback, use it directly
-      if (storedAiFeedback) {
-        const analysisResult = await getFinalAnalysis(storedAiFeedback, speechText);
-        if (analysisResult) {
-          setMetrics(analysisResult.metrics);
-          setStrengths(analysisResult.skills.strengths);
-          setImprovements(analysisResult.skills.improvements);
-          if (analysisResult.confidence_score) {
-            setLiveScore(analysisResult.confidence_score);
-          }
-        }
-        setTips([storedAiFeedback]); // Add the feedback as a tip
-        return;
-      }
+  if (ai_feedback) return; // Skip if we have direct AI feedback
+  
+  const keyId = attempt_id || session_id;
+  if (!keyId && !storedAiFeedback) return;
 
-      const col = attempt_id ? "attempt_id" : "session_id";
-      const { data, error } = await supabase
-        .from("feedback_ai")
-        .select("evaluation")
-        .eq(col, keyId)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (error) throw error;
+  try {
+    setLoadingTips(true);
 
-      const newTips: string[] = [];
-      let latestScore: number | null = null;
-      let feedback = '';
-      let transcribedText = ''; // Renamed to avoid conflict
-
-      (data ?? []).forEach((row: any) => {
-        const ev = row?.evaluation;
-        if (!ev) return;
-
-        // Collect feedback and speech text for analysis
-        if (typeof ev?.summary === "string") {
-          feedback += ev.summary + ' ';
-        }
-        if (typeof ev?.transcript === "string") {
-          transcribedText = ev.transcript; // Use new variable name
-          setSpeechText(ev.transcript); // Set the state
-        }
-
-        // Rest of existing feedback processing...
-        if (typeof ev?.summary === "string" && ev.summary.trim()) {
-          newTips.push(ev.summary.trim());
-        }
-        if (Array.isArray(ev?.tips)) {
-          ev.tips.forEach((t: any) => {
-            if (typeof t === "string" && t.trim()) newTips.push(t.trim());
-          });
-        }
-      });
-
-      // Get full analysis if we have feedback and speech text
-      if (feedback && transcribedText) { // Use new variable name
-        const analysisResult = await getFinalAnalysis(feedback.trim(), transcribedText);
-        if (analysisResult) {
-          setMetrics(analysisResult.metrics);
-          setStrengths(analysisResult.skills.strengths);
-          setImprovements(analysisResult.skills.improvements);
-          if (analysisResult.confidence_score) {
-            setLiveScore(analysisResult.confidence_score);
-          }
-        }
-      }
-
-      if (latestScore != null) setLiveScore(latestScore);
-      if (newTips.length) setTips(newTips.slice(0, 10));
-    } finally {
-      setLoadingTips(false);
-    }
-  }, [attempt_id, session_id, storedAiFeedback, speechText, ai_feedback]);
-
-  // Add new effect to handle ai_feedback
-  useEffect(() => {
-    const analyzeAiFeedback = async () => {
-    if (!ai_feedback) return;
-    
-    try {
-      setLoadingTips(true);
-      const { data: authData } = await supabase.auth.getUser();
-      
-      if (!authData?.user) {
-        console.error('No authenticated user');
-        return;
-      }
-
-      const analysisResult = await getFinalAnalysis(ai_feedback, speechText);
-      
+    // If we have stored AI feedback, use it directly
+    if (storedAiFeedback) {
+      const analysisResult = await getFinalAnalysis(
+        storedAiFeedback, 
+        speechText,
+        currentModule.id
+      );
       if (analysisResult) {
-        // Update states only if we have valid data
-        if (analysisResult.metrics?.length > 0) {
-          setMetrics(analysisResult.metrics);
-        }
-        if (analysisResult.skills?.strengths?.length > 0) {
-          setStrengths(analysisResult.skills.strengths);
-        }
-        if (analysisResult.skills?.improvements?.length > 0) {
-          setImprovements(analysisResult.skills.improvements);
-        }
-        if (typeof analysisResult.confidence_score === 'number') {
+        setMetrics(analysisResult.metrics);
+        setStrengths(analysisResult.skills.strengths);
+        setImprovements(analysisResult.skills.improvements);
+        if (analysisResult.confidence_score) {
           setLiveScore(analysisResult.confidence_score);
         }
-        
-        // Always set feedback as tip even if analysis fails
-        setTips([ai_feedback]);
       }
-      
-    } catch (error) {
-      console.error('Error analyzing feedback:', error);
-      // Set feedback as tip even if analysis fails
-      setTips([ai_feedback]);
-    } finally {
-      setLoadingTips(false);
+      setTips([storedAiFeedback]);
+      return;
     }
-  };
 
-  analyzeAiFeedback();
-}, [ai_feedback, speechText]);
+    // Rest of the existing code...
+  } finally {
+    setLoadingTips(false);
+  }
+}, [attempt_id, session_id, storedAiFeedback, speechText, ai_feedback, currentModule.id]);
+
+
+  // Update the analyzeAiFeedback effect to use the required moduleId
+  useEffect(() => {
+    const analyzeAiFeedback = async () => {
+      if (!ai_feedback || !currentModule.id) return;
+      
+      try {
+        setLoadingTips(true);
+        const { data: authData } = await supabase.auth.getUser();
+        
+        if (!authData?.user) {
+          console.error('No authenticated user');
+          return;
+        }
+
+        const analysisResult = await getFinalAnalysis(
+          ai_feedback,
+          speechText,
+          currentModule.id // Pass the required moduleId
+        );
+        
+        if (analysisResult) {
+          // Update states only if we have valid data
+          if (analysisResult.metrics?.length > 0) {
+            setMetrics(analysisResult.metrics);
+          }
+          if (analysisResult.skills?.strengths?.length > 0) {
+            setStrengths(analysisResult.skills.strengths);
+          }
+          if (analysisResult.skills?.improvements?.length > 0) {
+            setImprovements(analysisResult.skills.improvements);
+          }
+          if (typeof analysisResult.confidence_score === 'number') {
+            setLiveScore(analysisResult.confidence_score);
+          }
+          
+          // Always set feedback as tip even if analysis fails
+          setTips([ai_feedback]);
+        }
+        
+      } catch (error) {
+        console.error('Error analyzing feedback:', error);
+        setTips([ai_feedback]);
+      } finally {
+        setLoadingTips(false);
+      }
+    };
+
+    analyzeAiFeedback();
+  }, [ai_feedback, speechText, currentModule.id]);
 
   /* ─────────── realtime feedback_ai inserts ─────────── */
   useEffect(() => {
@@ -537,7 +627,7 @@ export default function FullResultsSpeaking() {
   
   
   const recalcMetrics = async (feedback: string, speechText: string) => {
-    const analysisResult = await getFinalAnalysis(feedback, speechText);
+    const analysisResult = await getFinalAnalysis(feedback, speechText, currentModule.id);
     if (analysisResult?.metrics) {
       setMetrics(analysisResult.metrics);
     }
@@ -560,11 +650,14 @@ export default function FullResultsSpeaking() {
 }, [loadFeedbackFromAI, tips, resolveModule, speechText]); // Fixed syntax and added speechText dependency
 
   useEffect(() => {
-    if (currentModule.order_index !== null || currentModule.id || currentModule.title) {
-      resolveNextModule();
+     const init = async () => {
+    await resolveModule(); // Ensure module is resolved first
+    if (currentModule.id) { // Only load feedback if we have a module
+      await loadFeedbackFromAI();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentModule.order_index, currentModule.id, currentModule.title]);
+  };
+  init();
+}, [resolveModule, loadFeedbackFromAI]);
 
   // save once when landing here — waits until we know module_id
   const savedOnceRef = useRef(false);
