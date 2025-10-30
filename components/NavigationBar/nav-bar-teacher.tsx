@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, TouchableOpacity, Platform } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 
@@ -16,19 +16,22 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
       icon: "stats-chart-outline",
       label: "Dashboard",
       route: "/TeacherScreen/TeacherDashboard/teacher-dashboard",
-      onPress: () => router.replace("/TeacherScreen/TeacherDashboard/teacher-dashboard"),
+      onPress: () =>
+        router.replace("/TeacherScreen/TeacherDashboard/teacher-dashboard"),
     },
     {
       icon: "people-outline",
-      label: "Community",
-      route: "/TeacherScreen/TeacherCommunity/teacher-community-selection",
-      onPress: () => router.replace("/TeacherScreen/TeacherCommunity/teacher-community-selection"),
+      label: "Classes",
+      route: "/TeacherScreen/TeacherClasses/teacher-classes",
+      onPress: () =>
+        router.replace("/TeacherScreen/TeacherClasses/teacher-classes"),
     },
     {
       icon: "mic-circle-outline",
       label: "Live Session",
       route: "/TeacherScreen/TeacherLiveSession/teacher-live-sessions",
-      onPress: () => router.replace("/TeacherScreen/TeacherLiveSession/teacher-live-sessions"),
+      onPress: () =>
+        router.replace("/TeacherScreen/TeacherLiveSession/teacher-live-sessions"),
     },
   ];
 
@@ -46,8 +49,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
           backgroundColor: "rgba(15,23,42,0.95)",
           borderTopLeftRadius: 24,
           borderTopRightRadius: 24,
-          zIndex: 999,                  // iOS layering
-          elevation: 20,                // Android layering
+          zIndex: 999,
+          elevation: 20,
           shadowColor: "#000",
           shadowOpacity: 0.25,
           shadowRadius: 8,
@@ -95,10 +98,10 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
                     activeStyle.borderRadius = 16;
                     activeStyle.minWidth = 64;
                     break;
-                  case "Community":
-                    activeStyle.paddingHorizontal = 2;
+                  case "Classes":
+                    activeStyle.paddingHorizontal = 8;
                     activeStyle.borderRadius = 14;
-                    activeStyle.minWidth = 20;
+                    activeStyle.minWidth = 50;
                     break;
                   case "Live Session":
                     activeStyle.paddingHorizontal = 7;

@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 
 // ──────────────────────────────────────
 // Table names in your project
-const CLASS_CODE_TABLE = 'class_codes';
+const CLASSES_TABLE = 'classes';
 const JOIN_TABLE = 'class_join_requests';
 const PROFILE_TABLE = 'profiles';
 // ──────────────────────────────────────
@@ -202,10 +202,13 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
   const dropdownAnim = useRef(new Animated.Value(0)).current;
 
   // pending watcher state
-  const [pending, setPending] = useState<{ open: boolean; teacherId: string | null; code: string | null }>({
+  const [pending, setPending] = useState<{ open: boolean; teacherId: string | null; code: string | null; classId?: string | null; gradeLevel?: GradeLevel; strand?: 'STEM'|'ABM'|'GAS'|'HUMSS'|'TVL'; }>({
     open: false,
     teacherId: null,
     code: null,
+    classId: null,
+    gradeLevel: undefined,
+    strand: undefined,
   });
 
   const normalizedStrand = strand === 'HUMMS' ? 'HUMSS' : strand;
@@ -235,7 +238,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       // latest pending for this student (any teacher/code), if any
       const { data: pendingRow, error } = await supabase
         .from(JOIN_TABLE)
-        .select('teacher_id, code_entered, status')
+        .select('teacher_id, code_entered, status, class_id, grade_level, strand')
         .eq('student_id', studentId)
         .eq('status', 'pending')
         .order('requested_at', { ascending: false })
@@ -251,6 +254,9 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
           open: true,
           teacherId: pendingRow.teacher_id as string,
           code: pendingRow.code_entered as string,
+          classId: pendingRow.class_id as string,
+          gradeLevel: (pendingRow.grade_level as GradeLevel) ?? undefined,
+          strand: ((pendingRow.strand === 'HUMMS' ? 'HUMSS' : pendingRow.strand) as any) ?? undefined,
         });
       }
     })();
@@ -318,30 +324,30 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       }
       const studentId = auth.user.id;
 
-      // 1) resolve teacher by code
-      const { data: codeRow, error: codeErr } = await supabase
-        .from(CLASS_CODE_TABLE)
-        .select('teacher_id, code')
-        .eq('code', code)
+      // 1) resolve class by code (from classes)
+      const { data: klass, error: classErr } = await supabase
+        .from(CLASSES_TABLE)
+        .select('id, teacher_id, class_code')
+        .eq('class_code', code)
         .maybeSingle();
 
-      if (codeErr) {
+      if (classErr) {
         Alert.alert('Error', 'Could not verify class code.');
         return;
       }
-      if (!codeRow?.teacher_id) {
+      if (!klass?.teacher_id) {
         Alert.alert('Invalid code', 'No class was found for that code.');
         return;
       }
-      const teacherId = codeRow.teacher_id as string;
+      const teacherId = klass.teacher_id as string;
+      const classId = klass.id as string;
 
       // 2) check the LATEST request (so "removed/denied" students can re-join)
       const { data: lastReq, error: lastErr } = await supabase
         .from(JOIN_TABLE)
-        .select('id,status,code_entered')
-        .eq('teacher_id', teacherId)
+        .select('id,status,code_entered,class_id')
         .eq('student_id', studentId)
-        .eq('code_entered', code)
+        .eq('class_id', classId)
         .order('requested_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -353,7 +359,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
 
       if (lastReq?.status === 'pending') {
         // open watcher instead of blocking; DO NOT mark joined
-        setPending({ open: true, teacherId, code });
+        setPending({ open: true, teacherId, code, classId, gradeLevel, strand: canonicalStrand });
         resetForm();
         onClose();
         return;
@@ -365,16 +371,19 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       }
 
       // 3) insert NEW pending request when status is 'denied' (or no record)
-      const { error: insErr } = await supabase
+      const { data: inserted, error: insErr } = await supabase
         .from(JOIN_TABLE)
         .insert({
+          class_id: classId,
           teacher_id: teacherId,
           student_id: studentId,
           grade_level: gradeLevel,
           strand: normalizedStrand,
           code_entered: code,
           status: 'pending',
-        });
+        })
+        .select('id')
+        .maybeSingle();
 
       if (insErr) {
         Alert.alert('Error', insErr.message || 'Could not send join request.');
@@ -384,7 +393,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       // DO NOT call onJoinClass here (no state change yet).
       resetForm();
       onClose();
-      setPending({ open: true, teacherId, code });
+      setPending({ open: true, teacherId, code, classId, gradeLevel, strand: canonicalStrand });
     } finally {
       setIsSubmitting(false);
     }
@@ -539,16 +548,16 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
         visible={pending.open}
         teacherId={pending.teacherId}
         code={pending.code}
-        onClose={() => setPending({ open: false, teacherId: null, code: null })}
+        onClose={() => setPending({ open: false, teacherId: null, code: null, classId: null, gradeLevel: undefined, strand: undefined })}
         onApproved={(approvedCode) => {
-          setPending({ open: false, teacherId: null, code: null });
+          setPending({ open: false, teacherId: null, code: null, classId: null, gradeLevel: undefined, strand: undefined });
 
           // NOW tell the parent and navigate.
           if (onJoinClass) {
             onJoinClass({
               classCode: approvedCode,
-              gradeLevel: gradeLevel || '',
-              strand: (strand === 'HUMMS' ? 'HUMSS' : strand) || '',
+              gradeLevel: (pending.gradeLevel ?? gradeLevel) || '',
+              strand: ((pending.strand ?? (strand === 'HUMMS' ? 'HUMSS' : strand)) as any) || '',
             });
           }
 

@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 // keep your dynamic import pattern
-const { useNavigation } = require("@react-navigation/native");
+const { useNavigation, useRoute } = require("@react-navigation/native");
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabaseClient";
@@ -43,6 +43,7 @@ type JoinRequestRow = {
   code_entered: string | null;
   status: string; // pending | approved | rejected
   requested_at: string | null;
+  class_id?: string | null;              // ⬅️ NEW: support per-class requests
 };
 
 type ProfileRow = {
@@ -186,6 +187,14 @@ const StudentCard = ({
    ────────────────────────────────────────────────────────────────────────── */
 export default function StudentApprovalScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const classIdParam: string | null = (route?.params as any)?.classId ?? null;
+
+  // keep a ref so callbacks can read without calling hooks
+  const classIdRef = useRef<string | null>(classIdParam);
+  useEffect(() => {
+    classIdRef.current = classIdParam;
+  }, [classIdParam]);
 
   // UI state
   const [selectedStudents, setSelectedStudents] =
@@ -275,7 +284,7 @@ export default function StudentApprovalScreen() {
         } = await supabase
           .from(JOIN_TABLE)
           .select(
-            "id, teacher_id, student_id, grade_level, strand, code_entered, status, requested_at"
+            "id, teacher_id, student_id, grade_level, strand, code_entered, status, requested_at, class_id" // ⬅️ include class_id
           )
           .eq("teacher_id", teacherId)
           .eq("status", "pending")
@@ -285,13 +294,19 @@ export default function StudentApprovalScreen() {
 
         if (reqErr) throw reqErr;
 
-        const rows =
+        let rows =
           (reqs || []) as JoinRequestRow[];
 
         requestByIdRef.current =
           Object.fromEntries(
             rows.map((r) => [r.id, r])
           );
+
+        // Optional per-class narrowing using ref (no hooks here)
+        const cid = classIdRef.current;
+        if (cid) {
+          rows = rows.filter(r => r.class_id === cid);
+        }
 
         if (rows.length === 0) {
           setStudents([]);
@@ -365,7 +380,15 @@ export default function StudentApprovalScreen() {
           table: JOIN_TABLE,
           filter: `teacher_id=eq.${teacherId}`,
         },
-        () => fetchPending()
+        (payload) => {
+          // Guard when opened for specific classId (use ref, no hooks)
+          const cid = classIdRef.current;
+          if (cid) {
+            const row: any = payload?.new ?? payload?.old ?? {};
+            if (row?.class_id && row.class_id !== cid) return;
+          }
+          fetchPending();
+        }
       )
       .subscribe();
 
@@ -430,7 +453,31 @@ export default function StudentApprovalScreen() {
           ];
         if (!req) continue;
 
-        // 1) insert/merge into teacher_students
+        // 1) enroll into the specific class when available (idempotent via unique (class_id, student_id))
+        if (req.class_id) {
+          try {
+            await supabase
+              .from(
+                "class_enrollments"
+              )
+              .upsert(
+                {
+                  class_id:
+                    req.class_id,
+                  student_id:
+                    req.student_id,
+                  // role: "student",  // defaults
+                  // status: "active", // defaults
+                },
+                {
+                  onConflict:
+                    "class_id,student_id",
+                } as any
+              );
+          } catch {}
+        }
+
+        // 2) insert/merge into teacher_students (kept for compatibility; your DB triggers also handle this)
         try {
           await supabase
             .from(
@@ -455,7 +502,7 @@ export default function StudentApprovalScreen() {
             );
         } catch {}
 
-        // 2) mark join request as approved
+        // 3) mark join request as approved
         try {
           await supabase
             .from(
