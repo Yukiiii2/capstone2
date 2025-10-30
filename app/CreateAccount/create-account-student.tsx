@@ -26,6 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "@/lib/supabaseClient";
+import { title } from "process";
 
 // ---------- helpers ----------
 const showCustomAlert = (title: string, message: string) => {
@@ -38,6 +39,30 @@ const showCustomAlert = (title: string, message: string) => {
 const { width } = Dimensions.get("window");
 
 // Keep your original student options
+// Add near the top with other constants
+const TERMS_AND_CONDITIONS = [
+  {
+    title: "User Agreement",
+    content: "By using Voclaria, you agree to use the app properly and for learning purposes only. This app helps you improve your public speaking skills. Please use it respectfully and responsibly."
+  },
+  {
+    title: "Privacy Policy", 
+    content: "Voclaria may collect your voice, video, and facial expressions during speaking sessions. This information helps the AI give feedback on your performance. Your data will not be shared with anyone outside the development team and will be stored safely and securely."
+  },
+  {
+    title: "Code of Conduct",
+    content: "Use the app with respect. Do not record or say anything inappropriate or harmful. Voclaria is a space to learn confidently and positively."
+  },
+  {
+    title: "Data Usage",
+    content: "The app uses your camera and microphone to analyze your tone, expressions, and delivery. This helps the AI assess your speaking skills. All recordings are kept private and used only for educational purposes. You may disable the camera anytime, but some features may not work."
+  },
+  {
+    title: "Data Protection & Security",
+    content: "Voclaria follows the Republic Act No. 10173 – Data Privacy Act of 2012 of the Philippines. This means your personal data is protected by law. All information collected is encrypted, stored safely, and processed according to strict privacy standards to prevent misuse or unauthorized access."
+  }
+
+];
 const VERIFICATION_OPTIONS = [
   {
     id: "studentCard",
@@ -95,6 +120,8 @@ export default function CreateAccountStudent() {
   const [showVerificationDropdown, setShowVerificationDropdown] =
     useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  // Add with other state declarations
+  const [termsAgreed, setTermsAgreed] = useState(false);
 
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -102,6 +129,7 @@ export default function CreateAccountStudent() {
   // 👇 visibility toggles
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
+  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const router = useRouter();
@@ -218,34 +246,59 @@ export default function CreateAccountStudent() {
     verificationFile !== null;
 
   const isFormComplete = () => {
-    const requiredFields: (keyof FormData)[] = [
-      "firstName",
-      "lastName",
-      "mobileNumber",
-      "email",
-      "password",
-      "confirmPassword",
-    ];
-    const isBasicInfoValid = requiredFields.every((f) => formData[f]?.trim());
-    const isPasswordValid =
-      formData.password === formData.confirmPassword &&
-      formData.password.length >= 8;
-    const isVerificationValid =
-      activeStep !== 1 || (!!selectedVerificationType && !!verificationFile);
-    return isBasicInfoValid && isPasswordValid && isVerificationValid;
-  };
+  const requiredFields: (keyof FormData)[] = [
+    "firstName",
+    "lastName",
+    "mobileNumber", 
+    "email",
+    "password",
+    "confirmPassword"
+  ];
+  const isBasicInfoValid = requiredFields.every((f) => formData[f]?.trim());
+  const isPasswordValid = 
+    formData.password === formData.confirmPassword && 
+    formData.password.length >= 8;
+  const isVerificationValid = 
+    activeStep !== 1 || (!!selectedVerificationType && !!verificationFile);
+  const isTermsValid =
+    activeStep !== 2 || termsAgreed;
+  return isBasicInfoValid && isPasswordValid && isVerificationValid && isTermsValid;
+};
+const handleScroll = (event: any) => {
+  const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+  const paddingToBottom = 20; // Adjust this value as needed
+  const isScrolledToBottom = 
+    layoutMeasurement.height + contentOffset.y >= 
+    contentSize.height - paddingToBottom;
+  
+  if (isScrolledToBottom) {
+    setHasScrolledToBottom(true);
+  }
+};
 
   const handleNext = () => {
-    if (activeStep === 0 && !validateStep(0)) return;
-    if (activeStep === 1) {
-      setHasSubmitted(true);
-      if (!isFormValid()) return;
+  if (activeStep === 0 && !validateStep(0)) return;
+  
+  if (activeStep === 1) {
+    setHasSubmitted(true);
+    if (!isFormValid()) return;
+  }
+
+  if (activeStep === 2) {
+    if (!termsAgreed) {
+      showCustomAlert(
+        "Terms Required",
+        "Please accept the terms and conditions to continue"
+      );
+      return;
     }
-    if (activeStep < 2) {
-      setActiveStep(activeStep + 1);
-      scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
-    }
-  };
+  }
+
+  if (activeStep < 3) {
+    setActiveStep(activeStep + 1);
+    scrollViewRef.current?.scrollTo({ x: 0, y: 0, animated: true });
+  }
+};
 
   const handleBack = () => {
     if (activeStep > 0) {
@@ -309,98 +362,99 @@ export default function CreateAccountStudent() {
   };
 
   // ---------- SIGN UP with Supabase (tweaked to avoid "Email not confirmed") ----------
-  const handleSignUp = async () => {
-    if (!isFormComplete()) {
-      showCustomAlert(
-        "Missing Information",
-        "Please fill out all required fields and upload the required document"
-      );
+  // Update the handleSignUp function to handle the terms step correctly
+const handleSignUp = async () => {
+  // If not at terms step or terms not agreed, don't proceed
+  if (activeStep !== 2 || !termsAgreed) {
+    return;
+  }
+
+  if (!isFormComplete()) {
+    showCustomAlert(
+      "Missing Information",
+      "Please fill out all required fields and upload the required document"
+    );
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const full_name = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
+
+    // Normalize phone to E.164 +63xxxxxxxxxx
+    const cleaned = formData.mobileNumber.replace(/\D/g, "");
+    const noZero = cleaned.replace(/^0+/, "");
+    const phoneE164 = `+63${noZero.startsWith("63") ? noZero.slice(2) : noZero}`;
+
+    // 1) create auth user with email+password and put phone in user_metadata
+    const { data: sign, error: signErr } = await supabase.auth.signUp({
+      email: formData.email.trim(),
+      password: formData.password,
+      options: {
+        data: {
+          full_name,
+          phone_number: phoneE164,
+          role: "student",
+          verification_type: selectedVerificationType,
+        },
+      },
+    });
+    if (signErr) {
+      showCustomAlert("Sign up failed", signErr.message);
       return;
     }
 
-    setLoading(true);
-    try {
-      const full_name = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
-
-      // Normalize phone to E.164 +63xxxxxxxxxx
-      const cleaned = formData.mobileNumber.replace(/\D/g, "");
-      const noZero = cleaned.replace(/^0+/, "");
-      const phoneE164 = `+63${noZero.startsWith("63") ? noZero.slice(2) : noZero}`;
-
-      // 1) create auth user with email+password and put phone in user_metadata
-      const { data: sign, error: signErr } = await supabase.auth.signUp({
-        email: formData.email.trim(),
-        password: formData.password,
-        options: {
-          data: {
-            full_name,
-            phone_number: phoneE164,
-            role: "student",
-            verification_type: selectedVerificationType,
-          },
-          // emailRedirectTo: 'yourapp://auth-callback', // optional deep link
-        },
-      });
-      if (signErr) {
-        showCustomAlert("Sign up failed", signErr.message);
-        setLoading(false);
-        return;
-      }
-
-      // If email confirmations are ON, there will be NO session yet.
-      if (!sign.session) {
-        setActiveStep(2);
-        setLoading(false);
-        return;
-      }
-
-      // 2) we DO have a session (email confirmations OFF) → continue as before
-      const userId = sign.session.user.id;
-
-      // 3) TEMP: skip uploading to Supabase Storage (still proceed normally)
-      const verification_path = null;
-
-      // 4) upsert into profiles (RLS expects id = auth.uid())
-      const { error: profErr } = await supabase.from("profiles").upsert({
-        id: userId,
-        name: full_name,
-        phone: phoneE164,
-        role: "student",
-        verification_type: selectedVerificationType,
-        verification_path: verification_path ?? null,
-        avatar_url: null,
-      });
-      if (profErr) {
-        showCustomAlert("Profile save failed", profErr.message);
-        setLoading(false);
-        return;
-      }
-
-      // 5) create verification_requests row
-      const { error: vrErr } = await supabase
-        .from("verification_requests")
-        .insert({
-          user_id: userId,
-          role: "student",
-          doc_type: selectedVerificationType,
-          doc_url: verification_path,
-          status: "pending",
-          notes: null,
-        });
-      if (vrErr) {
-        showCustomAlert("Verification save failed", vrErr.message);
-        setLoading(false);
-        return;
-      }
-
-      // success — go to complete step
-      setActiveStep(2);
-    } catch (err: any) {
-      showCustomAlert("Error", err.message || "Something went wrong.");
-    } finally {
-      setLoading(false);
+    // If email confirmations are ON, there will be NO session yet.
+    if (!sign.session) {
+      setActiveStep(3); // Move to completion step
+      return;
     }
-  };
+
+    // 2) we DO have a session (email confirmations OFF) → continue as before
+    const userId = sign.session.user.id;
+
+    // 3) TEMP: skip uploading to Supabase Storage (still proceed normally)
+    const verification_path = null;
+
+    // 4) upsert into profiles (RLS expects id = auth.uid())
+    const { error: profErr } = await supabase.from("profiles").upsert({
+      id: userId,
+      name: full_name,
+      phone: phoneE164,
+      role: "student",
+      verification_type: selectedVerificationType,
+      verification_path: verification_path ?? null,
+      avatar_url: null,
+    });
+    if (profErr) {
+      showCustomAlert("Profile save failed", profErr.message);
+      return;
+    }
+
+    // 5) create verification_requests row
+    const { error: vrErr } = await supabase
+      .from("verification_requests")
+      .insert({
+        user_id: userId,
+        role: "student",
+        doc_type: selectedVerificationType,
+        doc_url: verification_path,
+        status: "pending",
+        notes: null,
+      });
+    if (vrErr) {
+      showCustomAlert("Verification save failed", vrErr.message);
+      return;
+    }
+
+    // success — go to complete step
+    setActiveStep(3);
+  } catch (err: any) {
+    showCustomAlert("Error", err.message || "Something went wrong.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   // resend confirmation email (wired to your "Resend Email" button)
   const handleResendEmail = async () => {
@@ -420,43 +474,53 @@ export default function CreateAccountStudent() {
 
   // ---------- UI (unchanged) ----------
   const renderProgressBar = () => (
-    <View className="flex-row justify-center items-center mb-8">
-      <View className="flex-row items-center">
-        <View
-          className={`h-1 w-24 ${activeStep >= 0 ? "bg-violet-600" : "bg-white/20"}`}
-        />
-        <View
-          className={`h-1 w-24 ${activeStep >= 1 ? "bg-violet-600" : "bg-white/20"}`}
-        />
-        <View
-          className={`h-1 w-24 ${activeStep >= 2 ? "bg-violet-600" : "bg-white/20"}`}
-        />
+  <View className="flex-row justify-center items-center mb-8">
+    <View className="flex-row items-center">
+      <View
+        className={`h-1 w-20 ${activeStep >= 0 ? "bg-violet-600" : "bg-white/20"}`}
+      />
+      <View 
+        className={`h-1 w-20 ${activeStep >= 1 ? "bg-violet-600" : "bg-white/20"}`}
+      />
+      <View
+        className={`h-1 w-20 ${activeStep >= 2 ? "bg-violet-600" : "bg-white/20"}`}
+      />
+      <View
+        className={`h-1 w-20 ${activeStep >= 3 ? "bg-violet-600" : "bg-white/20"}`}
+      />
+    </View>
+    <View className="absolute flex-row justify-between w-full px-2">
+      <View className="items-center w-20">
+        <Text
+          className={`text-xs top-3 mt-2 ${activeStep >= 0 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+        >
+          ACCOUNT
+        </Text>
       </View>
-      <View className="absolute flex-row justify-between w-full px-2">
-        <View className="items-center w-24">
-          <Text
-            className={`text-xs top-3 mt-2 ${activeStep >= 0 ? "text-violet-400 font-medium" : "text-gray-400"}`}
-          >
-            ACCOUNT
-          </Text>
-        </View>
-        <View className="items-center w-24">
-          <Text
-            className={`text-xs top-3 mt-2 ${activeStep >= 1 ? "text-violet-400 font-medium" : "text-gray-400"}`}
-          >
-            VERIFY STUDENT
-          </Text>
-        </View>
-        <View className="items-center w-24">
-          <Text
-            className={`text-xs top-3 mt-2 ${activeStep >= 2 ? "text-violet-400 font-medium" : "text-gray-400"}`}
-          >
-            COMPLETE
-          </Text>
-        </View>
+      <View className="items-center w-20">
+        <Text
+          className={`text-xs top-3 mt-2 ${activeStep >= 1 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+        >
+          VERIFY
+        </Text>
+      </View>
+      <View className="items-center w-20">
+        <Text
+          className={`text-xs top-3 mt-2 ${activeStep >= 2 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+        >
+          TERMS
+        </Text>
+      </View>
+      <View className="items-center w-20">
+        <Text
+          className={`text-xs top-3 mt-2 ${activeStep >= 3 ? "text-violet-400 font-medium" : "text-gray-400"}`}
+        >
+          COMPLETE
+        </Text>
       </View>
     </View>
-  );
+  </View>
+);
 
   const renderFormStep = () => {
     switch (activeStep) {
@@ -898,8 +962,118 @@ export default function CreateAccountStudent() {
             </View>
           </Animated.View>
         );
+       case 2:
+  return (
+    <Animated.View
+      style={[
+        {
+          opacity: fadeAnim,
+          backgroundColor: "rgba(30, 41, 59, 0.7)",
+          borderRadius: 20,
+          padding: 14,
+          marginTop: -10,
+          marginBottom: 15,
+          borderWidth: 1,
+          borderColor: "rgba(255, 255, 255, 0.1)",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 10,
+        },
+      ]}
+      className="space-y-6"
+    >
+      <View className="items-center">
+        <Text className="text-white text-2xl font-bold mb-1">
+          Terms & Conditions
+        </Text>
+        <Text className="text-gray-400 text-center text-sm mb-4">
+          Step 3 of 4: Review and accept terms
+        </Text>
+        {renderProgressBar()}
+      </View>
 
-      case 2:
+      <ScrollView 
+        className="bg-white/5 rounded-lg p-4"
+        style={{ maxHeight: 300 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={400}
+      >
+        {TERMS_AND_CONDITIONS.map((section, index) => (
+          <View key={index} className="mb-4">
+            <Text className="text-white font-semibold mb-2">
+              {section.title}
+            </Text>
+            <Text className="text-gray-300 text-sm">
+              {section.content}
+            </Text>
+          </View>
+        ))}
+        
+        {!hasScrolledToBottom && (
+          <View className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#1e293b] to-transparent" />
+        )}
+      </ScrollView>
+
+      <View className="flex-row items-center space-x-3 px-2">
+        <TouchableOpacity
+          onPress={() => hasScrolledToBottom && setTermsAgreed(!termsAgreed)}
+          className={`p-2 -ml-2 ${!hasScrolledToBottom ? 'opacity-50' : ''}`}
+          disabled={!hasScrolledToBottom}
+        >
+          <Ionicons
+            name={termsAgreed ? "checkbox" : "square-outline"}
+            size={24}
+            color={termsAgreed ? "#A78BFA" : "#9CA3AF"}
+          />
+        </TouchableOpacity>
+        <Text className={`text-gray-300 flex-1 ${!hasScrolledToBottom ? 'opacity-50' : ''}`}>
+          I agree to the Terms & Conditions and Privacy Policy
+        </Text>
+      </View>
+
+      {!hasScrolledToBottom && (
+        <Text className="text-gray-400 text-sm text-center">
+          Please scroll to the bottom to accept the terms
+        </Text>
+      )}
+
+      <View className="flex-row space-x-3 mt-4">
+        <TouchableOpacity
+          className="flex-1 py-3 rounded-lg items-center justify-center bg-white/10 border border-white/20 active:bg-white/20"
+          onPress={handleBack}
+        >
+          <Text className="text-white font-medium text-base">
+            Previous
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className={`flex-1 py-3 rounded-lg items-center justify-center ${
+            termsAgreed && hasScrolledToBottom
+              ? "bg-violet-600/80 active:bg-violet-700/80" 
+              : "bg-gray-600/50"
+          }`}
+          onPress={() => {
+            if (termsAgreed && hasScrolledToBottom) {
+              handleSignUp();
+            }
+          }}
+          disabled={!termsAgreed || !hasScrolledToBottom || loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text className="text-white font-semibold text-base">
+              Accept & Continue
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+
+      case 3:
         return (
           <Animated.View
             style={{ opacity: fadeAnim }}
@@ -1116,14 +1290,14 @@ export default function CreateAccountStudent() {
                     : "bg-gray-600/50"
                 }`}
                 style={{ zIndex: 1 }}
-                onPress={handleSignUp}
+                onPress={handleNext}
                 disabled={!isFormComplete() || loading}
               >
                 {loading ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text className="text-white font-semibold text-base">
-                    Submit Application
+                    Next 
                   </Text>
                 )}
               </TouchableOpacity>
