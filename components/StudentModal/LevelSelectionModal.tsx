@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import {
   Animated,
@@ -14,6 +14,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import { supabase } from "@/lib/supabaseClient"; // ← NEW
 
 const { width } = Dimensions.get("window");
 
@@ -22,17 +23,60 @@ type LevelSelectionModalProps = {
   onDismiss: () => void;
   onSelectLevel: (level: "Basic" | "Advanced") => void;
   title?: string; // Optional title prop
+  // Optional override: if provided, this decides visibility of the class option.
+  // If omitted, we auto-detect by checking class_enrollments for the current user.
+  isInClass?: boolean;
 };
 
 export const LevelSelectionModal: React.FC<LevelSelectionModalProps> = ({
   visible,
   onDismiss,
   onSelectLevel,
+  isInClass,
 }) => {
   const router = useRouter();
   const slideAnim = useRef(new Animated.Value(300)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pan = useRef(new Animated.ValueXY()).current;
+
+  // ← NEW: internal state that controls the class option visibility
+  const [showClassOption, setShowClassOption] = useState<boolean>(false);
+
+  // ← NEW: when visible, decide if class option should show
+  useEffect(() => {
+    let cancelled = false;
+
+    const decide = async () => {
+      // If parent explicitly told us, use it.
+      if (typeof isInClass === "boolean") {
+        if (!cancelled) setShowClassOption(isInClass);
+        return;
+      }
+      // Otherwise, auto-detect based on enrollments
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth?.user?.id;
+        if (!uid) {
+          if (!cancelled) setShowClassOption(false);
+          return;
+        }
+        const { data, error } = await supabase
+          .from("class_enrollments")
+          .select("id")
+          .eq("student_id", uid)
+          .eq("status", "active")
+          .limit(1);
+        if (!cancelled) setShowClassOption(!!data && data.length > 0 && !error);
+      } catch {
+        if (!cancelled) setShowClassOption(false);
+      }
+    };
+
+    if (visible) decide();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, isInClass]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -121,6 +165,25 @@ export const LevelSelectionModal: React.FC<LevelSelectionModalProps> = ({
       } else if (level === "Advanced") {
         router.push("/StudentScreen/ReadingExercise/advance-execise-reading");
       }
+    });
+  };
+
+  // third option
+  const handleOpenFromClass = () => {
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: 300,
+        useNativeDriver: false,
+        bounciness: 0,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
+      // Default route; change if your path differs
+      router.push("/StudentScreen/ReadingExercise/class-module");
     });
   };
 
@@ -235,6 +298,34 @@ export const LevelSelectionModal: React.FC<LevelSelectionModalProps> = ({
                     />
                   </View>
                 </TouchableOpacity>
+
+                {/* From Class Module (visible only if joined a class) */}
+                {showClassOption && (
+                  <TouchableOpacity
+                    className="bg-white/5 border border-white/10 rounded-xl p-4 flex-row items-center active:bg-white/10 shadow"
+                    onPress={handleOpenFromClass}
+                    activeOpacity={0.9}
+                  >
+                    <View className="w-12 h-12 rounded-2xl bg-white/10 items-center justify-center mr-4">
+                      <Ionicons name="book-outline" size={22} color="#FFFFFF" />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white font-semibold text-base">
+                        From Class Module
+                      </Text>
+                      <Text className="text-gray-300 text-xs">
+                        Open modules from your class
+                      </Text>
+                    </View>
+                    <View className="w-8 h-8 rounded-full bg-white/10 items-center justify-center">
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color="#FFFFFF"
+                      />
+                    </View>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <TouchableOpacity
