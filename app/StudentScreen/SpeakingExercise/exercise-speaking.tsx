@@ -64,6 +64,10 @@ const SpeakingHome = () => {
   const [basicProgress, setBasicProgress] = useState<number>(0);    // 0..1
   const [advancedProgress, setAdvancedProgress] = useState<number>(0); // 0..1
 
+  // NEW: enrolled class modules for this student (SPEAKING only)
+  const [classModules, setClassModules] = useState<ModuleType[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
   const initials = useMemo(() => {
     const base = (fullName || email || "U").trim();
     const parts = base.split(/\s+/);
@@ -81,6 +85,7 @@ const SpeakingHome = () => {
       if (!user || !mounted) return;
 
       setEmail(user.email ?? "");
+      setMyUserId(user.id); // NEW: cache user id
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -194,6 +199,136 @@ const SpeakingHome = () => {
     }, [])
   );
 
+  // ===== NEW: Load SPEAKING class modules for the student's active enrollments =====
+  const loadAssignedClassModules = React.useCallback(async () => {
+    if (!myUserId) {
+      setClassModules([]);
+      return;
+    }
+
+    // 1) student’s active enrollments → class_ids
+    const { data: enr, error: enrErr } = await supabase
+      .from("class_enrollments")
+      .select("class_id, status")
+      .eq("student_id", myUserId)
+      .eq("status", "active");
+
+    if (enrErr || !Array.isArray(enr) || enr.length === 0) {
+      setClassModules([]);
+      return;
+    }
+
+    const classIds = Array.from(new Set(enr.map((e: any) => e.class_id).filter(Boolean)));
+    if (classIds.length === 0) {
+      setClassModules([]);
+      return;
+    }
+
+    // 2) fetch SPEAKING modules from these classes
+    const { data: mods, error: modsErr } = await supabase
+      .from("class_modules")
+      .select("id, class_id, title, body, resource_url, module_type, due_at")
+      .in("class_id", classIds)
+      .eq("module_type", "SPEAKING")
+      .order("created_at", { ascending: false });
+
+    if (modsErr || !Array.isArray(mods) || mods.length === 0) {
+      setClassModules([]);
+      return;
+    }
+
+    const moduleIds = mods.map((m: any) => m.id);
+
+    // 3) per-module progress for this student
+    const { data: prog, error: progErr } = await supabase
+      .from("student_progress")
+      .select("module_id, progress")
+      .eq("student_id", myUserId)
+      .in("module_id", moduleIds);
+
+    const progressMap = new Map<string, number>();
+    if (!progErr && Array.isArray(prog)) {
+      for (const row of prog) {
+        const pct = Math.max(0, Math.min(100, Number(row.progress ?? 0)));
+        progressMap.set(String(row.module_id), pct / 100);
+      }
+    }
+
+    // 4) map to ModuleCard shape (desc from body/resource_url)
+    const mapped: ModuleType[] = (mods as any[]).map((m) => {
+      const raw = (m.body ?? "").toString().trim();
+      const short = raw ? raw.replace(/\s+/g, " ").slice(0, 160) : "";
+      const desc = short || (m.resource_url ? `Resource: ${m.resource_url}` : "");
+
+      return {
+        key: `CLASS-${m.id}`,
+        label: "CLASS MODULE",
+        title: m.title ?? "Class Module",
+        desc,
+        progress: progressMap.get(String(m.id)) ?? 0,
+        color: "#a78bfa",
+        navigateTo: `StudentScreen/SpeakingExercise/class-module?moduleId=${encodeURIComponent(
+          m.id
+        )}&classId=${encodeURIComponent(m.class_id)}`,
+      };
+    });
+
+    setClassModules(mapped);
+  }, [myUserId]);
+
+  // NEW: load class modules when screen focuses
+  useFocusEffect(
+    React.useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        if (!cancelled) await loadAssignedClassModules();
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [loadAssignedClassModules])
+  );
+
+  // NEW: realtime refresh on enrollment/progress/module changes
+  useEffect(() => {
+    if (!myUserId) return;
+
+    const chEnroll = supabase
+      .channel(`enrollments:${myUserId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "class_enrollments", filter: `student_id=eq.${myUserId}` },
+        () => loadAssignedClassModules()
+      )
+      .subscribe();
+
+    const chProgress = supabase
+      .channel(`progress:${myUserId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "student_progress", filter: `student_id=eq.${myUserId}` },
+        () => loadAssignedClassModules()
+      )
+      .subscribe();
+
+    const chClassMods = supabase
+      .channel("class_modules:any")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "class_modules" },
+        () => loadAssignedClassModules()
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        supabase.removeChannel(chEnroll);
+        supabase.removeChannel(chProgress);
+        supabase.removeChannel(chClassMods);
+      } catch {}
+    };
+  }, [myUserId, loadAssignedClassModules]);
+
   // ----- header & handlers -----
   const handleIconPress = (iconName: string) => {
     if (iconName === "log-out-outline") {
@@ -205,8 +340,26 @@ const SpeakingHome = () => {
     }
   };
 
+  // ---- Route helper: object routing for class-module, otherwise string push ----
   const navigateToModule = (moduleKey: string, navigateTo: string) => {
     setSelectedModule(moduleKey);
+
+    // If it's the class-module screen, parse query and push with object/params
+    if (navigateTo.startsWith("StudentScreen/SpeakingExercise/class-module")) {
+      const qIndex = navigateTo.indexOf("?");
+      const paramsStr = qIndex >= 0 ? navigateTo.slice(qIndex + 1) : "";
+      const sp = new URLSearchParams(paramsStr);
+      const moduleId = sp.get("moduleId") || "";
+      const classId = sp.get("classId") || "";
+
+      router.push({
+        pathname: "/StudentScreen/SpeakingExercise/class-module",
+        params: { moduleId, classId },
+      });
+      return;
+    }
+
+    // Fallback: keep your existing string path navigation
     router.push(navigateTo);
   };
 
@@ -403,6 +556,21 @@ const SpeakingHome = () => {
                 />
               ))}
             </View>
+
+            {/* NEW: Class modules visible only if enrolled */}
+            {classModules.length > 0 && (
+              <View className="w-full">
+                <Text className="text-white bottom-8 text-xl font-bold mb-4">
+                  From Your Classes
+                </Text>
+                {classModules.map((mod) => (
+                  <ModuleCard
+                    key={mod.key}
+                    mod={{ ...mod, isActive: selectedModule === mod.key }}
+                  />
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
 
