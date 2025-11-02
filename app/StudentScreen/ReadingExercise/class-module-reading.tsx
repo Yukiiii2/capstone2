@@ -1,4 +1,4 @@
-// app/StudentScreen/SpeakingExercise/class-module.tsx
+// app/StudentScreen/ReadingExercise/class-module-reading.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
@@ -26,7 +26,7 @@ import * as Sharing from "expo-sharing";
 const { width } = Dimensions.get("window");
 
 /* ────────────────────────────────────────────────────────────
-   Types that mirror your SQL json/array shapes
+   Types (same as speaking page)
    ──────────────────────────────────────────────────────────── */
 type QuizQ = { id?: number; question: string; options: string[]; correct: number };
 type RubricItem = {
@@ -35,13 +35,12 @@ type RubricItem = {
   descriptions: { high: string; medium: string; low: string };
 };
 
-// NEW: storage-aware resource type (either private storage or public URL)
 type StorageResource = {
-  bucket?: string;       // e.g., "class_resources"
-  path?: string;         // e.g., "teacher123/module456/lesson1.pdf"
-  url?: string;          // public URL fallback
-  name?: string;         // display name
-  mime?: string;         // optional mime like "application/pdf"
+  bucket?: string;
+  path?: string;
+  url?: string;
+  name?: string;
+  mime?: string;
 };
 
 type ClassModuleRow = {
@@ -64,12 +63,12 @@ type DetailRow = {
   task_instructions: string[] | null;
   rubric: RubricItem[] | null;
   quiz: QuizQ[] | null;
-  resources: StorageResource[] | null;   // storage-aware
+  resources: StorageResource[] | null;
   updated_at: string | null;
 };
 
 /* ────────────────────────────────────────────────────────────
-   Shared UI bits
+   Shared UI
    ──────────────────────────────────────────────────────────── */
 const BackgroundDecor = () => (
   <View className="absolute top-0 left-0 right-0 bottom-0 w-full h-full z-0">
@@ -84,7 +83,7 @@ const BackgroundDecor = () => (
 );
 
 const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
-  if (currentSection === 2) return null; // hide on recording section
+  if (currentSection === 2) return null;
   return (
     <View className="flex-row justify-center gap-6 mt-1 mb-1">
       {[0, 1, 2].map((i) => {
@@ -92,7 +91,11 @@ const SectionIndicator = ({ currentSection }: { currentSection: number }) => {
         const isDone = i < currentSection;
         return (
           <View key={i} className="items-center">
-            <View className={`w-2 h-2 rounded-full ${isActive ? "bg-violet-500" : isDone ? "bg-violet-400" : "bg-white/20"}`} />
+            <View
+              className={`w-2 h-2 rounded-full ${
+                isActive ? "bg-violet-500" : isDone ? "bg-violet-400" : "bg-white/20"
+              }`}
+            />
             <Text className={`text-xs mt-1 ${isActive ? "text-violet-400" : "text-white/40"}`}>
               {i === 0 ? "Lesson" : i === 1 ? "Quiz" : "Record"}
             </Text>
@@ -110,7 +113,6 @@ const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const QUIZ_PROGRESS_PCT = 50;
 const FINAL_PROGRESS_PCT = 100;
 
-/** Save progress for this specific class module */
 async function saveProgressForClassModule(moduleId: string, percent: number) {
   const pct = clampPct(percent);
   const { data: auth } = await supabase.auth.getUser();
@@ -144,7 +146,6 @@ async function saveProgressForClassModule(moduleId: string, percent: number) {
   }
 }
 
-/** Guard: check student is enrolled in class_id (status active) */
 async function assertStudentEnrolled(classId: string | null): Promise<boolean> {
   if (!classId) return true;
   const { data: auth } = await supabase.auth.getUser();
@@ -161,16 +162,17 @@ async function assertStudentEnrolled(classId: string | null): Promise<boolean> {
   return !error && !!data;
 }
 
-// File helpers
-const nameFrom = (r: StorageResource) =>
-  r.name || r.path?.split("/").pop() || r.url || "Resource";
-
+// File icon helpers
+const nameFrom = (r: StorageResource) => r.name || r.path?.split("/").pop() || r.url || "Resource";
 const isImage = (r: StorageResource) => {
   const n = (r.name || r.path || "").toLowerCase();
   return (
     (r.mime?.startsWith("image/") ?? false) ||
-    n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") ||
-    n.endsWith(".gif") || n.endsWith(".webp")
+    n.endsWith(".png") ||
+    n.endsWith(".jpg") ||
+    n.endsWith(".jpeg") ||
+    n.endsWith(".gif") ||
+    n.endsWith(".webp")
   );
 };
 const isPDF = (r: StorageResource) => {
@@ -181,20 +183,17 @@ const isDocLike = (r: StorageResource) => {
   const n = (r.name || r.path || "").toLowerCase();
   return (
     r.mime?.includes("word") ||
-    n.endsWith(".doc") || n.endsWith(".docx") ||
-    n.endsWith(".rtf") || n.endsWith(".odt") || n.endsWith(".ppt") || n.endsWith(".pptx")
+    n.endsWith(".doc") ||
+    n.endsWith(".docx") ||
+    n.endsWith(".rtf") ||
+    n.endsWith(".odt") ||
+    n.endsWith(".ppt") ||
+    n.endsWith(".pptx")
   );
 };
 
-// 🔧 Default bucket for storage paths that come without a bucket
 const DEFAULT_BUCKET = "class_resources";
 
-/** Resolve a usable URL:
- *  - If r.url provided → use as-is.
- *  - Else if {bucket?, path} → create signed URL (1h) using r.bucket || DEFAULT_BUCKET.
- *  - Guard against leading "/" in path.
- *  - Log problems for fast debugging.
- */
 async function resolveResourceUrl(r: StorageResource): Promise<string | null> {
   try {
     if (r.url) return r.url;
@@ -203,10 +202,7 @@ async function resolveResourceUrl(r: StorageResource): Promise<string | null> {
 
     if (bucket && rawPath) {
       const cleanPath = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
-      const { data, error } = await supabase
-        .storage
-        .from(bucket)
-        .createSignedUrl(cleanPath, 60 * 60);
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(cleanPath, 60 * 60);
       if (error) {
         console.warn("createSignedUrl error:", { bucket, path: cleanPath, error });
         return null;
@@ -222,12 +218,11 @@ async function resolveResourceUrl(r: StorageResource): Promise<string | null> {
   }
 }
 
-// Online viewers (WebView can’t render PDFs natively on Android)
 const GV = (u: string) => `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(u)}`;
 const OFFICE = (u: string) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(u)}`;
 
 /* ────────────────────────────────────────────────────────────
-   Sections (Lesson / Quiz / Recording) fed by DB details
+   Sections
    ──────────────────────────────────────────────────────────── */
 function LessonSection({
   details,
@@ -307,7 +302,7 @@ function LessonSection({
             </View>
           )}
 
-          {/* ── RESOURCES: file list with in-app preview ── */}
+          {/* Resources */}
           <View className="mb-6">
             <View className="flex-row items-center mb-3">
               <Ionicons name="folder-open-outline" size={20} color="#ffffff" />
@@ -334,9 +329,7 @@ function LessonSection({
                       activeOpacity={0.8}
                     >
                       <Ionicons name={icon} size={20} color="#a78bfa" />
-                      <Text className="text-violet-300 text-xs underline ml-3 flex-1">
-                        {title}
-                      </Text>
+                      <Text className="text-violet-300 text-xs underline ml-3 flex-1">{title}</Text>
                       <Ionicons name="open-outline" size={18} color="#a78bfa" />
                     </TouchableOpacity>
                   );
@@ -385,7 +378,6 @@ function QuizSection({
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // shuffle per question
   const [shuffled, setShuffled] = useState<Record<number, { text: string; isCorrect: boolean }[]>>({});
 
   const shuffle = <T,>(arr: T[]) => {
@@ -428,9 +420,7 @@ function QuizSection({
             <Text className="text-white text-4xl font-bold">Quiz</Text>
           </View>
 
-          {quiz.length === 0 && (
-            <Text className="text-white/70 text-center mb-6">No quiz for this module.</Text>
-          )}
+          {quiz.length === 0 && <Text className="text-white/70 text-center mb-6">No quiz for this module.</Text>}
 
           {quiz.map((q, qi) => {
             const id = q.id ?? qi + 1;
@@ -467,11 +457,7 @@ function QuizSection({
                       >
                         {sel && <Ionicons name="checkmark" size={14} color="#fff" />}
                       </View>
-                      <Text
-                        className={`text-base flex-1 ${
-                          ok ? "text-green-200" : bad ? "text-red-200" : "text-white/90"
-                        }`}
-                      >
+                      <Text className={`text-base flex-1 ${ok ? "text-green-200" : bad ? "text-red-200" : "text-white/90"}`}>
                         {opt.text}
                       </Text>
                       {ok && <Ionicons name="checkmark-circle" size={20} color="#22c55e" />}
@@ -509,11 +495,9 @@ function QuizSection({
               <View className="flex-row justify-between">
                 <TouchableOpacity
                   onPress={() => {
-                    // retake
                     setSubmitted(false);
                     const init = Object.fromEntries(quiz.map((q, idx) => [q.id ?? idx + 1, null]));
                     setAnswers(init);
-                    // reshuffle
                     const map: Record<number, { text: string; isCorrect: boolean }[]> = {};
                     quiz.forEach((q, idx) => {
                       const id2 = q.id ?? idx + 1;
@@ -559,23 +543,21 @@ function RecordingSection({
   const taskBody = (details.task_body || "").toString();
 
   const handleStartRecording = async () => {
-  try {
-    await saveProgressForClassModule(moduleId, FINAL_PROGRESS_PCT);
-
-    router.push({
-      pathname: "/StudentScreen/SpeakingExercise/private-video-recording",
-      params: {
-        lessonPrompt: (details.task_instructions || [])[0] || "Follow the task instructions shown.",
-        topic: "Class Module Task",
-        criteria: "See the rubric on the previous screen",
-        moduleId, // keep context if your recorder needs it
-      },
-    });
-  } catch (e) {
-    Alert.alert("Error", "Failed to save progress. Please try again.");
-  }
-};
-
+    try {
+      await saveProgressForClassModule(moduleId, FINAL_PROGRESS_PCT);
+      router.push({
+        pathname: "/StudentScreen/ReadingExercise/student-voice-reading-recording",
+        params: {
+          lessonPrompt: (details.task_instructions || [])[0] || "Follow the task instructions shown.",
+          topic: "Class Reading Task",
+          criteria: "See the rubric on the previous screen",
+          moduleId,
+        },
+      });
+    } catch (e) {
+      Alert.alert("Error", "Failed to save progress. Please try again.");
+    }
+  };
 
   return (
     <View className="flex-1">
@@ -599,7 +581,6 @@ function RecordingSection({
               </View>
 
               <View className="border-2 border-white/20 rounded-lg overflow-hidden">
-                {/* Header */}
                 <View className="flex-row bg-white/10">
                   <View className="w-1/4 p-2 border-r-2 border-white/20">
                     <Text className="text-white font-medium text-xs">Criteria</Text>
@@ -660,9 +641,9 @@ function RecordingSection({
 }
 
 /* ────────────────────────────────────────────────────────────
-   Screen
+   Screen (Reading)
    ──────────────────────────────────────────────────────────── */
-export default function ClassModuleScreen() {
+export default function ClassModuleReadingScreen() {
   const params = useLocalSearchParams();
   const moduleId = (params.moduleId as string) || "";
   const classId = (params.classId as string) || "";
@@ -674,19 +655,17 @@ export default function ClassModuleScreen() {
   const [section, setSection] = useState<number>(0); // 0 lesson / 1 quiz / 2 record
   const scrollRef = useRef<ScrollView>(null);
 
-  // Preview modal state (lifted to screen so LessonSection can trigger it)
+  // Preview modal state
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewTitle, setPreviewTitle] = useState<string>("");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);      // viewer URL
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<"pdf" | "image" | "doc" | "other">("other");
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // NEW: original signed URL + download states
   const [previewRawUrl, setPreviewRawUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadPct, setDownloadPct] = useState(0);
 
-  // Helpers for external open / download
   const sanitizeFilename = (name: string) =>
     name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").slice(0, 120) || "file";
 
@@ -745,7 +724,6 @@ export default function ClassModuleScreen() {
     setPreviewLoading(true);
     setPreviewTitle(nameFrom(r));
     try {
-      // raw (signed or public) URL
       let rawUrl = await resolveResourceUrl(r);
       if (!rawUrl) {
         Alert.alert("Unable to open file", "This resource could not be resolved.");
@@ -754,7 +732,6 @@ export default function ClassModuleScreen() {
       }
       setPreviewRawUrl(rawUrl);
 
-      // viewer URL for WebView
       let url = rawUrl;
       if (isImage(r)) {
         setPreviewType("image");
@@ -778,12 +755,11 @@ export default function ClassModuleScreen() {
     }
   }, []);
 
-  // Scroll to top on section change
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ y: 0, animated: true });
   }, [section]);
 
-  // Load + guard
+  // Load + guard (Reading)
   useEffect(() => {
     let cancelled = false;
 
@@ -805,6 +781,12 @@ export default function ClassModuleScreen() {
         if (modErr || !mod) {
           setNotAllowed(true);
           return;
+        }
+
+        // Optional: ensure it's a READING module
+        if (mod.module_type && mod.module_type.toUpperCase() !== "READING") {
+          // allow viewing but you can flip to notAllowed if you want strict typing
+          // setNotAllowed(true); return;
         }
 
         const ok = await assertStudentEnrolled(mod.class_id);
@@ -940,8 +922,7 @@ export default function ClassModuleScreen() {
   }
 
   const headerSubtitle =
-    (cm.module_type === "SPEAKING" ? "Speaking" : "Reading") +
-    (cm.due_at ? ` • Due ${new Date(cm.due_at).toLocaleString()}` : "");
+    "Reading" + (cm.due_at ? ` • Due ${new Date(cm.due_at).toLocaleString()}` : "");
 
   return (
     <View className="flex-1 bg-slate-900">
@@ -996,10 +977,9 @@ export default function ClassModuleScreen() {
         </View>
       </ScrollView>
 
-      {/* ─────────────── Preview Modal ─────────────── */}
+      {/* Preview Modal */}
       <Modal visible={previewVisible} animationType="slide" onRequestClose={() => setPreviewVisible(false)}>
         <View className="flex-1 bg-slate-900">
-          {/* Header with Close / Open / Download */}
           <View className="px-4 pt-12 pb-3 flex-row items-center">
             <TouchableOpacity
               onPress={() => setPreviewVisible(false)}

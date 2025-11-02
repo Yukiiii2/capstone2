@@ -346,6 +346,25 @@ export default function PostModule() {
     });
   };
 
+  // NEW: add/remove quiz question (mirrors other "Add ..." sections)
+  const handleAddQuizQuestion = () => {
+    setModuleData((prev) => ({
+      ...prev,
+      quiz: [
+        ...prev.quiz,
+        { question: "", options: ["", "", "", ""], correctAnswer: 0 },
+      ],
+    }));
+  };
+
+  const handleRemoveQuizQuestion = (index: number) => {
+    setModuleData((prev) => {
+      const copy = [...prev.quiz];
+      copy.splice(index, 1);
+      return { ...prev, quiz: copy };
+    });
+  };
+
   // RUBRIC
   const handleRubricChange = (
     index: number,
@@ -1088,6 +1107,14 @@ const moduleRow = {
               <View key={`quiz-${qIndex}`} className="bg-white/5 rounded-2xl p-5 mb-6 border border-white/10">
                 <View className="flex-row justify-between items-center mb-4">
                   <Text className="text-xl font-semibold text-white">Question {qIndex + 1}</Text>
+                  {moduleData.quiz.length > 1 && (
+                    <TouchableOpacity
+                      onPress={() => handleRemoveQuizQuestion(qIndex)}
+                      className="p-1"
+                    >
+                      <Ionicons name="close-circle" size={22} color="#ef4444" />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 <TextInput
@@ -1123,6 +1150,15 @@ const moduleRow = {
                 </View>
               </View>
             ))}
+
+            {/* NEW: Add Question button (mirrors other "Add ..." actions) */}
+            <TouchableOpacity
+              className="flex-row items-center justify-center bg-white/5 rounded-xl py-4 border-2 border-white/20"
+              onPress={handleAddQuizQuestion}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="white" />
+              <Text className="text-white font-semibold ml-2">Add Question</Text>
+            </TouchableOpacity>
           </View>
         );
 

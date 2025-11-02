@@ -335,23 +335,33 @@ export default function BasicContents() {
     const titleById = new Map<string, string>();
     mods.forEach((m: any) => titleById.set(m.id, m.title ?? ""));
 
-    // 2) fetch this user's progress rows
+    // 3) derive unlock-by-order (cap to 6)
+    const sorted = mods
+      .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+      .slice(0, 6);
+
+    // ✅ restrict progress computations to these 1..6 speaking/basic module IDs
+    const basicIds = new Set(sorted.map((m: any) => m.id as string));
+
+    // 2) fetch this user's progress rows (then filter to our track)
     const { data: progRows } = await supabase
       .from("student_progress")
       .select("module_id, progress, updated_at")
       .eq("student_id", user.id);
 
-    // Update how we determine completed modules
+    const progRowsForThisTrack = (progRows ?? []).filter((r) =>
+      basicIds.has(r.module_id as string)
+    );
+
+    // Update how we determine completed modules (now only within this track)
     const doneSet = new Set(
-      (progRows ?? [])
-        .filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD) // Now requires 100% like advanced
+      progRowsForThisTrack
+        .filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD)
         .map((r) => r.module_id as string)
     );
 
-    // 3) derive unlock-by-order (cap to 6)
-    const sorted = mods
-      .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
-      .slice(0, 6);
+    const rawProgressFor = (id: string) =>
+      progRowsForThisTrack.find((r) => r.module_id === id)?.progress ?? 0;
 
     const nextUiLessons: (Lesson & { supabaseId: string; unlocked: boolean })[] = sorted.map(
       (m: any, idx: number) => {
@@ -360,8 +370,8 @@ export default function BasicContents() {
         const earlierDone = earlier.every((id) => doneSet.has(id));
         const unlocked = idx === 0 || earlierDone;
 
-        // Update progress calculation to match advanced
-        const rawProgress = (progRows ?? []).find((r) => r.module_id === m.id)?.progress ?? 0;
+        // Use filtered per-track progress for the UI bar
+        const rawProgress = rawProgressFor(m.id);
         const progressUI = Math.max(0, Math.min(1, (rawProgress as number) / 100)); // Scale 0-100 to 0-1
 
         // keep your static labels as primary UI; fallback to DB fields if needed
@@ -372,8 +382,8 @@ export default function BasicContents() {
 
         // Update type determination based on threshold
         const type: Lesson["type"] =
-          rawProgress >= UNLOCK_THRESHOLD ? "Review" : // Only "Review" at 100%
-          rawProgress > 0 ? "Continue" : 
+          rawProgress >= UNLOCK_THRESHOLD ? "Review" :
+          rawProgress > 0 ? "Continue" :
           "Start";
 
         return {
@@ -401,17 +411,18 @@ export default function BasicContents() {
     setUnlockedById(unlockedMap);
     setModuleIdByDisplayId(idMap);
 
-    // header overall progress (% completed)
+    // header overall progress (% completed) — per-track and clamped
     const total = sorted.length;
-    const completedCount = (progRows ?? []).filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD).length; // ← uses threshold
-    setOverallPct(total > 0 ? Math.round((completedCount / total) * 100) : 0);
+    const completedCount = progRowsForThisTrack.filter((r) => (r.progress ?? 0) >= UNLOCK_THRESHOLD).length;
+    const overall = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+    setOverallPct(Math.max(0, Math.min(100, overall)));
 
     // seed filteredLessons with derived list
     setFilteredLessons(nextUiLessons as unknown as Lesson[]);
 
-    // 🆕 seed recent from progress rows (only if there’s actual progress)
-    if ((progRows ?? []).some((r) => (r.progress ?? 0) > 0)) {
-      const recents: Recent[] = (progRows ?? [])
+    // 🆕 seed recent from per-track progress rows (only if there’s actual progress)
+    if (progRowsForThisTrack.some((r) => (r.progress ?? 0) > 0)) {
+      const recents: Recent[] = progRowsForThisTrack
         .filter((r) => (r.progress ?? 0) > 0)
         .sort(
           (a, b) =>

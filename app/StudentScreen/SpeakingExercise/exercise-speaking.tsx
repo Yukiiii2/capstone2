@@ -48,6 +48,9 @@ const BASE_MODULES: ModuleType[] = [
   },
 ];
 
+// Keep progress logic consistent with basic-contents
+const UNLOCK_THRESHOLD = 100; // require perfect completion
+
 const SpeakingHome = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -148,20 +151,27 @@ const SpeakingHome = () => {
         const user = auth?.user;
         if (!user || cancel) return;
 
-        // helper that computes average progress for a level (basic/advanced)
+        // helper that computes completion ratio (0..1) for a level (basic/advanced)
+        // based on COUNT of fully completed modules (>= UNLOCK_THRESHOLD) among the first 6
         const computeLevelProgress = async (level: "basic" | "advanced"): Promise<number> => {
-          // 1) fetch modules in this track
+          // 1) fetch modules in this track (need order_index to pick first 6 consistently)
           const { data: mods, error: modsErr } = await supabase
             .from("modules")
-            .select("id")
+            .select("id, order_index")
             .eq("category", "speaking")
             .eq("level", level)
             .eq("active", true);
 
           if (modsErr || !mods?.length) return 0;
 
-          const moduleIds = mods.map((m) => m.id);
-          // 2) fetch student_progress rows for these modules
+          // 2) sort and take first 6 to mirror basic-contents
+          const sorted = [...mods]
+            .sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0))
+            .slice(0, 6);
+          const moduleIds = sorted.map((m: any) => m.id);
+          if (moduleIds.length === 0) return 0;
+
+          // 3) fetch this student's progress for these modules only
           const { data: rows, error: spErr } = await supabase
             .from("student_progress")
             .select("module_id, progress")
@@ -170,12 +180,14 @@ const SpeakingHome = () => {
 
           if (spErr) return 0;
 
-          // 3) average progress across all modules in this track (treat missing as 0)
-          const sum = (rows ?? []).reduce((acc, r) => acc + (r.progress ?? 0), 0);
+          // 4) compute completion ratio: count modules with progress >= threshold
+          const completedCount = (rows ?? []).filter(
+            (r) => Number(r.progress ?? 0) >= UNLOCK_THRESHOLD
+          ).length;
+
           const totalModules = moduleIds.length;
-          const avgPercent = sum / totalModules; // still 0..100
-          const normalized = Math.max(0, Math.min(1, Math.round(avgPercent) / 100));
-          return normalized;
+          const ratio = totalModules > 0 ? completedCount / totalModules : 0;
+          return Math.max(0, Math.min(1, ratio)); // clamp 0..1
         };
 
         try {

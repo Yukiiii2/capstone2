@@ -1,3 +1,4 @@
+// app/TeacherScreen/TeacherClasses/index.tsx
 import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
@@ -7,6 +8,8 @@ import {
   StatusBar,
   Image,
   Alert,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -50,12 +53,12 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   return signedRes.data?.signedUrl ?? null;
 }
 
-const initialsFrom = (name?: string | null) => {
-  const n = (name || "").trim();
-  if (!n) return "??";
-  const parts = n.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return n.slice(0, 2).toUpperCase();
+const initialsFrom = (name?: string | null, email?: string | null) => {
+  const base = (name && name.trim()) || (email && email.split("@")[0]) || "";
+  if (!base) return "??";
+  const parts = base.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return base.slice(0, 2).toUpperCase();
 };
 
 /* ─────────────────────────────────────────
@@ -70,6 +73,14 @@ type ClassInfo = {
   studentCount: number;
   description: string; // can be ""
   isArchived?: boolean;
+};
+
+type EnrolledStudent = {
+  id: string;          // student id
+  name: string | null;
+  email: string | null;
+  avatar_url?: string | null;
+  signed?: string | null; // resolved signed URL
 };
 
 /* ─────────────────────────────────────────
@@ -92,18 +103,20 @@ const BackgroundDecor = () => (
 );
 
 /* ─────────────────────────────────────────
-   ClassCard
+   ClassCard (NEW: "view students" icon at right-12)
    ───────────────────────────────────────── */
 const ClassCard = ({
   classInfo,
   onEdit,
   onOpen,
   onArchiveToggle,
+  onViewStudents,
 }: {
   classInfo: ClassInfo;
   onEdit: (cls: ClassInfo) => void;
   onOpen: (cls: ClassInfo) => void;
   onArchiveToggle: (cls: ClassInfo) => void;
+  onViewStudents: (cls: ClassInfo) => void;
 }) => {
   const hasDesc = !!classInfo.description?.trim();
   return (
@@ -114,7 +127,21 @@ const ClassCard = ({
     >
       {/* Positioning context for absolutely positioned children */}
       <View className="relative bg-white/5 backdrop-blur-lg border border-white/30 rounded-2xl p-6 mb-4 w-full shadow-lg shadow-violet-900/20">
-        {/* Archive icon (unchanged) */}
+        {/* NEW: View students icon (left of archive) */}
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation();
+            onViewStudents(classInfo);
+          }}
+          accessibilityLabel="View enrolled students"
+          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+          className="absolute top-3 right-12 w-8 h-8 rounded-full items-center justify-center bg-white/10 border border-white/20"
+          activeOpacity={0.75}
+        >
+          <Ionicons name="people-outline" size={16} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        {/* Archive icon (unchanged position at right-3) */}
         <TouchableOpacity
           onPress={(e) => {
             e.stopPropagation();
@@ -133,7 +160,7 @@ const ClassCard = ({
           />
         </TouchableOpacity>
 
-        {/* Class code chip — aligned under the icon (only this moved) */}
+        {/* Class code chip — aligned under the icon (kept) */}
         {!!classInfo.code && (
           <View className="absolute right-3 top-12 bg-violet-500/10 px-3 py-1.5 rounded-full">
             <Text className="text-violet-300 text-xs font-medium">
@@ -278,7 +305,7 @@ const Header = ({
               }}
             >
               <Text style={{ color: "white", fontWeight: "700" }}>
-                {initialsFrom(user.name)}
+                {initialsFrom(user.name, user.email)}
               </Text>
             </View>
           )}
@@ -309,6 +336,12 @@ export default function TeacherClasses() {
 
   const [classes, setClasses] = useState<ClassInfo[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+
+  // NEW: Students modal state
+  const [showStudentsModal, setShowStudentsModal] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<ClassInfo | null>(null);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [students, setStudents] = useState<EnrolledStudent[]>([]);
 
   const user = useMemo(
     () => ({
@@ -359,70 +392,69 @@ export default function TeacherClasses() {
   }, []);
 
   const loadClasses = React.useCallback(async () => {
-  const { data: auth } = await supabase.auth.getUser();
-  const teacherId = auth?.user?.id;
-  if (!teacherId) {
-    setClasses([]);
-    return;
-  }
+    const { data: auth } = await supabase.auth.getUser();
+    const teacherId = auth?.user?.id;
+    if (!teacherId) {
+      setClasses([]);
+      return;
+    }
 
-  // 1) get classes owned by this teacher
-  const { data: clsRows, error: clsErr } = await supabase
-    .from("classes")
-    .select("*")
-    .eq("teacher_id", teacherId)
-    .order("created_at", { ascending: false });
+    // 1) get classes owned by this teacher
+    const { data: clsRows, error: clsErr } = await supabase
+      .from("classes")
+      .select("*")
+      .eq("teacher_id", teacherId)
+      .order("created_at", { ascending: false });
 
-  if (clsErr) {
-    console.warn("[TeacherClasses] loadClasses error:", clsErr);
-    setClasses([]);
-    return;
-  }
+    if (clsErr) {
+      console.warn("[TeacherClasses] loadClasses error:", clsErr);
+      setClasses([]);
+      return;
+    }
 
-  const classIds = (clsRows ?? []).map((c: any) => c.id).filter(Boolean);
+    const classIds = (clsRows ?? []).map((c: any) => c.id).filter(Boolean);
 
-  // 2) pull enrollments for these classes and count active ones
-  let countsByClass: Record<string, number> = {};
-  if (classIds.length > 0) {
-    const { data: enrRows, error: enrErr } = await supabase
-      .from("class_enrollments")
-      .select("class_id, status")
-      .in("class_id", classIds)
-      .eq("status", "active");
+    // 2) pull enrollments for these classes and count active ones
+    let countsByClass: Record<string, number> = {};
+    if (classIds.length > 0) {
+      const { data: enrRows, error: enrErr } = await supabase
+        .from("class_enrollments")
+        .select("class_id, status")
+        .in("class_id", classIds)
+        .eq("status", "active");
 
-    if (!enrErr && Array.isArray(enrRows)) {
-      for (const r of enrRows) {
-        const k = r.class_id as string;
-        countsByClass[k] = (countsByClass[k] ?? 0) + 1;
+      if (!enrErr && Array.isArray(enrRows)) {
+        for (const r of enrRows) {
+          const k = r.class_id as string;
+          countsByClass[k] = (countsByClass[k] ?? 0) + 1;
+        }
       }
     }
-  }
 
-  // 3) map to your view model (prefer computed counts)
-  const mapped: ClassInfo[] = (clsRows ?? []).map((c: any) => ({
-    id: c.id,
-    className: c.class_name ?? c.name ?? c.title ?? "(Untitled Class)",
-    gradeLevel: String(c.grade_level ?? c.grade ?? ""),
-    strand: c.strand ?? "ALL",
-    code: c.class_code ?? c.code ?? "",
-    description: c.description ?? "",
-    studentCount:
-      typeof countsByClass[c.id] === "number"
-        ? countsByClass[c.id]
-        : typeof c.student_count === "number"
-        ? c.student_count
-        : Array.isArray(c.students)
-        ? c.students.length
-        : 0,
-    isArchived:
-      Boolean(c.archived) ||
-      String(c.status ?? "").toLowerCase() === "archived" ||
-      Boolean(c.archived_at),
-  }));
+    // 3) map to view model
+    const mapped: ClassInfo[] = (clsRows ?? []).map((c: any) => ({
+      id: c.id,
+      className: c.class_name ?? c.name ?? c.title ?? "(Untitled Class)",
+      gradeLevel: String(c.grade_level ?? c.grade ?? ""),
+      strand: c.strand ?? "ALL",
+      code: c.class_code ?? c.code ?? "",
+      description: c.description ?? "",
+      studentCount:
+        typeof countsByClass[c.id] === "number"
+          ? countsByClass[c.id]
+          : typeof c.student_count === "number"
+          ? c.student_count
+          : Array.isArray(c.students)
+          ? c.students.length
+          : 0,
+      isArchived:
+        Boolean(c.archived) ||
+        String(c.status ?? "").toLowerCase() === "archived" ||
+        Boolean(c.archived_at),
+    }));
 
-  setClasses(mapped);
-}, []);
-
+    setClasses(mapped);
+  }, []);
 
   useEffect(() => {
     loadClasses();
@@ -435,34 +467,37 @@ export default function TeacherClasses() {
   );
 
   useEffect(() => {
-  let mounted = true;
-  (async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const teacherId = auth?.user?.id;
-    if (!teacherId || !mounted) return;
+    let mounted = true;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const teacherId = auth?.user?.id;
+      if (!teacherId || !mounted) return;
 
-    const enrollChan = supabase
-      .channel("class-enrollments-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "class_enrollments" },
-        () => {
-          // Any insert/update/delete in enrollments → refresh counts
-          loadClasses();
-        }
-      )
-      .subscribe();
+      const enrollChan = supabase
+        .channel("class-enrollments-realtime")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "class_enrollments" },
+          () => {
+            // Any insert/update/delete in enrollments → refresh counts
+            loadClasses();
+            // Also refresh modal list if open
+            if (selectedClass) {
+              fetchStudents(selectedClass.id);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(enrollChan);
+      };
+    })();
 
     return () => {
-      supabase.removeChannel(enrollChan);
+      mounted = false;
     };
-  })();
-
-  return () => {
-    mounted = false;
-  };
-}, [loadClasses]);
-
+  }, [loadClasses, selectedClass]);
 
   const handleCreateClass = () => {
     router.push("/TeacherScreen/TeacherClasses/create-class");
@@ -538,6 +573,82 @@ export default function TeacherClasses() {
         },
       ]
     );
+  };
+
+  // NEW: fetch students for class & open modal
+  const fetchStudents = React.useCallback(async (classId: string) => {
+    setStudentsLoading(true);
+    try {
+      // 1) active enrollments for the class
+      const { data: enr, error: enrErr } = await supabase
+        .from("class_enrollments")
+        .select("student_id, status, joined_at")
+        .eq("class_id", classId)
+        .eq("status", "active");
+
+      if (enrErr || !Array.isArray(enr) || enr.length === 0) {
+        setStudents([]);
+        return;
+      }
+
+      const ids = Array.from(new Set(enr.map((e: any) => e.student_id).filter(Boolean)));
+      if (ids.length === 0) {
+        setStudents([]);
+        return;
+      }
+
+      // 2) fetch matching profiles (may be empty for some students)
+      let profs: any[] = [];
+      const { data: profRows, error: pErr } = await supabase
+        .from("profiles")
+        .select("id, name, avatar_url, email")
+        .in("id", ids);
+
+      if (!pErr && Array.isArray(profRows)) {
+        profs = profRows;
+      }
+
+      const pmap = new Map(profs.map((p) => [p.id, p]));
+
+      // 3) Build result for EVERY enrolled id (even without profile)
+      const resolved: EnrolledStudent[] = await Promise.all(
+        ids.map(async (sid) => {
+          const p = pmap.get(sid);
+          const signed =
+            p?.avatar_url ? await resolveSignedAvatar(sid, p.avatar_url?.toString()) : null;
+          return {
+            id: sid,
+            name: (p?.name ?? null) as string | null,
+            email: (p?.email ?? null) as string | null,
+            avatar_url: (p?.avatar_url ?? null) as string | null,
+            signed: signed ?? null,
+          };
+        })
+      );
+
+      // sort by name (fallback to email)
+      resolved.sort((a, b) => {
+        const an = (a.name || a.email || "").toLowerCase();
+        const bn = (b.name || b.email || "").toLowerCase();
+        return an.localeCompare(bn);
+      });
+
+      setStudents(resolved);
+    } finally {
+      setStudentsLoading(false);
+    }
+  }, []);
+
+  const handleViewStudents = (cls: ClassInfo) => {
+    setSelectedClass(cls);
+    setShowStudentsModal(true);
+    fetchStudents(cls.id);
+  };
+
+  const closeStudentsModal = () => {
+    setShowStudentsModal(false);
+    setSelectedClass(null);
+    setStudents([]);
   };
 
   return (
@@ -616,6 +727,7 @@ export default function TeacherClasses() {
                 onEdit={handleEditClass}
                 onOpen={handleOpenClass}
                 onArchiveToggle={handleArchiveToggle}
+                onViewStudents={handleViewStudents}
               />
             ))}
 
@@ -626,6 +738,95 @@ export default function TeacherClasses() {
           )}
         </View>
       </ScrollView>
+
+      {/* NEW: Enrolled Students Modal */}
+      <Modal
+        visible={showStudentsModal}
+        animationType="slide"
+        onRequestClose={closeStudentsModal}
+        transparent={true}
+      >
+        <View className="flex-1 bg-black/50">
+          <View className="mt-20 mx-4 bg-[#0F172A] border border-white/10 rounded-2xl overflow-hidden">
+            <View className="px-4 py-3 flex-row items-center justify-between border-b border-white/10">
+              <Text className="text-white font-bold text-lg">
+                {selectedClass ? `${selectedClass.className}` : "Class"} • Students
+              </Text>
+              <TouchableOpacity
+                onPress={closeStudentsModal}
+                className="bg-white/10 rounded-full p-2"
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="px-4 py-2 border-b border-white/10">
+              <Text className="text-white/80 text-xs">
+                {studentsLoading
+                  ? "Loading enrolled students…"
+                  : `${students.length} active enrollee${students.length === 1 ? "" : "s"}`}
+              </Text>
+            </View>
+
+            <ScrollView style={{ maxHeight: 420 }}>
+              {studentsLoading ? (
+                <View className="py-8 items-center">
+                  <ActivityIndicator size="large" />
+                </View>
+              ) : students.length === 0 ? (
+                <View className="py-8 items-center">
+                  <Ionicons name="people-outline" size={28} color="#a78bfa" />
+                  <Text className="text-white/80 mt-2 text-sm">No active students enrolled.</Text>
+                </View>
+              ) : (
+                <View className="py-2">
+                  {students.map((s) => {
+                    const signed = s.signed;
+                    const initials = initialsFrom(s.name, s.email);
+                    return (
+                      <View
+                        key={s.id}
+                        className="flex-row items-center px-4 py-3 border-b border-white/10"
+                      >
+                        {signed ? (
+                          <Image
+                            source={{ uri: signed }}
+                            className="w-8 h-8 rounded-full"
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View className="w-8 h-8 rounded-full bg-white/15 border border-white/20 items-center justify-center">
+                            <Text className="text-white font-semibold text-xs">{initials}</Text>
+                          </View>
+                        )}
+                        <View className="ml-3 flex-1">
+                          <Text className="text-white text-sm font-medium">
+                            {s.name || "(No name)"}
+                          </Text>
+                          {!!s.email && (
+                            <Text className="text-white/60 text-xs">{s.email}</Text>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
+
+            <View className="px-4 py-3">
+              <TouchableOpacity
+                onPress={closeStudentsModal}
+                className="py-3 rounded-xl bg-white/10 border border-white/20"
+                activeOpacity={0.8}
+              >
+                <Text className="text-white text-center font-medium">Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <NavigationBar defaultActiveTab="Classes" />
     </View>

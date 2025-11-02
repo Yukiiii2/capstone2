@@ -10,7 +10,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
 import LevelSelectionModal from "../StudentModal/LevelSelectionModal";
-import LivesessionCommunityModal from "../StudentModal/LivesessionCommunityModal";
 
 interface NavigationBarProps {
   defaultActiveTab?: string;
@@ -21,7 +20,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
   const pathname = usePathname();
 
   const [showLevelModal, setShowLevelModal] = useState(false);
-  const [showCommunityModal, setShowCommunityModal] = useState(false);
   const navItems = [
     {
       icon: "home-outline",
@@ -43,9 +41,9 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
     },
     {
       icon: "people-outline",
-      label: "Community",
-      route: "components/LivesessionCommunityModal",
-      onPress: () => setShowCommunityModal(true),
+      label: "Live Session",
+      route: "StudentScreen/StudentLiveSession/live-sessions-select",
+      onPress: () => router.push("/StudentScreen/StudentLiveSession/live-sessions-select"),
     },
   ];
 
@@ -58,12 +56,12 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
               ? item.label === defaultActiveTab
               : pathname.includes(item.route);
             // Make the active background for Home tab wider
-            const isCommunity = item.label === "Community";
+            const isLiveSession = item.label === "Live Session";
             const isSpeaking = item.label === "Speaking";
             const isHome = item.label === "Home";
             const activeStyle = isActive && isHome
               ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 16, minWidth: 64 }
-              : isActive && isCommunity
+              : isActive && isLiveSession
                 ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 2, borderRadius: 14, minWidth: 20 }
                 : isActive && isSpeaking
                   ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 7, borderRadius: 14, minWidth: 36 }
@@ -100,18 +98,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
             router.push("/StudentScreen/SpeakingExercise/basic-contents");
           } else if (level === "Advanced") {
             router.push("/StudentScreen/SpeakingExercise/advanced-contents");
-          }
-        }}
-      />
-      <LivesessionCommunityModal
-        visible={showCommunityModal}
-        onDismiss={() => setShowCommunityModal(false)}
-        onSelectOption={(option) => {
-          setShowCommunityModal(false);
-          if (option === "Live Session") {
-            router.push("/StudentScreen/StudentLiveSession/live-sessions-select");
-          } else if (option === "Community Post") {
-            router.push("/StudentScreen/StudentCommunity/community-selection");
           }
         }}
       />
