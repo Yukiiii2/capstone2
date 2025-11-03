@@ -28,6 +28,7 @@ import { useRouter } from "expo-router";
 import ProfileMenuTeacher from "@/components/ProfileModal/ProfileMenuTeacher";
 import { supabase } from "@/lib/supabaseClient";
 
+
 /* ────────────────────────────────────────────────────────────────────
    Layout helpers
    ──────────────────────────────────────────────────────────────────── */
@@ -37,6 +38,22 @@ const { width } = Dimensions.get("window");
    Types
    ──────────────────────────────────────────────────────────────────── */
 type StudentStatus = "active" | "inactive";
+
+type ConfidenceAnxietyScore = {
+  student_id: string;
+  confidence_score_speaking: number;
+  confidence_score_reading: number;
+  anxiety_level_speaking: number | null;
+  anxiety_level_reading: number | null;
+  total_speaking_attempts: number;
+  total_reading_attempts: number;
+};
+type ConfidenceScores = {
+  speaking: number;
+  reading: number;
+  anxietySpeaking: number;
+  anxietyReading: number;
+};
 
 interface Student {
   id: string;
@@ -59,6 +76,7 @@ interface Stats {
   averageProgress: number;
   averageSatisfaction: number;
   averageConfidence: number;
+  averageAnxiety: number; // Add this
 }
 
 type ProgressRow = {
@@ -165,6 +183,7 @@ function mergeProgressIntoStudents(base: Student[], rows: ProgressRow[]): Studen
     const st = Number(p.speaking_total ?? 0);
     const rc = Number(p.reading_completed ?? 0);
     const rt = Number(p.reading_total ?? 0);
+    
 
     const total = st + rt;
     const done = sc + rc;
@@ -286,8 +305,9 @@ const MetricCard = ({
 };
 
 const StudentCard = ({ student, rank }: { student: Student; rank?: number }) => {
-  const confidence = student.confidence ?? (Math.floor(Math.random() * 30) + 70);
-  const anxiety = student.anxiety ?? (Math.floor(Math.random() * 30) + 10);
+  const confidence = student.confidence ?? 0;
+  const anxiety = student.anxiety ?? 0;
+  const borderColor = student.color ?? "#a78bfa";
 
   const ProgressBar = ({ value, label }: { value: number; label: string }) => (
     <View className="mb-1">
@@ -300,18 +320,15 @@ const StudentCard = ({ student, rank }: { student: Student; rank?: number }) => 
           className="h-full rounded-full"
           style={{
             width: `${value}%`,
-            backgroundColor: "#8b5cf6",
+            backgroundColor: label.includes("Anxiety") ? "#ef4444" : "#8b5cf6",
           }}
         />
       </View>
     </View>
   );
 
-  let borderColor = "transparent";
-  if (rank === 1) borderColor = "#FFD700";
-  else if (rank === 2) borderColor = "#C0C0C0";
-  else if (rank === 3) borderColor = "#CD7F32";
-  else if (rank === 4 || rank === 5) borderColor = "#8b5cf6";
+  
+  
 
   return (
     <View className="relative">
@@ -381,14 +398,22 @@ export default function TeacherDashboard() {
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);   // (kept for structure)
   const [isActiveStudentsModalVisible, setIsActiveStudentsModalVisible] =
     useState(false);
+  const [students, setStudents] = useState<Student[]>([]);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
   const [isTotalStudentsModalVisible, setIsTotalStudentsModalVisible] =
     useState(false);
+  const [confidenceScores, setConfidenceScores] = useState<ConfidenceScores>({
+  speaking: 0,
+  reading: 0,
+  anxietySpeaking: 0,
+  anxietyReading: 0
+});
 
   // Teacher profile state
   const [fullName, setFullName] = useState<string>("Teacher");
   const [email, setEmail] = useState<string>("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  
 
   const user = useMemo(
     () => ({
@@ -400,20 +425,30 @@ export default function TeacherDashboard() {
   );
 
   // Students state
-  const [students, setStudents] = useState<Student[]>([]);
+  
   const activeStudents = students.filter((student) => student.status === "active");
-
+const rankedStudents = useMemo(() => {
+    return [...students]
+      .sort((a, b) => {
+        // Sort by confidence score (high to low) and anxiety score (low to high)
+        const confidenceDiff = (b.confidence ?? 0) - (a.confidence ?? 0);
+        if (confidenceDiff !== 0) return confidenceDiff;
+        return (a.anxiety ?? 100) - (b.anxiety ?? 100);
+      })
+      .slice(0, 5);
+  }, [students]);
   // Featured (not removed)
   const [featuredStudents, setFeaturedStudents] = useState<Student[]>([]);
 
   // Stats state
   const [stats, setStats] = useState<Stats>({
-    totalStudents: 0,
-    activeStudents: 0,
-    averageProgress: 0,
-    averageSatisfaction: 0,
-    averageConfidence: 0,
-  });
+  totalStudents: 0,
+  activeStudents: 0,
+  averageProgress: 0,
+  averageSatisfaction: 0,
+  averageConfidence: 0,
+  averageAnxiety: 0  // Add this
+});
 
   const router = useRouter();
   const handleAddStudent = () => {
@@ -431,28 +466,78 @@ export default function TeacherDashboard() {
         student.grade === selectedGrade && student.strand === selectedStrand
     );
   }, [students, selectedGrade, selectedStrand]);
+const fetchConfidenceScores = useCallback(async () => {
+  try {
+    const { data: scores, error } = await supabase
+      .from('confidence_anxiety_score')
+      .select(`
+        confidence_score_speaking,
+        confidence_score_reading,
+        anxiety_level_speaking,
+        anxiety_level_reading
+      `);
 
+    if (error) throw error;
+
+    if (scores && scores.length > 0) {
+      // Calculate averages across all students
+      const totalScores = scores.reduce((acc, curr) => ({
+        speaking: acc.speaking + (curr.confidence_score_speaking || 0),
+        reading: acc.reading + (curr.confidence_score_reading || 0),
+        anxietySpeaking: acc.anxietySpeaking + (curr.anxiety_level_speaking || 0),
+        anxietyReading: acc.anxietyReading + (curr.anxiety_level_reading || 0)
+      }), {
+        speaking: 0,
+        reading: 0,
+        anxietySpeaking: 0,
+        anxietyReading: 0
+      });
+
+      const count = scores.length;
+      const averages = {
+        speaking: Math.round(totalScores.speaking / count),
+        reading: Math.round(totalScores.reading / count),
+        anxietySpeaking: Math.round(totalScores.anxietySpeaking / count),
+        anxietyReading: Math.round(totalScores.anxietyReading / count)
+      };
+
+      setConfidenceScores(averages);
+
+      // Update stats with new averages
+      setStats(prev => ({
+        ...prev,
+        averageConfidence: Math.round((averages.speaking + averages.reading) / 2),
+        averageAnxiety: Math.round((averages.anxietySpeaking + averages.anxietyReading) / 2)
+      }));
+    }
+  } catch (error) {
+    console.error('Error fetching confidence scores:', error);
+  }
+}, []);
   // Stats calc
   const computeStats = useCallback((list: Student[]): Stats => {
-    const total = list.length;
-    const active = list.filter((s) => s.status === "active").length;
-    const avg = (arr: number[]) =>
-      arr.length
-        ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)
-        : 0;
-    return {
-      totalStudents: total,
-      activeStudents: active,
-      averageProgress: avg(list.map((s) => s.progress || 0)),
-      averageSatisfaction: avg(list.map((s) => s.satisfaction || 0)),
-      averageConfidence: avg(list.map((s) => s.confidence ?? 0)),
-    };
-  }, []);
+  const total = list.length;
+  const active = list.filter((s) => s.status === "active").length;
+  const avg = (arr: number[]) =>
+    arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  
+  return {
+    totalStudents: total,
+    activeStudents: active,
+    averageProgress: avg(list.map((s) => s.progress || 0)),
+    averageSatisfaction: avg(list.map((s) => s.satisfaction || 0)),
+    averageConfidence: avg(list.map((s) => s.confidence ?? 0)),
+    averageAnxiety: avg(list.map((s) => s.anxiety ?? 0))
+  };
+}, []);
 
   // refresh stats whenever students change
   useEffect(() => {
     setStats(computeStats(students));
   }, [students, computeStats]);
+  useEffect(() => {
+  fetchConfidenceScores();
+}, [fetchConfidenceScores]);
 
   // gentle stat jitter loop
   useEffect(() => {
@@ -563,6 +648,53 @@ export default function TeacherDashboard() {
   const TEACHER_STUDENTS = "teacher_students";
   const teacherIdRef = useRef<string | null>(null);
 
+  // Update the loadConfidenceAnxietyScores function
+const loadConfidenceAnxietyScores = useCallback(async (studentIds: string[]) => {
+  if (!studentIds.length) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('confidence_anxiety_score')
+      .select(`
+        student_id,
+        confidence_score_speaking,
+        confidence_score_reading,
+        anxiety_level_speaking,
+        anxiety_level_reading,
+        total_speaking_attempts,
+        total_reading_attempts
+      `)
+      .in('student_id', studentIds);
+
+    if (error) throw error;
+
+    setStudents(prevStudents => 
+      prevStudents.map(student => {
+        const studentScore = data?.find(score => score.student_id === student.id);
+        if (!studentScore) return student;
+
+        const avgConfidence = Math.round(
+          (studentScore.confidence_score_speaking + studentScore.confidence_score_reading) / 2
+        );
+        
+        const avgAnxiety = Math.round(
+          ((studentScore.anxiety_level_speaking ?? 0) + (studentScore.anxiety_level_reading ?? 0)) / 2
+        );
+
+        return {
+          ...student,
+          confidence: avgConfidence,
+          anxiety: avgAnxiety,
+          totalAttempts: studentScore.total_speaking_attempts + studentScore.total_reading_attempts
+        };
+      })
+    );
+
+  } catch (err) {
+    console.error('Error loading confidence/anxiety scores:', err);
+  }
+}, []);
+
   const loadRoster = useCallback(async () => {
     const teacherId = teacherIdRef.current;
     if (!teacherId) return;
@@ -636,6 +768,13 @@ export default function TeacherDashboard() {
       setStudents([]);
     }
   }, []);
+
+  useEffect(() => {
+  if (students.length > 0) {
+    const studentIds = students.map(s => s.id);
+    loadConfidenceAnxietyScores(studentIds);
+  }
+}, [students, loadConfidenceAnxietyScores]);
 
   useEffect(() => {
     let mounted = true;
@@ -904,91 +1043,113 @@ export default function TeacherDashboard() {
         {/* Student Ranking Section */}
         <View className="mb-6">
           <Text className="text-lg top-3 font-bold text-white mb-3">
-            Student Ranking
+            Student Rankings
           </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingLeft: 0,
-              paddingRight: 20,
-              paddingVertical: 4,
-              alignItems: "flex-start",
-              gap: 6,
-            }}
-            snapToAlignment="start"
-            decelerationRate="fast"
-            alwaysBounceHorizontal={false}
-            snapToStart
-            snapToEnd
-          >
-            {students.slice(0, 5).map((student, index) => (
-              <View
-                key={student.id}
-                className="w-48"
-                style={{
-                  minHeight: 180,
-                  marginRight: 12,
-                  marginLeft: 0,
-                }}
-              >
-                <StudentCard student={student} rank={index + 1} />
-              </View>
-            ))}
-          </ScrollView>
+          // Update the Student Ranking render section
+<ScrollView
+  horizontal
+  showsHorizontalScrollIndicator={false}
+  contentContainerStyle={{
+    paddingLeft: 0,
+    paddingRight: 20,
+    paddingVertical: 4,
+    alignItems: "flex-start",
+    gap: 6,
+  }}
+  snapToAlignment="start"
+  decelerationRate="fast"
+  alwaysBounceHorizontal={false}
+  snapToStart
+  snapToEnd
+>
+  {rankedStudents.map((student, index) => (
+    <View
+      key={student.id}
+      className="w-48"
+      style={{
+        minHeight: 180,
+        marginRight: 12,
+        marginLeft: 0,
+      }}
+    >
+      <StudentCard 
+        student={student} 
+        rank={index + 1}
+      />
+    </View>
+  ))}
+</ScrollView>
         </View>
 
         {/* Strand Performance */}
-        <View className="mb-6 bottom-8">
-          <Text className="text-lg font-bold text-white mb-3">
-            Strand Performance
-          </Text>
-          <View className="bg-white/10 border border-white/20 rounded-2xl p-5">
-            <View className="flex-row justify-between mb-4">
-              <Text className="text-white/80 text-sm">Strand</Text>
-              <Text className="text-white/80 text-sm">Avg. Progress</Text>
-            </View>
+<View className="mb-6">
+  <Text className="text-lg font-bold text-white mb-3">
+    Strand Performance
+  </Text>
+  <View className="bg-white/10 border border-white/20 rounded-2xl p-5">
+    <View className="flex-row justify-between mb-4">
+      <Text className="text-white/80 text-sm">Strand</Text>
+      <Text className="text-white/80 text-sm">Confidence / Anxiety</Text>
+    </View>
 
-            {["ABM", "STEM", "HUMSS", "GAS", "TVL"]
-              .map((strand) => {
-                const strandStudents = students.filter(
-                  (s) => s.strand === strand
-                );
-                const avgProgress =
-                  strandStudents.length > 0
-                    ? Math.round(
-                        strandStudents.reduce(
-                          (sum, s) => sum + (s.progress || 0),
-                          0
-                        ) / strandStudents.length
-                      )
-                    : 0;
-                return { strand, avgProgress };
-              })
-              .sort((a, b) => b.avgProgress - a.avgProgress)
-              .map(({ strand, avgProgress }) => (
-                <View key={strand} className="mb-3">
-                  <View className="flex-row justify-between mb-1">
-                    <Text className="text-white font-medium">
-                      {strand}
-                    </Text>
-                    <Text className="text-white font-medium">
-                      {avgProgress}%
-                    </Text>
-                  </View>
-                  <View className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <View
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${avgProgress}%`,
-                        backgroundColor: "#8b5cf6",
-                      }}
-                    />
-                  </View>
-                </View>
-              ))}
+    {["ABM", "STEM", "HUMSS", "GAS", "TVL"]
+      .map((strand) => {
+        const strandStudents = students.filter(
+          (s) => s.strand === strand
+        );
+        if (strandStudents.length === 0) {
+          return { strand, avgConfidence: 0, avgAnxiety: 0 };
+        }
+        
+        const avgConfidence = Math.round(
+          strandStudents.reduce(
+            (sum, s) => sum + (s.confidence ?? 0),
+            0
+          ) / strandStudents.length
+        );
+        
+        const avgAnxiety = Math.round(
+          strandStudents.reduce(
+            (sum, s) => sum + (s.anxiety ?? 0),
+            0
+          ) / strandStudents.length
+        );
+
+        return { strand, avgConfidence, avgAnxiety };
+      })
+      .sort((a, b) => b.avgConfidence - a.avgConfidence)
+      .map(({ strand, avgConfidence, avgAnxiety }) => (
+        <View key={strand} className="mb-3">
+          <View className="flex-row justify-between mb-1">
+            <Text className="text-white font-medium">
+              {strand}
+            </Text>
+            <Text className="text-white font-medium">
+              {avgConfidence}% / {avgAnxiety}%
+            </Text>
+          </View>
+          <View className="space-y-1">
+            <View className="h-2 bg-white/10 rounded-full overflow-hidden">
+              <View
+                className="h-full rounded-full bg-violet-500"
+                style={{
+                  width: `${avgConfidence}%`,
+                }}
+              />
+            </View>
+            <View className="h-2 bg-white/10 rounded-full overflow-hidden">
+              <View
+                className="h-full rounded-full bg-red-500"
+                style={{
+                  width: `${avgAnxiety}%`,
+                }}
+              />
+            </View>
           </View>
         </View>
+      ))}
+  </View>
+</View>
       </ScrollView>
 
       {/* Active Students Modal */}

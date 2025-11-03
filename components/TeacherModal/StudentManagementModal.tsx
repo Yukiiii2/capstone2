@@ -65,6 +65,8 @@ type FullAnalysisLevelRow = {
   created_at: string;
 };
 
+
+
 type FullAnalysisMetricsRow = {
   id: string;
   created_at: string;
@@ -77,6 +79,7 @@ type FullAnalysisMetricsRow = {
   metric_phrasing: number | null;
   metric_grammar: number | null;
 };
+
 
 /* ▼▼▼ NEW: Class-related types (non-breaking) ▼▼▼ */
 type ClassRow = {
@@ -675,27 +678,16 @@ const confidenceLevel = Math.max(
         );
 
         const skillMastery: Record<
-          string,
-          number
-        > = {
-          fluency: avg(fluencyArr),
-          clarity: avg(clarityArr),
-          filler_reduction: avg(
-            fillerArr
-          ),
-          wpm: avg(wpmPctArr),
-          accuracy: avg(
-            accuracyArr
-          ),
-          volume: avg(volumeArr),
-          phrasing: avg(
-            phrasingArr
-          ),
-          grammar: avg(
-            grammarArr
-          ),
-        };
-
+  string,
+  number
+> = {
+  speaking_pace: avg(wpmPctArr),      // formerly wpm
+  filler_words: avg(fillerArr),       // formerly filler_reduction
+  clarity_score: avg(clarityArr),     // formerly clarity
+  vocabulary_score: avg(phrasingArr),  // formerly phrasing
+  grammar_score: avg(grammarArr),      // formerly grammar
+  pause_score: avg(volumeArr)         // formerly volume
+};
         // final derived perf
         const derived: DerivedPerf = {
           ...(cached ??
