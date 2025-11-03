@@ -242,7 +242,7 @@ async function resolveResourceUrl(r: StorageResource): Promise<string | null> {
   }
 }
 
-// Online viewers (WebView can’t render PDFs natively on Android)
+// Online viewers (WebView can't render PDFs natively on Android)
 const GV = (u: string) => `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(u)}`;
 const OFFICE = (u: string) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(u)}`;
 
@@ -568,10 +568,12 @@ function QuizSection({
 
 function RecordingSection({
   moduleId,
+  moduleTitle, // NEW
   details,
   onBack,
 }: {
   moduleId: string;
+  moduleTitle: string; // NEW
   details: DetailRow;
   onBack: () => void;
 }) {
@@ -582,13 +584,48 @@ function RecordingSection({
   try {
     await saveProgressForClassModule(moduleId, FINAL_PROGRESS_PCT);
 
+    // Keep your three fields:
+    const lessonPrompt =
+      (details.task_instructions?.[0]?.trim()) ||
+      "List an instruction sentence so that the student states their name, grade level, and hobby.";
+
+    const topic = (moduleTitle || "").trim() || "Class Module Task";
+
+    const criteria =
+      (details.rubric?.map(r => r?.label).filter(Boolean).slice(0, 6).join(", ")) ||
+      "Clarity, Delivery, Organization";
+
+    // Build script ONLY from task_body + task_instructions (NO lessons)
+    const scriptLines: string[] = [];
+
+    if (details.task_body && String(details.task_body).trim()) {
+      scriptLines.push(String(details.task_body).trim());
+    }
+
+    if (Array.isArray(details.task_instructions) && details.task_instructions.length > 0) {
+      scriptLines.push(
+        ...details.task_instructions
+          .map(t => (t == null ? "" : String(t).trim()))
+          .filter(Boolean)
+      );
+    }
+
+    if (scriptLines.length === 0) {
+      // final fallback so screen still works
+      scriptLines.push(lessonPrompt);
+    }
+
+    const generatedScript = scriptLines.join("\n").slice(0, 4000);
+
     router.push({
       pathname: "/StudentScreen/SpeakingExercise/private-video-recording",
       params: {
-        lessonPrompt: (details.task_instructions || [])[0] || "Follow the task instructions shown.",
-        topic: "Class Module Task",
-        criteria: "See the rubric on the previous screen",
-        moduleId, // keep context if your recorder needs it
+        lessonPrompt,
+        topic,
+        criteria,
+        module_id: moduleId,
+        module_title: encodeURIComponent(topic),
+        generatedScript, // now tasks-only
       },
     });
   } catch (e) {
@@ -714,7 +751,7 @@ export default function ClassModuleScreen() {
     if (!previewRawUrl) return;
     const can = await Linking.canOpenURL(previewRawUrl);
     if (!can) {
-      Alert.alert("Can’t open", "No app can open this file link.");
+      Alert.alert("Can't open", "No app can open this file link.");
       return;
     }
     Linking.openURL(previewRawUrl);
@@ -754,7 +791,7 @@ export default function ClassModuleScreen() {
       }
     } catch (e) {
       console.warn("download error", e);
-      Alert.alert("Download error", "We couldn’t download this file.");
+      Alert.alert("Download error", "We couldn't download this file.");
     } finally {
       setDownloading(false);
       setDownloadPct(0);
@@ -792,7 +829,7 @@ export default function ClassModuleScreen() {
       setPreviewVisible(true);
     } catch (e) {
       console.warn("openResource error:", e, r);
-      Alert.alert("Preview error", "We couldn’t open this file.");
+      Alert.alert("Preview error", "We couldn't open this file.");
     } finally {
       setPreviewLoading(false);
     }
@@ -944,10 +981,10 @@ export default function ClassModuleScreen() {
         <StatusBar barStyle="light-content" />
         <Ionicons name="lock-closed-outline" size={28} color="#fff" />
         <Text className="text-white font-semibold text-lg mt-2 text-center">
-          You don’t have access to this module.
+          You don't have access to this module.
         </Text>
         <Text className="text-white/70 text-xs mt-1 text-center">
-          Make sure you’re enrolled in this class and the module is available.
+          Make sure you're enrolled in this class and the module is available.
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -1009,6 +1046,7 @@ export default function ClassModuleScreen() {
           {section === 2 && (
             <RecordingSection
               moduleId={cm.id}
+              moduleTitle={cm.title}   // NEW: so topic = module title
               details={details}
               onBack={() => setSection(1)}
             />

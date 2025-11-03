@@ -2,7 +2,7 @@
   "expo": {
     "name": "Voclaria",
     "slug": "Voclaria",
-    "scheme": "Voclaria",
+    "scheme": "voclaria",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/Speaksy.png",
