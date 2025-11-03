@@ -110,6 +110,26 @@ const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const QUIZ_PROGRESS_PCT = 50;
 const FINAL_PROGRESS_PCT = 100;
 
+/** Normalize quiz rows coming from DB (accepts `correct` or `correctAnswer`) */
+const normalizeQuiz = (raw: any[]): QuizQ[] =>
+  (raw || []).map((q: any, i: number) => {
+    // coerce options
+    const options = Array.isArray(q?.options) ? q.options.map(String) : [];
+    // accept zero- or one-based index; accept string/number
+    let idx = Number(q?.correct ?? q?.correctAnswer ?? 0);
+    if (!Number.isFinite(idx)) idx = 0;
+    // if someone stored 1-based, shift down into 0-based safely
+    if (idx >= 1 && idx <= options.length && !(q?.correct >= 0)) {
+      idx = idx - 1;
+    }
+    return {
+      id: q?.id ?? i + 1,
+      question: String(q?.question ?? ""),
+      options,
+      correct: Math.max(0, Math.min(options.length - 1, idx)),
+    };
+  });
+
 /** Save progress for this specific class module */
 async function saveProgressForClassModule(moduleId: string, percent: number) {
   const pct = clampPct(percent);
@@ -835,7 +855,7 @@ export default function ClassModuleScreen() {
           task_body: det?.task_body ?? "",
           task_instructions: det?.task_instructions ?? [],
           rubric: det?.rubric ?? [],
-          quiz: det?.quiz ?? [],
+          quiz: normalizeQuiz(det?.quiz ?? []),            // <-- normalized here
           resources: (det?.resources ?? []) as StorageResource[],
           updated_at: det?.updated_at ?? null,
         };
@@ -874,7 +894,7 @@ export default function ClassModuleScreen() {
             task_body: det?.task_body ?? "",
             task_instructions: det?.task_instructions ?? [],
             rubric: det?.rubric ?? [],
-            quiz: det?.quiz ?? [],
+            quiz: normalizeQuiz(det?.quiz ?? []),          // <-- normalized here too
             resources: (det?.resources ?? []) as StorageResource[],
             updated_at: det?.updated_at ?? null,
           };

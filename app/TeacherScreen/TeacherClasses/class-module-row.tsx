@@ -13,6 +13,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabaseClient";
 import ModuleRow, { ModuleRowProps } from "@/components/TeacherModal/ModuleRow";
 
+/* ✅ NEW: rows will hold ModuleRow data WITHOUT the handler functions */
+type ModuleRowListItem = Omit<
+  ModuleRowProps,
+  "onToggleAssign" | "onOpen" | "onOpenProgress"
+>;
+
 type Params = {
   classId?: string;
   className?: string;
@@ -41,7 +47,8 @@ export default function ClassModuleRowScreen() {
   const { classId, className, code, grade, strand } =
     useLocalSearchParams<Params>();
 
-  const [rows, setRows] = useState<ModuleRowProps[]>([]);
+  /* ✅ rows now store only data fields; handlers are added in render */
+  const [rows, setRows] = useState<ModuleRowListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -104,33 +111,60 @@ export default function ClassModuleRowScreen() {
     return map;
   }, []);
 
-  /** Normalize a class_modules row into ModuleRowProps. */
-  const normalize = useCallback(
-    (m: any, detail?: any, currentClassId?: string | number | null): ModuleRowProps => {
-      const updatedAt =
-        firstStr(m?.updated_at, m?.created_at, m?.due_at) &&
-        new Date(firstStr(m?.updated_at, m?.created_at, m?.due_at) as string).toLocaleDateString();
+  // 1) Update normalize to prefer the current page's strand when m.strand is NULL
+const normalize = useCallback(
+  (
+    m: any,
+    detail?: any,
+    currentClassId?: string | number | null
+  ): ModuleRowListItem => {
+    const updatedAt =
+      firstStr(m?.updated_at, m?.created_at, m?.due_at) &&
+      new Date(firstStr(m?.updated_at, m?.created_at, m?.due_at) as string).toLocaleDateString();
 
-      const lvl = (m?.grade_level ?? "11").toString();
-      const gradeLevel = (lvl === "12" ? "12" : "11") as "11" | "12";
+    const lvl = (m?.grade_level ?? "11").toString();
+    const gradeLevel = (lvl === "12" ? "12" : "11") as "11" | "12";
 
-      const attachmentsCount = Array.isArray(detail?.resources) ? detail.resources.length : 0;
-      const hasQuiz = Array.isArray(detail?.quiz) ? detail.quiz.length > 0 : false;
+    const attachmentsCount = Array.isArray(detail?.resources) ? detail.resources.length : 0;
+    const hasQuiz = Array.isArray(detail?.quiz) ? detail?.quiz.length > 0 : false;
 
-      return {
-        id: m.id,
-        title: m.title ?? "(Untitled module)",
-        status: "Published", // table has no status; keep UI happy
-        gradeLevel,
-        strand: (m?.strand ?? "ALL") as ModuleRowProps["strand"],
-        updatedAt,
-        attachmentsCount,
-        hasQuiz,
-        assigned: String(m?.class_id ?? "") === String(currentClassId ?? ""),
-      };
-    },
-    []
-  );
+    // 🔁 Derive status from whether it's assigned to THIS class
+    const isAssignedToThisClass = String(m?.class_id ?? "") === String(currentClassId ?? "");
+    const status: ModuleRowProps["status"] = isAssignedToThisClass ? "Published" : "Draft";
+
+    // 👇 Display strand logic:
+    // If DB strand is NULL (global), show the current page strand (if specific),
+    // otherwise fall back to "ALL".
+    const rawDbStrand = (m?.strand ?? null) as string | null;
+    const pageStrand = (typeof strand === "string" ? strand : undefined) as
+      | "ABM"
+      | "STEM"
+      | "HUMSS"
+      | "GAS"
+      | "TVL"
+      | "ALL"
+      | undefined;
+
+    const displayStrand =
+      (rawDbStrand as any) ??
+      (pageStrand && pageStrand !== "ALL" ? pageStrand : "ALL");
+
+    return {
+      id: m.id,
+      title: m.title ?? "(Untitled module)",
+      status,
+      gradeLevel,
+      strand: displayStrand as ModuleRowProps["strand"],
+      updatedAt,
+      attachmentsCount,
+      hasQuiz,
+      assigned: isAssignedToThisClass,
+    };
+  },
+  // 2) Add `strand` to the dependencies so changes reflect immediately
+  [strand]
+);
+
 
   const fetchRows = useCallback(async () => {
     if (!classId) return;
@@ -151,7 +185,9 @@ export default function ClassModuleRowScreen() {
     let modules = Array.from(byId.values());
 
     // 4) Pull details for all modules we’re showing
-    const detailsMap = await fetchDetailsByModuleIds(modules.map((m: any) => m.id));
+    const detailsMap = await fetchDetailsByModuleIds(
+      modules.map((m: any) => m.id)
+    );
 
     // 5) Filters from query
     if (grade) {
@@ -160,24 +196,36 @@ export default function ClassModuleRowScreen() {
       );
     }
     if (strand && strand !== "ALL") {
-      modules = modules.filter(
-        (m: any) => String(m?.strand ?? "") === String(strand)
-      );
+      const s = String(strand);
+      modules = modules.filter((m: any) => {
+        const ms = m?.strand == null ? null : String(m.strand);
+        // include specific-strand matches OR "ALL strands" (NULL)
+        return ms === null || ms === s;
+      });
     }
 
     // 6) Sort latest first
     modules.sort(
-      (a: any, b: any) => toMs(b?.created_at ?? b?.due_at) - toMs(a?.created_at ?? a?.due_at)
+      (a: any, b: any) =>
+        toMs(b?.created_at ?? b?.due_at) - toMs(a?.created_at ?? a?.due_at)
     );
 
     // 7) Map to UI rows (now including counts)
-    const mapped: ModuleRowProps[] = modules.map((m: any) =>
+    const mapped: ModuleRowListItem[] = modules.map((m: any) =>
       normalize(m, detailsMap.get(m.id), classId)
     );
 
     setRows(mapped);
     setLoading(false);
-  }, [classId, grade, strand, fetchAssignedModules, fetchTeacherUnassigned, fetchDetailsByModuleIds, normalize]);
+  }, [
+    classId,
+    grade,
+    strand,
+    fetchAssignedModules,
+    fetchTeacherUnassigned,
+    fetchDetailsByModuleIds,
+    normalize,
+  ]);
 
   useEffect(() => {
     fetchRows();
@@ -232,6 +280,37 @@ export default function ClassModuleRowScreen() {
     fetchRows();
   };
 
+  /* ✅ ADDED: navigate to editor/preview for a module (no UI changes) */
+  const handleOpenModule = useCallback(
+    (moduleId: string) => {
+      router.push({
+        pathname: "/TeacherScreen/TeacherClasses/module-editor",
+        params: {
+          moduleId,
+          classId: String(classId ?? ""),
+          className: String(className ?? ""),
+        },
+      });
+    },
+    [router, classId, className]
+  );
+
+  /* ✅ ADDED: navigate to per-module progress (no UI changes here) */
+  const handleOpenModuleProgress = useCallback(
+    (moduleId: string, moduleTitle?: string) => {
+      router.push({
+        pathname: "/TeacherScreen/TeacherClasses/class-module-progress",
+        params: {
+          classId: String(classId ?? ""),
+          className: String(className ?? ""),
+          moduleId,
+          moduleTitle: moduleTitle ?? "",
+        },
+      });
+    },
+    [router, classId, className]
+  );
+
   return (
     <View className="flex-1 bg-[#0F172A]">
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
@@ -275,7 +354,13 @@ export default function ClassModuleRowScreen() {
           </Text>
         ) : (
           rows.map((m) => (
-            <ModuleRow key={m.id} {...m} onToggleAssign={handleToggleAssign} />
+            <ModuleRow
+              key={m.id}
+              {...m}
+              onToggleAssign={handleToggleAssign}
+              onOpen={handleOpenModule}
+              onOpenProgress={handleOpenModuleProgress}
+            />
           ))
         )}
       </ScrollView>

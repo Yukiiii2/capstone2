@@ -16,11 +16,10 @@ import {
   StatusBar,
   Dimensions,
   Image,
-  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import NavigationBar from "@/components/NavigationBar/nav-bar-teacher";
-import StrandGradeModal from "@/components/TeacherModal/StrandGradeModal";
+// import StrandGradeModal from "@/components/TeacherModal/StrandGradeModal"; // ❌ REMOVED
 import TotalStudentModal from "@/components/TeacherModal/TotalStudentModal";
 import ActiveStudentModal from "@/components/TeacherModal/ActiveStudentModal";
 import StudentManagementModal from "@/components/TeacherModal/StudentManagementModal";
@@ -98,11 +97,9 @@ async function resolveSignedAvatar(userId: string, storedPath?: string | null) {
   const normalized = stored.replace(/^avatars\//, "");
   let objectPath: string | null = null;
 
-  // if it already looks like "folder/file.jpg"
   if (/\.[a-zA-Z0-9]+$/.test(normalized)) {
     objectPath = normalized;
   } else {
-    // otherwise list latest inside "avatars/{id}/"
     const { data: listed, error } = await supabase.storage
       .from("avatars")
       .list(normalized, {
@@ -173,10 +170,7 @@ function mergeProgressIntoStudents(base: Student[], rows: ProgressRow[]): Studen
     const done = sc + rc;
     const progress =
       total > 0
-        ? Math.max(
-            0,
-            Math.min(100, Math.round((done / total) * 100))
-          )
+        ? Math.max(0, Math.min(100, Math.round((done / total) * 100)))
         : 0;
 
     return {
@@ -282,11 +276,6 @@ const MetricCard = ({
               style={{
                 width: `${progress}%`,
                 backgroundColor: "#8b5cf6",
-                shadowColor: "#8b5cf6",
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.5,
-                shadowRadius: 10,
-                elevation: 5,
               }}
             />
           </View>
@@ -349,13 +338,7 @@ const StudentCard = ({ student, rank }: { student: Student; rank?: number }) => 
             }`}
           >
             <Ionicons
-              name={
-                rank === 1
-                  ? "trophy"
-                  : rank === 2
-                  ? "medal"
-                  : "ribbon"
-              }
+              name={rank === 1 ? "trophy" : rank === 2 ? "medal" : "ribbon"}
               size={16}
               color="#FFFFFF"
             />
@@ -390,12 +373,12 @@ const StudentCard = ({ student, rank }: { student: Student; rank?: number }) => 
    ──────────────────────────────────────────────────────────────────── */
 export default function TeacherDashboard() {
   // Modal / UI state
-  const [isStrandModalVisible, setIsStrandModalVisible] = useState(false);
+  // const [isStrandModalVisible, setIsStrandModalVisible] = useState(false); // ❌ REMOVED
   const [isStudentModalVisible, setIsStudentModalVisible] = useState(false);
-  const [selectedGrade11Strand, setSelectedGrade11Strand] = useState<string | null>(null);
-  const [selectedGrade12Strand, setSelectedGrade12Strand] = useState<string | null>(null);
-  const [selectedStrand, setSelectedStrand] = useState<string | null>(null);
-  const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
+  const [selectedGrade11Strand, setSelectedGrade11Strand] = useState<string | null>(null); // (kept for structure)
+  const [selectedGrade12Strand, setSelectedGrade12Strand] = useState<string | null>(null); // (kept for structure)
+  const [selectedStrand, setSelectedStrand] = useState<string | null>(null); // (kept for structure)
+  const [selectedGrade, setSelectedGrade] = useState<string | null>(null);   // (kept for structure)
   const [isActiveStudentsModalVisible, setIsActiveStudentsModalVisible] =
     useState(false);
   const [isProfileMenuVisible, setIsProfileMenuVisible] = useState(false);
@@ -440,9 +423,9 @@ export default function TeacherDashboard() {
     router.push("/ButtonIcon/post-module");
   };
 
-  // Filtered list for StudentManagementModal
+  // ⬇️ CHANGED: when no grade/strand selection, default to ALL students
   const filteredStudents = useMemo(() => {
-    if (!selectedGrade || !selectedStrand) return [];
+    if (!selectedGrade || !selectedStrand) return students;
     return students.filter(
       (student) =>
         student.grade === selectedGrade && student.strand === selectedStrand
@@ -501,10 +484,11 @@ export default function TeacherDashboard() {
     setIsActiveStudentsModalVisible(true);
   };
 
+  // ❌ Strand picker flow removed. Keep function stub for structure (unused).
   const handleSelectStrand = (grade: "11" | "12", strand: string) => {
     setSelectedGrade(grade);
     setSelectedStrand(strand);
-    setIsStrandModalVisible(false);
+    // setIsStrandModalVisible(false);
     setIsStudentModalVisible(true);
   };
 
@@ -584,7 +568,6 @@ export default function TeacherDashboard() {
     if (!teacherId) return;
 
     try {
-      // 1. fetch teacher_students rows
       const { data: rows, error: rErr } = await supabase
         .from(TEACHER_STUDENTS)
         .select(
@@ -599,7 +582,6 @@ export default function TeacherDashboard() {
         return;
       }
 
-      // 2. fetch matching profiles
       const ids = Array.from(new Set(list.map((r) => r.student_id)));
       const { data: profs, error: pErr } = await supabase
         .from("profiles")
@@ -611,7 +593,6 @@ export default function TeacherDashboard() {
         ((profs as ProfileRow[]) ?? []).map((p) => [p.id, p])
       );
 
-      // 3. base map to Student[]
       const mapped: Student[] = list.map((r) => {
         const p = byId.get(r.student_id);
         const name = (p?.name || "Unknown Student").trim();
@@ -633,7 +614,6 @@ export default function TeacherDashboard() {
         };
       });
 
-      // 4. merge progress table data
       let merged = mapped;
       try {
         const { data: progRows, error: progErr } = await supabase
@@ -657,7 +637,6 @@ export default function TeacherDashboard() {
     }
   }, []);
 
-  // bootstrap + teacher_students realtime
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -695,7 +674,6 @@ export default function TeacherDashboard() {
     };
   }, [loadRoster]);
 
-  // subscribe to student_progress changes for current roster
   useEffect(() => {
     const uid = teacherIdRef.current;
     if (!uid) return;
@@ -838,52 +816,6 @@ export default function TeacherDashboard() {
           </Text>
         </View>
 
-        {/* Class Code Card */}
-        <View className="w-full mb-4">
-          <View
-            className="p-4 rounded-2xl overflow-hidden"
-            style={{
-              backgroundColor: "rgba(155, 146, 146, 0.1)",
-              borderWidth: 1,
-              borderColor: "rgba(255, 255, 255, 0.15)",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.1,
-              shadowRadius: 15,
-            }}
-          >
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center">
-                <View>
-                  <Text className="text-white font-bold text-lg">
-                    Class Code
-                  </Text>
-                  <Text className="text-gray-400 text-xs">
-                    Share this code with students
-                  </Text>
-                </View>
-              </View>
-
-              <View className="flex-row items-center bg-white/10 px-3 py-2 rounded-xl">
-                <Text className="text-white font-bold text-lg mr-2">
-                  FVWYQN
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    Alert.alert("Copied!", "Class code copied to clipboard");
-                  }}
-                >
-                  <Ionicons
-                    name="copy-outline"
-                    size={18}
-                    color="#FFFFFF"
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </View>
-
         {/* Metrics Grid */}
         <View className="flex-row flex-wrap justify-between mb-1">
           {/* Total Students */}
@@ -918,7 +850,6 @@ export default function TeacherDashboard() {
                 />
               }
               trend={{ value: 8, isPositive: true }}
-              // removed progress prop here so no bar renders
               onPress={handleActiveStudentsPress}
             />
           </View>
@@ -952,8 +883,14 @@ export default function TeacherDashboard() {
               </Text>
             </View>
 
+            {/* ⬇️ CHANGED: open StudentManagementModal directly */}
             <TouchableOpacity
-              onPress={() => setIsStrandModalVisible(true)}
+              onPress={() => {
+                // Default to all students; you can prefill grade/strand if you want
+                setSelectedGrade(null);
+                setSelectedStrand(null);
+                setIsStudentModalVisible(true);
+              }}
               className="bg-violet-600 py-3 bottom-2 w-full rounded-xl flex-row items-center justify-center space-x-2"
               activeOpacity={0.9}
             >
@@ -1061,18 +998,8 @@ export default function TeacherDashboard() {
         students={activeStudents}
       />
 
-      {/* Strand & Grade Picker Modal */}
-      <StrandGradeModal
-        visible={isStrandModalVisible}
-        onClose={() => {
-          setSelectedGrade11Strand(null);
-          setSelectedGrade12Strand(null);
-          setIsStrandModalVisible(false);
-        }}
-        selectedGrade11Strand={selectedGrade11Strand}
-        selectedGrade12Strand={selectedGrade12Strand}
-        onSelectStrand={handleSelectStrand}
-      />
+      {/* ❌ Strand & Grade Picker Modal REMOVED */}
+      {/* <StrandGradeModal ... /> */}
 
       {/* Student Management Modal */}
       <StudentManagementModal
@@ -1086,7 +1013,6 @@ export default function TeacherDashboard() {
         grade={selectedGrade || ""}
         strand={selectedStrand || ""}
         onStudentsUpdate={(updatedStudents) => {
-          // integrate edits back into main list
           setStudents((prev) => {
             const map = new Map(prev.map((s) => [s.id, s]));
             for (const upd of updatedStudents) {

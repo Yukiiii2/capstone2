@@ -78,6 +78,16 @@ type FullAnalysisMetricsRow = {
   metric_grammar: number | null;
 };
 
+/* ▼▼▼ NEW: Class-related types (non-breaking) ▼▼▼ */
+type ClassRow = {
+  id: string;
+  name: string | null;
+  grade_level: string | null;
+  strand: string | null;
+  class_code?: string | null;
+};
+/* ▲▲▲ NEW ▲▲▲ */
+
 /* ──────────────────────────────────────────────
    Component props
    ────────────────────────────────────────────── */
@@ -189,6 +199,13 @@ const StudentManagementModal: React.FC<
         initialFilter.strand ??
         null
     );
+
+  /* ▼▼▼ NEW: Class dropdown state (non-breaking) ▼▼▼ */
+  const [classes, setClasses] = useState<ClassRow[]>([]);
+  const [studentClassMap, setStudentClassMap] = useState<Record<string, string[]>>({});
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [showClassDropdown, setShowClassDropdown] = useState(false);
+  /* ▲▲▲ NEW ▲▲▲ */
 
   // effective "roster": live from supabase if we have it, else dashboard prop
   const allStudents: Student[] =
@@ -702,6 +719,60 @@ const confidenceLevel = Math.max(
   );
 
   /* ─────────────────────────────
+     ▼▼▼ NEW: classes + membership fetch (non-breaking) ▼▼▼
+     ───────────────────────────── */
+  useEffect(() => {
+    if (!teacherId || !visible) return;
+    (async () => {
+      // 1) Teacher's classes
+      const { data: cls, error: clsErr } = await supabase
+        .from("classes")
+        .select("id, name, grade_level, strand, class_code")
+        .eq("teacher_id", teacherId);
+
+      if (clsErr) {
+        console.warn("classes error:", clsErr);
+        setClasses([]);
+        setStudentClassMap({});
+        return;
+      }
+
+      const classRows = (cls ?? []) as ClassRow[];
+      setClasses(classRows);
+
+      if (!classRows.length) {
+        setStudentClassMap({});
+        return;
+      }
+
+      const classIds = classRows.map(c => c.id);
+
+      // 2) Enrollments for those classes
+      const { data: enr, error: enrErr } = await supabase
+        .from("class_enrollments")
+        .select("class_id, student_id, status")
+        .in("class_id", classIds);
+
+      if (enrErr) {
+        console.warn("class_enrollments error:", enrErr);
+        setStudentClassMap({});
+        return;
+      }
+
+      // 3) Build student -> [class_id[]] map (active only)
+      const map: Record<string, string[]> = {};
+      for (const r of (enr ?? []) as Array<{class_id: string; student_id: string; status?: string}>) {
+        if (!r.student_id || !r.class_id) continue;
+        if (r.status && r.status !== "active") continue;
+        if (!map[r.student_id]) map[r.student_id] = [];
+        map[r.student_id].push(r.class_id);
+      }
+      setStudentClassMap(map);
+    })();
+  }, [teacherId, visible]);
+  /* ▲▲▲ NEW ▲▲▲ */
+
+  /* ─────────────────────────────
      student list filtering logic
      ───────────────────────────── */
   const filteredStudents = useMemo(() => {
@@ -732,10 +803,16 @@ const confidenceLevel = Math.max(
         student.strand ===
           selectedStrandFilter;
 
+      // ▼▼▼ NEW: class filter (uses class_enrollments map, by class_id) ▼▼▼
+      const inSelectedClass =
+        !selectedClassId ||
+        (studentClassMap[student.id]?.includes(selectedClassId) ?? false);
+
       return (
         matchesSearch &&
         matchesGrade &&
-        matchesStrand
+        matchesStrand &&
+        inSelectedClass
       );
     });
   }, [
@@ -743,6 +820,8 @@ const confidenceLevel = Math.max(
     searchQuery,
     selectedGradeFilter,
     selectedStrandFilter,
+    selectedClassId,           // NEW
+    studentClassMap            // NEW
   ]);
 
   /* ─────────────────────────────
@@ -1378,6 +1457,73 @@ const confidenceLevel = Math.max(
               onChangeText={setSearchQuery}
             />
           </View>
+
+          {/* ▼▼▼ NEW: Class Dropdown (same width as search bar) ▼▼▼ */}
+          <View className="relative mb-4">
+            <TouchableOpacity
+              onPress={() => setShowClassDropdown((s) => !s)}
+              activeOpacity={0.8}
+              className="flex-row items-center bg-white/10 border border-white/20 rounded-xl px-3 h-10"
+            >
+              <Ionicons name="school-outline" size={18} color="#6B7280" />
+              <Text className="text-white ml-2 flex-1" numberOfLines={1}>
+                {selectedClassId
+                  ? (() => {
+                      const c = classes.find(
+                        (x) => x.id === selectedClassId
+                      );
+                      const label = c?.name || c?.class_code || "Class";
+                      const meta =
+                        (c?.grade_level ? `Grade ${c.grade_level}` : "") +
+                        (c?.strand ? (c?.grade_level ? " • " : "") + c.strand : "");
+                      return meta ? `${label} — ${meta}` : label;
+                    })()
+                  : "Select a class"}
+              </Text>
+              <Ionicons
+                name={showClassDropdown ? "chevron-up" : "chevron-down"}
+                size={18}
+                color="#cbd5e1"
+              />
+            </TouchableOpacity>
+
+            {showClassDropdown && (
+              <View className="absolute z-10 w-full mt-2 bg-[#2A3142] border border-white/10 rounded-lg max-h-64">
+                <ScrollView>
+                  <TouchableOpacity
+                    className="px-4 py-2 border-b border-white/10"
+                    onPress={() => {
+                      setSelectedClassId(null);
+                      setShowClassDropdown(false);
+                    }}
+                  >
+                    <Text className="text-white/80">All classes</Text>
+                  </TouchableOpacity>
+
+                  {classes.map((c) => {
+                    const meta =
+                      (c.grade_level ? `Grade ${c.grade_level}` : "") +
+                      (c.strand ? (c.grade_level ? " • " : "") + c.strand : "");
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        className="px-4 py-2 border-b border-white/10"
+                        onPress={() => {
+                          setSelectedClassId(c.id); // use canonical class_id for filtering
+                          setShowClassDropdown(false);
+                        }}
+                      >
+                        <Text className="text-white">
+                          {(c.name || c.class_code || "Class") + (meta ? ` — ${meta}` : "")}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+          {/* ▲▲▲ NEW ▲▲▲ */}
 
           {/* Student List */}
           <ScrollView className="flex-1">

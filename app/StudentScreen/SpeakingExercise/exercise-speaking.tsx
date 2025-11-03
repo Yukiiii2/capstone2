@@ -511,7 +511,7 @@ const SpeakingHome = () => {
         activeOpacity={0.7}
       >
         <Text className="font-semibold text-center text-base text-white">
-          Start Module
+          {mod.label === "CLASS MODULE" ? "Start Lesson" : "Start Module"}
         </Text>
       </TouchableOpacity>
     </View>

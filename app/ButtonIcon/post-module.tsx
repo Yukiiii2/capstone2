@@ -1,3 +1,4 @@
+// app/StudentScreen/SpeakingExercise/class-module-post/PostModule.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -8,7 +9,7 @@ import {
   Alert,
   Dimensions,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router"; // <-- EDIT: read params
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as DocumentPicker from "expo-document-picker";
@@ -50,8 +51,11 @@ interface ModuleData {
   // Targeting
   grade: number | null; // 11 or 12
   strand: string | null; // "ALL" | "ABM" | "STEM" | "HUMSS" | "GAS" | "TVL" | null
-  classId: string | null; // which class to assign to
+  classId: string | null; // kept for backward-compat / single-select fallback
   category: "SPEAKING" | "READING" | null; // module type
+
+  // NEW: multi-select classes
+  classIds: string[]; // selected classes (supports 1..N)
 
   // Module Info
   title: string;
@@ -97,6 +101,11 @@ export default function PostModule() {
   const router = useRouter();
   const { width } = Dimensions.get("window");
 
+  // EDIT: read params and compute edit mode
+  const params = useLocalSearchParams<{ mode?: string; moduleId?: string }>();
+  const isEdit = params?.mode === "edit" && !!params?.moduleId;
+  const existingModuleId = params?.moduleId ? String(params.moduleId) : null;
+
   // wizard page step
   const [step, setStep] = useState(1);
 
@@ -125,6 +134,9 @@ export default function PostModule() {
     strand: null,
     classId: null,
     category: null,
+
+    // NEW: multi-select store
+    classIds: [],
 
     title: "",
     description: "",
@@ -239,6 +251,72 @@ export default function PostModule() {
       cancelled = true;
     };
   }, [teacherId]);
+
+  // EDIT: Prefill when in edit mode
+  useEffect(() => {
+    if (!isEdit || !existingModuleId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // fetch header (include module_type + class_id)
+        const { data: h, error: hErr } = await supabase
+          .from("class_modules")
+          .select(
+            "id, title, body, grade_level, strand, class_id, teacher_id, module_type, due_at"
+          )
+          .eq("id", existingModuleId)
+          .limit(1)
+          .single();
+
+        if (hErr || !h) throw hErr || new Error("Module not found");
+
+        // fetch details (maybeSingle)
+        const { data: d, error: dErr } = await supabase
+          .from("class_module_details")
+          .select("*")
+          .eq("module_id", existingModuleId)
+          .limit(1)
+          .maybeSingle();
+
+        if (dErr) throw dErr;
+
+        if (cancelled) return;
+
+        setModuleData((prev) => ({
+          ...prev,
+          grade: h?.grade_level != null ? Number(h.grade_level) : null,
+          strand: h?.strand ? normalizeStrand(String(h.strand)) : "ALL",
+          classId: h?.class_id ? String(h.class_id) : null,
+          classIds: h?.class_id ? [String(h.class_id)] : [],
+          category: h?.module_type ? String(h.module_type).toUpperCase() as "SPEAKING" | "READING" : null,
+          title: h?.title ?? "",
+          description: h?.body ?? "",
+          lessons: d?.lessons && Array.isArray(d.lessons) ? d.lessons : [""],
+          importance: d?.importance && Array.isArray(d.importance) ? d.importance : [""],
+          tips: d?.tips && Array.isArray(d.tips) ? d.tips : [""],
+          taskBody: d?.task_body ?? "",
+          taskInstructions:
+            d?.task_instructions && Array.isArray(d.task_instructions)
+              ? d.task_instructions
+              : [""],
+          rubric: d?.rubric && Array.isArray(d.rubric) ? d.rubric : [],
+          quiz: d?.quiz && Array.isArray(d.quiz) ? d.quiz : [
+            { question: "", options: ["", "", "", ""], correctAnswer: 0 },
+            { question: "", options: ["", "", "", ""], correctAnswer: 0 },
+          ],
+          resources: d?.resources && Array.isArray(d.resources) ? d.resources : [],
+        }));
+      } catch (e) {
+        console.warn("[PostModule] prefill error", e);
+        Alert.alert("Error", "Could not load module for editing.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, existingModuleId]);
 
   // small helper for step indicator pills
   const getStepIndicatorStyle = (currentStep: number, s: number) =>
@@ -482,10 +560,14 @@ export default function PostModule() {
         Alert.alert("Selection Required", "Please select a target strand (or All Strands)");
         return false;
       }
-      if (!moduleData.classId) {
-        Alert.alert("Selection Required", "Please choose a class to assign this module to");
+
+      // updated: require at least one class in multi-select
+      const selectedCount = moduleData.classIds.length || (moduleData.classId ? 1 : 0);
+      if (!isEdit && selectedCount === 0) { // In edit, we allow existing class to persist even if pills not toggled
+        Alert.alert("Selection Required", "Please choose at least one class to assign this module to");
         return false;
       }
+
       if (!moduleData.category) {
         Alert.alert("Selection Required", "Please select if this is for Speaking or Reading");
         return false;
@@ -568,9 +650,25 @@ export default function PostModule() {
     setStep((prev) => prev - 1);
   };
 
+  // ---------------- helpers (class selection) ----------------
+
+  const toggleClassSelection = (id: string) => {
+    setModuleData((prev) => {
+      const exists = prev.classIds.includes(id);
+      const nextIds = exists
+        ? prev.classIds.filter((x) => x !== id)
+        : [...prev.classIds, id];
+
+      // keep classId in sync for backward-compat (first selected)
+      const nextClassId = nextIds[0] ?? null;
+
+      return { ...prev, classIds: nextIds, classId: nextClassId };
+    });
+  };
+
   // ---------------- submit logic ----------------
   //
-  // Adds: class_id, category to class_modules
+  // If multiple classes selected (including ALL), create one row per class.
   //
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -580,8 +678,86 @@ export default function PostModule() {
       return;
     }
 
-    if (!moduleData.grade || !moduleData.strand || !moduleData.classId || !moduleData.category) {
-      Alert.alert("Missing Target", "Please complete Grade/Strand/Class/Type in Step 1.");
+    if (!moduleData.grade || !moduleData.strand || !moduleData.category) {
+      Alert.alert("Missing Target", "Please complete Grade/Strand/Type in Step 1.");
+      return;
+    }
+
+    // EDIT PATH: update the single existing module row
+    if (isEdit && existingModuleId) {
+      try {
+        setIsSubmitting(true);
+
+        // determine single class_id to keep (first selected or existing)
+        let nextClassId: string | null =
+          moduleData.classIds[0] ??
+          moduleData.classId ??
+          null;
+
+        // update header
+        const { error: hErr } = await supabase
+          .from("class_modules")
+          .update({
+            title: moduleData.title.trim(),
+            body: moduleData.description.trim(),
+            grade_level: String(moduleData.grade),
+            strand: moduleData.strand === "ALL" ? null : moduleData.strand,
+            class_id: nextClassId,
+            module_type: moduleData.category,
+          })
+          .eq("id", existingModuleId);
+
+        if (hErr) throw hErr;
+
+        // upsert details
+        const detailsRow = {
+          module_id: existingModuleId,
+          lessons: moduleData.lessons,
+          importance: moduleData.importance,
+          tips: moduleData.tips,
+          task_body: moduleData.taskBody,
+          task_instructions: moduleData.taskInstructions,
+          rubric: moduleData.rubric,
+          quiz: moduleData.quiz,
+          resources: moduleData.resources,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error: dErr } = await supabase
+          .from("class_module_details")
+          .upsert(detailsRow, { onConflict: "module_id" });
+
+        if (dErr) throw dErr;
+
+        Alert.alert("Saved", "Module updated successfully.", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+      } catch (e) {
+        console.warn("[PostModule] edit submit error", e);
+        Alert.alert("Error", "Something went wrong updating this module.");
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // CREATE PATH (original)
+    // Resolve target class IDs:
+    // - If specific selections exist, use them;
+    // - If strand === "ALL" and none selected, auto-assign all classes of the teacher at this grade.
+    let targetClassIds = [...moduleData.classIds];
+    if (moduleData.strand === "ALL" && targetClassIds.length === 0) {
+      targetClassIds = classes
+        .filter((c) => Number(c.grade_level) === Number(moduleData.grade))
+        .map((c) => c.id);
+    }
+    // Fallback to single classId if provided and not already in list
+    if (moduleData.classId && !targetClassIds.includes(moduleData.classId)) {
+      targetClassIds.push(moduleData.classId);
+    }
+
+    if (targetClassIds.length === 0) {
+      Alert.alert("Missing Class", "Please select at least one class for this module.");
       return;
     }
 
@@ -597,88 +773,87 @@ export default function PostModule() {
 
     setIsSubmitting(true);
 
-   // inside handleSubmit(), in moduleRow:
-const moduleRow = {
-  teacher_id: teacherId,
-  title: moduleData.title.trim(),
-  body: moduleData.description.trim(),
-  resource_url: null,
-  due_at: null,
-  grade_level: String(moduleData.grade),
-  strand: moduleData.strand === "ALL" ? null : moduleData.strand,
-  class_id: moduleData.classId,
+    // Build details payload once
+    const detailsPayload = {
+      lessons: moduleData.lessons,
+      importance: moduleData.importance,
+      tips: moduleData.tips,
+      task_body: moduleData.taskBody,
+      task_instructions: moduleData.taskInstructions,
+      rubric: moduleData.rubric,
+      quiz: moduleData.quiz,
+      resources: moduleData.resources,
+    };
 
-  // ⬇️ CHANGE THIS LINE
-  module_type: moduleData.category, // map UI "category" to DB "module_type"
-  // category: moduleData.category,  // ⬅️ remove this (no such column in table)
-};
-
-
-    let createdModuleId: string | null = null;
+    const createdIds: string[] = [];
 
     try {
-      const { data: insertedModules, error: insertHeaderErr } = await supabase
-        .from("class_modules")
-        .insert([moduleRow])
-        .select("id")
-        .limit(1)
-        .single();
+      // Insert one header+details per target class
+      for (const class_id of targetClassIds) {
+        const moduleRow = {
+          teacher_id: teacherId,
+          title: moduleData.title.trim(),
+          body: moduleData.description.trim(),
+          resource_url: null,
+          due_at: null,
+          grade_level: String(moduleData.grade),
+          // If 'ALL' we store null (your original behavior), otherwise specific strand
+          strand: moduleData.strand === "ALL" ? null : moduleData.strand,
+          class_id,
+          module_type: moduleData.category, // map UI "category" to DB "module_type"
 
-      if (insertHeaderErr) {
-        console.warn("[PostModule] insert class_modules error", insertHeaderErr);
-        Alert.alert("Error", "Could not create module. Please try again.");
-        setIsSubmitting(false);
-        return;
-      }
+          // NEW: visibility lifecycle (no UI changes here)
+          status: "draft",
+            // or "PUBLISHED" if you want it visible immediately
+          published_at: null,         // set a Date when you publish
+          archived_at: null,          // set a Date when you archive
+        };
 
-      createdModuleId = insertedModules?.id;
+        const { data: inserted, error: insertHeaderErr } = await supabase
+          .from("class_modules")
+          .insert([moduleRow])
+          .select("id")
+          .limit(1)
+          .single();
 
-      if (!createdModuleId) {
-        console.warn("[PostModule] no module id returned");
-        Alert.alert("Error", "Module was created but we couldn't read its ID.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const detailsRow = {
-        module_id: createdModuleId,
-        lessons: moduleData.lessons,
-        importance: moduleData.importance,
-        tips: moduleData.tips,
-        task_body: moduleData.taskBody,
-        task_instructions: moduleData.taskInstructions,
-        rubric: moduleData.rubric,
-        quiz: moduleData.quiz,
-        resources: moduleData.resources,
-      };
-
-      const { error: insertDetailsErr } = await supabase
-        .from("class_module_details")
-        .insert([detailsRow]);
-
-      if (insertDetailsErr) {
-        console.warn("[PostModule] insert class_module_details error", insertDetailsErr);
-        if (createdModuleId) {
-          await supabase.from("class_modules").delete().eq("id", createdModuleId);
+        if (insertHeaderErr || !inserted?.id) {
+          throw insertHeaderErr || new Error("Insert class_modules failed");
         }
-        Alert.alert("Error", "Module header saved but details failed. Please try again.");
-        setIsSubmitting(false);
-        return;
+
+        createdIds.push(inserted.id);
+
+        const detailsRow = {
+          module_id: inserted.id,
+          ...detailsPayload,
+        };
+
+        const { error: insertDetailsErr } = await supabase
+          .from("class_module_details")
+          .insert([detailsRow]);
+
+        if (insertDetailsErr) {
+          throw insertDetailsErr;
+        }
       }
 
-      Alert.alert("Success", "Module created successfully!", [
-        {
-          text: "OK",
-          onPress: () => {
-            setIsSubmitting(false);
-            router.back();
+      Alert.alert(
+        "Success",
+        `Module created for ${createdIds.length} class${createdIds.length > 1 ? "es" : ""}!`,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setIsSubmitting(false);
+              router.back();
+            },
           },
-        },
-      ]);
+        ]
+      );
     } catch (e) {
       console.warn("[PostModule] submit exception", e);
-      if (createdModuleId) {
-        await supabase.from("class_modules").delete().eq("id", createdModuleId);
+      // rollback any created headers
+      if (createdIds.length) {
+        await supabase.from("class_modules").delete().in("id", createdIds);
       }
       Alert.alert("Error", "Something went wrong saving this module.");
       setIsSubmitting(false);
@@ -691,15 +866,23 @@ const moduleRow = {
     switch (step) {
       // STEP 1: Target (grade + strand + class + category)
       case 1:
-        // optional filtering: show only classes matching selected grade/strand (or ALL)
+        // filtering:
+        // - If 'ALL': only by grade (strand ignored)
+        // - Else: by grade + strand
         const filteredClasses = classes.filter((c) => {
           const gradeOk = moduleData.grade ? Number(c.grade_level) === Number(moduleData.grade) : true;
-          const strandOk =
-            !moduleData.strand || moduleData.strand === "ALL"
-              ? true
-              : normalizeStrand(String(c.strand || "")) === moduleData.strand;
-          return gradeOk && strandOk;
+          if (!gradeOk) return false;
+
+          if (moduleData.strand === "ALL") return true;
+
+          const targetStrand = moduleData.strand ? normalizeStrand(moduleData.strand) : null;
+          const classStrand = c.strand ? normalizeStrand(String(c.strand)) : null;
+          return !targetStrand || targetStrand === classStrand;
         });
+
+        // Helper: selected state (multi)
+        const isSelected = (id: string) =>
+          moduleData.classIds.includes(id) || moduleData.classId === id;
 
         return (
           <View className="space-y-8">
@@ -729,8 +912,9 @@ const moduleRow = {
                     }`}
                     onPress={() => {
                       handleInputChange("grade", g);
-                      // reset class selection if it no longer matches
-                      if (moduleData.classId) handleInputChange("classId", null);
+                      // reset class selections when grade changes
+                      handleInputChange("classIds", []);
+                      handleInputChange("classId", null);
                     }}
                   >
                     <Text
@@ -780,8 +964,9 @@ const moduleRow = {
                       key={opt.value}
                       onPress={() => {
                         handleInputChange("strand", opt.value === "ALL" ? "ALL" : normalizeStrand(opt.value));
-                        // reset class if no longer matches
-                        if (moduleData.classId) handleInputChange("classId", null);
+                        // reset class selections when strand changes
+                        handleInputChange("classIds", []);
+                        handleInputChange("classId", null);
                       }}
                       className={`px-4 py-3 rounded-xl border-2 m-1 ${
                         isSel ? "bg-violet-600 border-white" : "bg-white/5 border-white/10"
@@ -808,6 +993,12 @@ const moduleRow = {
                 Class to Assign *
               </Text>
 
+              <Text className="text-slate-400 text-xs mb-3">
+                {moduleData.strand === "ALL"
+                  ? "Tip: You can select multiple classes in this grade."
+                  : "Tip: You can select one or multiple classes for this strand."}
+              </Text>
+
               {filteredClasses.length === 0 ? (
                 <Text className="text-slate-500 text-sm">
                   {classes.length === 0
@@ -817,7 +1008,7 @@ const moduleRow = {
               ) : (
                 <View className="flex-row flex-wrap -mx-1">
                   {filteredClasses.map((c) => {
-                    const isSel = moduleData.classId === c.id;
+                    const selected = isSelected(c.id);
                     const subtitleParts = [
                       c.section ? `Sec. ${c.section}` : null,
                       c.grade_level ? `G${c.grade_level}` : null,
@@ -826,19 +1017,19 @@ const moduleRow = {
                     return (
                       <TouchableOpacity
                         key={c.id}
-                        onPress={() => handleInputChange("classId", c.id)}
+                        onPress={() => toggleClassSelection(c.id)}
                         className={`px-4 py-3 rounded-xl border-2 m-1 ${
-                          isSel ? "bg-violet-600 border-white" : "bg-white/5 border-white/10"
+                          selected ? "bg-violet-600 border-white" : "bg-white/5 border-white/10"
                         }`}
                         style={{ minWidth: width * 0.44, alignItems: "flex-start" }}
                       >
-                        <Text className={`font-semibold ${isSel ? "text-violet-200" : "text-white"}`}>
+                        <Text className={`font-semibold ${selected ? "text-violet-200" : "text-white"}`}>
                           {c.name}
                         </Text>
-                        <Text className={`text-xs mt-1 ${isSel ? "text-violet-100/80" : "text-slate-400"}`}>
+                        <Text className={`text-xs mt-1 ${selected ? "text-violet-100/80" : "text-slate-400"}`}>
                           {subtitleParts.join(" • ") || "—"}
                         </Text>
-                        {isSel && (
+                        {selected && (
                           <View className="absolute top-2 right-2 w-5 h-5 bg-violet-500 rounded-full items-center justify-center">
                             <Ionicons name="checkmark" size={14} color="white" />
                           </View>
@@ -1300,6 +1491,17 @@ const moduleRow = {
 
       // STEP 6: Review
       case 6:
+        // Build review label for classes (support multi)
+        const names = moduleData.classIds
+          .map((id) => classes.find((c) => c.id === id)?.name)
+          .filter(Boolean) as string[];
+        const classReview =
+          names.length === 0
+            ? (classes.find((c) => c.id === moduleData.classId)?.name || "Not selected")
+            : names.length === 1
+            ? names[0]
+            : `Multiple classes (${names.length})`;
+
         return (
           <View className="space-y-6">
             <View className="items-center mb-6">
@@ -1337,7 +1539,7 @@ const moduleRow = {
                 <View>
                   <Text className="text-slate-400 text-sm mb-1">Class</Text>
                   <Text className="text-white font-medium">
-                    {classes.find((c) => c.id === moduleData.classId)?.name || "Not selected"}
+                    {classReview}
                   </Text>
                 </View>
 
@@ -1610,7 +1812,7 @@ const moduleRow = {
               onPress={handleSubmit}
             >
               <Text className="text-white font-bold text-xl text-center">
-                {isSubmitting ? "Saving..." : "Create Learning Module"}
+                {isSubmitting ? "Saving..." : (isEdit ? "Update Learning Module" : "Create Learning Module")}
               </Text>
               <Text className="text-white text-center mt-1">All set! Let's get started</Text>
             </TouchableOpacity>
@@ -1714,7 +1916,7 @@ const moduleRow = {
               disabled={isSubmitting}
               onPress={handleSubmit}
             >
-              <Text className="text-white font-bold text-lg">{isSubmitting ? "Saving..." : "Submit Module"}</Text>
+              <Text className="text-white font-bold text-lg">{isSubmitting ? "Saving..." : (isEdit ? "Save Changes" : "Submit Module")}</Text>
             </TouchableOpacity>
           </View>
         )}

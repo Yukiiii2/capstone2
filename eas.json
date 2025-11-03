@@ -8,6 +8,20 @@
       "autoIncrement": true,
       "android": { "buildType": "apk" },
       "ios": { "simulator": false }
+    },
+    "preview": {
+      "developmentClient": false,
+      "distribution": "internal",
+      "channel": "staging",
+      "autoIncrement": true,
+      "android": { "buildType": "apk" }
+    },
+    "production": {
+      "developmentClient": false,
+      "distribution": "store",
+      "channel": "production",
+      "autoIncrement": true,
+      "android": { "gradleCommand": ":app:bundleRelease" }
     }
   },
   "submit": {
