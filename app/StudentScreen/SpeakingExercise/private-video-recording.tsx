@@ -20,7 +20,6 @@ import {
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
-import { Frame } from 'react-native-vision-camera';
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname, useLocalSearchParams } from "expo-router";
 import EndSessionModal from "../../../components/StudentModal/EndSessionModal";
@@ -28,8 +27,6 @@ import LivesessionCommunityModal from "../../../components/StudentModal/Livesess
 import CompletionModal from "@/components/StudentModal/CompletionModal"; // ✅ add the completion modal
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabaseClient";
-import { useFrameProcessor } from 'react-native-vision-camera';
-import { runOnJS } from 'react-native-reanimated';
 
 // ⬇️ keep-awake + orientation (match Live)
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -62,54 +59,6 @@ const base64ToUint8Array = (base64: string) => {
 
 const PROFILE_PIC = { uri: "https://randomuser.me/api/portraits/women/44.jpg" };
 
-// Replace the static tips arrays with more focused ones
-const audioFeedbackTips = {
-  tooLow: [
-    "Please speak louder",
-    "Your voice is too soft, try projecting more",
-    "Increase your speaking volume",
-  ],
-  good: [
-    "Perfect volume level!",
-    "Great projection of your voice",
-    "Your speaking volume is just right",
-  ],
-  tooHigh: [
-    "Try speaking a bit softer",
-    "Lower your voice slightly",
-    "Adjust your volume down a bit",
-  ]
-};
-
-const cameraStabilityTips = {
-  unstable: [
-    "Hold your phone more steady",
-    "Try to minimize camera movement",
-    "Keep your hands stable while recording",
-  ],
-  noFace: [
-    "Please stay in frame",
-    "Make sure your face is visible",
-    "Center yourself in the camera view",
-    "Step back slightly to be fully visible"
-  ],
-  tooClose: [
-    "You're too close to the camera",
-    "Please step back a little",
-    "Maintain proper distance from camera"
-  ],
-  tooFar: [
-    "Move closer to the camera",
-    "You're too far from the camera",
-    "Step forward for better visibility"
-  ],
-  good: [
-    "Great camera position!",
-    "Perfect framing",
-    "Excellent camera stability",
-  ]
-};
-
 const tips = [
   "Speak clearly and steadily",
   "Use gestures for emphasis",
@@ -119,7 +68,6 @@ const tips = [
   "Pause after key points",
   "Smile to seem approachable",
 ];
-
 
 const feedbackMessages = [
   "Clear pronunciation!",
@@ -157,9 +105,6 @@ export default function PrivateVideoRecording() {
   const topic = params.topic as string;
   const criteria = params.criteria as string;
   const generatedScript = (params.generatedScript as string) || "No script available.";
-  const [audioLevel, setAudioLevel] = useState(0);
-  const [cameraStability, setCameraStability] = useState(1);
-  const [lastTipTime, setLastTipTime] = useState(0);
   const [feedback, setFeedback] = useState(null);
   const [cameraRef, setCameraRef] = useState<React.RefObject<typeof Camera> | null>(null); // unused now but kept to preserve structure
   const [cameraType, setCameraType] = useState<"front" | "back">("front"); // kept
@@ -596,32 +541,6 @@ export default function PrivateVideoRecording() {
     } as any);
   }
 
-  const monitorAudioLevel = async (recording: Audio.Recording) => {
-  try {
-    const status = await recording.getStatusAsync();
-    if (status.isRecording) {
-      // @ts-ignore - metering exists but isn't typed
-      const { metering } = status;
-      if (typeof metering === 'number') {
-        setAudioLevel(metering);
-        
-        // Generate audio-based feedback
-        const now = Date.now();
-        if (now - lastTipTime > 3000) { // Only show new tip every 3 seconds
-          if (metering < -20) {
-            setCurrentFeedback("Try speaking a bit louder");
-          } else if (metering > -10) {
-            setCurrentFeedback("Great volume level!");
-          }
-          setLastTipTime(now);
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('Error monitoring audio:', e);
-  }
-};
-
   const startAudioRecording = async () => {
     try {
       const ok = await ensurePermissions();
@@ -632,32 +551,10 @@ export default function PrivateVideoRecording() {
       const rec = new Audio.Recording();
       await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await rec.startAsync();
-      
-      const monitoringInterval = setInterval(() => {
-      monitorAudioLevel(rec);
-    }, 100);
+
       audioRecordingRef.current = rec;
       setRecordedUri(null);
       setUploadUrl(null);
-
-      // Add camera movement detection to the Camera component
-const onFrameProcessed = ({ frameData }: { frameData: any }) => {
-  if (!isRecording) return;
-  
-  // Simple movement detection based on frame differences
-  const movement = frameData?.metadata?.motionLevel || 0;
-  setCameraStability(1 - movement);
-
-  // Show stability tips when camera is unstable
-  if (movement > 0.3) {
-    const now = Date.now();
-    if (now - lastTipTime > 2000) { // Only show new tip every 2 seconds
-      const tipsArray = cameraStabilityTips.unstable; // Replace 'unstable' with the desired key
-      setCurrentFeedback(tipsArray[Math.floor(Math.random() * tipsArray.length)]);
-      setLastTipTime(now);
-    }
-  }
-};
 
       // do not flip global isRecording; camera controls that UI
       return true;
@@ -949,47 +846,26 @@ const onFrameProcessed = ({ frameData }: { frameData: any }) => {
     </View>
   );
 
-  const AIFeedback = () => {
-  const getFeedbackText = () => {
-    // Camera stability feedback
-    if (cameraStability < 0.5) {
-      return cameraStabilityTips.unstable[Math.floor(Math.random() * cameraStabilityTips.unstable.length)];
-    }
-
-    // Audio level feedback
-    if (audioLevel < -25) {
-      return audioFeedbackTips.tooLow[Math.floor(Math.random() * audioFeedbackTips.tooLow.length)];
-    }
-    if (audioLevel > -10) {
-      return audioFeedbackTips.tooHigh[Math.floor(Math.random() * audioFeedbackTips.tooHigh.length)];
-    }
-    if (audioLevel >= -25 && audioLevel <= -10) {
-      return audioFeedbackTips.good[Math.floor(Math.random() * audioFeedbackTips.good.length)];
-    }
-
-    // Default good camera feedback when everything is fine
-    return cameraStabilityTips.good[Math.floor(Math.random() * cameraStabilityTips.good.length)];
-  };
-
-  return (
+  const AIFeedback = () => (
     <Animated.View
       className="absolute top-[40%] left-5 right-5 z-10 items-center justify-center"
       style={{
         opacity: feedbackAnim,
-        transform: [{
-          translateY: feedbackAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [20, 0],
-          }),
-        }],
+        transform: [
+          {
+            translateY: feedbackAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [20, 0],
+            }),
+          },
+        ],
       }}
     >
       <Text className="text-white text-lg font-medium text-center bg-black/60 px-4 py-3 rounded-xl">
-        {getFeedbackText()}
+        {currentFeedback || tips[currentTipIndex]}
       </Text>
     </Animated.View>
   );
-};
 
   const StatusRow = () => (
     <View className="flex-row justify-between items-center bg-white/10 rounded-xl p-3 mt-3">
@@ -1240,46 +1116,6 @@ const onFrameProcessed = ({ frameData }: { frameData: any }) => {
   const cameraVisible = isFullScreen;
   const cameraActive = cameraVisible && appActive;
 
-  const frameProcessor = useFrameProcessor((frame) => {
-    'worklet'
-    
-    // Get movement and face data
-    const movement = (frame as any)?.metadata?.motionLevel || 0;
-    const faces = (frame as any)?.metadata?.faces || [];
-    const faceVisible = faces.length > 0;
-    
-    // Calculate stability score (0-1)
-    const stabilityScore = 1 - movement;
-    
-    // Get face position data if available
-    const face = faces[0];
-    const faceSize = face ? (face.bounds.width * face.bounds.height) / (frame.width * frame.height) : 0;
-    
-    // Use runOnJS to update React states
-    runOnJS(setCameraStability)(stabilityScore);
-
-    // Determine appropriate feedback
-    let feedback;
-    if (movement > 0.3) {
-      feedback = cameraStabilityTips.unstable[Math.floor(Math.random() * cameraStabilityTips.unstable.length)];
-    } else if (!faceVisible) {
-      feedback = cameraStabilityTips.noFace[Math.floor(Math.random() * cameraStabilityTips.noFace.length)];
-    } else if (faceSize > 0.5) { // Face too close
-      feedback = cameraStabilityTips.tooClose[Math.floor(Math.random() * cameraStabilityTips.tooClose.length)];
-    } else if (faceSize < 0.1 && faceVisible) { // Face too far
-      feedback = cameraStabilityTips.tooFar[Math.floor(Math.random() * cameraStabilityTips.tooFar.length)];
-    } else if (stabilityScore > 0.8) {
-      feedback = cameraStabilityTips.good[Math.floor(Math.random() * cameraStabilityTips.good.length)];
-    }
-
-    // Only update feedback if we have new feedback and enough time has passed
-    if (feedback) {
-      const now = Date.now();
-      runOnJS(setLastTipTime)(now);
-      runOnJS(setCurrentFeedback)(feedback);
-    }
-  }, []);
-
   return (
     <View className="flex-1 bg-[#0F172A] relative">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -1304,9 +1140,7 @@ const onFrameProcessed = ({ frameData }: { frameData: any }) => {
             isActive={cameraActive}
             video
             audio={audioEnabled}
-            photo={false}       
-            frameProcessor={frameProcessor}
-            fps={30}
+            photo={false}
             {...(stableFormat ? { format: stableFormat } : {})}
             enableZoomGesture={false}
             onInitialized={() => {
@@ -1364,7 +1198,6 @@ const onFrameProcessed = ({ frameData }: { frameData: any }) => {
               module_id: module_id,
               level: level || 'basic',
               score: '100',
-              speakingText: expectedText,
               moduleComplete: "true" // Add completion flag
             },
           });

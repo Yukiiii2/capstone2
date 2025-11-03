@@ -44,7 +44,10 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.WAKE_LOCK"
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_CONNECT"
       ]
     },
     "web": {
@@ -62,9 +65,7 @@
       ]
     ],
     "extra": {
-      "eas": {
-        "projectId": "c4cef469-b796-4bd9-874c-163e352fc63f"
-      },
+      "eas": { "projectId": "c4cef469-b796-4bd9-874c-163e352fc63f" },
       "router": {}
     }
   }
