@@ -65,7 +65,6 @@ function JoinPendingModal({
         .maybeSingle();
       if (!cancelled) setTeacherName(data?.name || null);
     })();
-    return () => { cancelled = true; };
   }, [teacherId, visible]);
 
   // realtime watch for approval/denial of the most recent request for this code
@@ -236,7 +235,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       if (!studentId) return;
 
       // latest pending for this student (any teacher/code), if any
-      const { data: pendingRow, error } = await supabase
+      const { data: pendingRow } = await supabase
         .from(JOIN_TABLE)
         .select('teacher_id, code_entered, status, class_id, grade_level, strand')
         .eq('student_id', studentId)
@@ -245,7 +244,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
         .limit(1)
         .maybeSingle();
 
-      if (cancelled || error) return;
+      if (cancelled) return;
 
       if (pendingRow?.status === 'pending') {
         // Close the form and show the pending watcher immediately
@@ -304,6 +303,56 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
 
   const isFormValid = classCode.trim().length > 0 && gradeLevel && strand;
 
+  // ─────────────────────────────────────────────
+  // NEW: After approval, recreate membership rows
+  // ─────────────────────────────────────────────
+  const finalizeEnrollmentAfterApproval = async (opts: {
+    teacherId: string | null | undefined;
+    classId: string | null | undefined;
+    gradeLevel?: GradeLevel;
+    strand?: 'STEM'|'ABM'|'GAS'|'HUMSS'|'TVL';
+  }) => {
+    const { teacherId, classId, gradeLevel: g, strand: s } = opts;
+    if (!teacherId || !classId) return;
+
+    const { data: auth } = await supabase.auth.getUser();
+    const studentId = auth?.user?.id;
+    if (!studentId) return;
+
+    const now = new Date().toISOString();
+
+    // 1) teacher_students upsert (status back to 'active')
+    const { error: tsErr } = await supabase
+      .from('teacher_students')
+      .upsert(
+        {
+          teacher_id: teacherId,
+          student_id: studentId,
+          grade_level: g ?? null,
+          strand: (s === 'HUMMS' ? 'HUMSS' : s) ?? null,
+          status: 'active',
+          joined_at: now,
+        } as any,
+        { onConflict: 'teacher_id,student_id', ignoreDuplicates: false }
+      );
+    if (tsErr) throw tsErr;
+
+    // 2) class_enrollments upsert (status back to 'active')
+    const { error: ceErr } = await supabase
+      .from('class_enrollments')
+      .upsert(
+        {
+          class_id: classId,
+          student_id: studentId,
+          role: 'student',
+          status: 'active',
+          joined_at: now,
+        } as any,
+        { onConflict: 'class_id,student_id', ignoreDuplicates: false }
+      );
+    if (ceErr) throw ceErr;
+  };
+
   const handleJoin = async () => {
     let ok = true;
     if (!gradeLevel) { setShowGradeError(true); ok = false; }
@@ -343,7 +392,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       const classId = klass.id as string;
 
       // 2) check the LATEST request (so "removed/denied" students can re-join)
-      const { data: lastReq, error: lastErr } = await supabase
+      const { data: lastReq } = await supabase
         .from(JOIN_TABLE)
         .select('id,status,code_entered,class_id')
         .eq('student_id', studentId)
@@ -351,11 +400,6 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
         .order('requested_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-
-      if (lastErr) {
-        Alert.alert('Error', 'Could not check your previous request.');
-        return;
-      }
 
       if (lastReq?.status === 'pending') {
         // open watcher instead of blocking; DO NOT mark joined
@@ -371,7 +415,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
       }
 
       // 3) insert NEW pending request when status is 'denied' (or no record)
-      const { data: inserted, error: insErr } = await supabase
+      const { error: insErr } = await supabase
         .from(JOIN_TABLE)
         .insert({
           class_id: classId,
@@ -381,9 +425,7 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
           strand: normalizedStrand,
           code_entered: code,
           status: 'pending',
-        })
-        .select('id')
-        .maybeSingle();
+        });
 
       if (insErr) {
         Alert.alert('Error', insErr.message || 'Could not send join request.');
@@ -549,15 +591,32 @@ const JoinClassModal: React.FC<JoinClassModalProps> = ({ visible, onClose, onJoi
         teacherId={pending.teacherId}
         code={pending.code}
         onClose={() => setPending({ open: false, teacherId: null, code: null, classId: null, gradeLevel: undefined, strand: undefined })}
-        onApproved={(approvedCode) => {
+        onApproved={async (approvedCode) => {
+          // Snapshot current pending before we clear it
+          const snapshot = { ...pending };
+
+          // Close pending modal state
           setPending({ open: false, teacherId: null, code: null, classId: null, gradeLevel: undefined, strand: undefined });
 
-          // NOW tell the parent and navigate.
+          // ⬇️ NEW: Recreate memberships on approval
+          try {
+            await finalizeEnrollmentAfterApproval({
+              teacherId: snapshot.teacherId,
+              classId: snapshot.classId || undefined,
+              gradeLevel: snapshot.gradeLevel,
+              strand: snapshot.strand,
+            });
+          } catch (e: any) {
+            Alert.alert('Join Error', e?.message || 'Could not complete enrollment after approval.');
+            return;
+          }
+
+          // Notify parent (optional) then navigate
           if (onJoinClass) {
             onJoinClass({
               classCode: approvedCode,
-              gradeLevel: (pending.gradeLevel ?? gradeLevel) || '',
-              strand: ((pending.strand ?? (strand === 'HUMMS' ? 'HUMSS' : strand)) as any) || '',
+              gradeLevel: (snapshot.gradeLevel ?? gradeLevel) || '',
+              strand: ((snapshot.strand ?? (strand === 'HUMMS' ? 'HUMSS' : strand)) as any) || '',
             });
           }
 

@@ -113,6 +113,23 @@ const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const QUIZ_PROGRESS_PCT = 50;
 const FINAL_PROGRESS_PCT = 100;
 
+// ✅ Same normalization logic as the Speaking page
+const normalizeQuiz = (raw: any[]): QuizQ[] =>
+  (raw || []).map((q: any, i: number) => {
+    const options = Array.isArray(q?.options) ? q.options.map(String) : [];
+    let idx = Number(q?.correct ?? q?.correctAnswer ?? 0);
+    if (!Number.isFinite(idx)) idx = 0;
+    if (idx >= 1 && idx <= options.length && !(q?.correct >= 0)) {
+      idx = idx - 1; // convert 1-based → 0-based
+    }
+    return {
+      id: q?.id ?? i + 1,
+      question: String(q?.question ?? ""),
+      options,
+      correct: Math.max(0, Math.min(options.length - 1, idx)),
+    };
+  });
+
 async function saveProgressForClassModule(moduleId: string, percent: number) {
   const pct = clampPct(percent);
   const { data: auth } = await supabase.auth.getUser();
@@ -783,12 +800,7 @@ export default function ClassModuleReadingScreen() {
           return;
         }
 
-        // Optional: ensure it's a READING module
-        if (mod.module_type && mod.module_type.toUpperCase() !== "READING") {
-          // allow viewing but you can flip to notAllowed if you want strict typing
-          // setNotAllowed(true); return;
-        }
-
+        // Optional module_type gate (kept permissive)
         const ok = await assertStudentEnrolled(mod.class_id);
         if (!ok) {
           setNotAllowed(true);
@@ -817,7 +829,7 @@ export default function ClassModuleReadingScreen() {
           task_body: det?.task_body ?? "",
           task_instructions: det?.task_instructions ?? [],
           rubric: det?.rubric ?? [],
-          quiz: det?.quiz ?? [],
+          quiz: normalizeQuiz(det?.quiz ?? []), // ✅ normalize here
           resources: (det?.resources ?? []) as StorageResource[],
           updated_at: det?.updated_at ?? null,
         };
@@ -856,7 +868,7 @@ export default function ClassModuleReadingScreen() {
             task_body: det?.task_body ?? "",
             task_instructions: det?.task_instructions ?? [],
             rubric: det?.rubric ?? [],
-            quiz: det?.quiz ?? [],
+            quiz: normalizeQuiz(det?.quiz ?? []), // ✅ normalize here too
             resources: (det?.resources ?? []) as StorageResource[],
             updated_at: det?.updated_at ?? null,
           };

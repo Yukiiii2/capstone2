@@ -358,69 +358,125 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
     });
   };
 
-  // ---------- Leave Class (SOFT LEAVE + delete approved join requests for same teacher(s)) ----------
-  const handleLeaveClass = async () => {
-    try {
-      setIsLeaving(true);
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth?.user?.id;
-      if (!uid) throw new Error("Not signed in");
+  // HARD LEAVE: delete memberships + enrollments + scoped progress (teacher-made only) + clean approved join-requests
+const handleLeaveClass = async () => {
+  try {
+    setIsLeaving(true);
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) throw new Error("Not signed in");
 
-      // 1) fetch active memberships to know which teacher(s) to clean requests for
-      const { data: activeRows, error: fetchErr } = await supabase
-        .from(STUDENT_CLASS_TABLE)
-        .select("teacher_id")
-        .eq("student_id", uid)
-        .eq("status", "active");
+    // 1) Which teacher(s) and classes is the student currently active in?
+    const { data: activeRows, error: fetchTeacherErr } = await supabase
+      .from(STUDENT_CLASS_TABLE) // teacher_students
+      .select("teacher_id")
+      .eq("student_id", uid)
+      .eq("status", "active");
+    if (fetchTeacherErr) throw fetchTeacherErr;
+    const teacherIds = (activeRows ?? []).map((r: any) => r.teacher_id).filter(Boolean);
 
-      if (fetchErr) throw fetchErr;
+    const { data: activeEnrolls, error: fetchEnrollErr } = await supabase
+      .from("class_enrollments")
+      .select("class_id")
+      .eq("student_id", uid)
+      .eq("status", "active");
+    if (fetchEnrollErr) throw fetchEnrollErr;
+    const classIds = (activeEnrolls ?? []).map((r: any) => r.class_id);
 
-      const teacherIds = (activeRows ?? [])
-        .map((r: any) => r.teacher_id)
-        .filter((t: string | null) => !!t);
+    // 2) Collect module_ids from those classes, then filter out free/default modules.
+    // Assumptions:
+    // - class_modules(class_id, module_id) exists
+    // - modules table has either:
+    //     a) is_default boolean (true for free/global modules), OR
+    //     b) created_by / owner_teacher_id that matches a teacher id for teacher-made modules
+    let teacherModuleIds: string[] = [];
+    if (classIds.length > 0) {
+      const { data: mapped, error: mapErr } = await supabase
+        .from("class_modules")
+        .select("module_id, classes!inner(teacher_id), modules!inner(id, is_default, created_by, owner_teacher_id)")
+        .in("class_id", classIds);
+      if (mapErr) throw mapErr;
 
-      // 2) soft-leave all active memberships
-      const { error: leaveErr } = await supabase
-        .from(STUDENT_CLASS_TABLE)
-        .update({ status: "left", left_at: new Date().toISOString() })
-        .eq("student_id", uid)
-        .eq("status", "active");
+      teacherModuleIds = (mapped ?? [])
+        .map((row: any) => row.module_id)
+        .filter(Boolean);
 
-      if (leaveErr) throw leaveErr;
+      // If we also want to double-ensure they’re not free/default, fetch the module rows and filter:
+      if (teacherModuleIds.length > 0) {
+        const { data: moduleRows, error: modErr } = await supabase
+          .from("modules")
+          .select("id, is_default, created_by, owner_teacher_id")
+          .in("id", teacherModuleIds);
+        if (modErr) throw modErr;
 
-      // 3) delete approved class_join_requests for those teacher(s)
-      if (teacherIds.length > 0) {
-        const { error: delErr } = await supabase
-          .from(JOIN_TABLE)
-          .delete()
-          .eq("student_id", uid)
-          .in("teacher_id", teacherIds)
-          .eq("status", "approved");
+        const teacherSet = new Set(teacherIds);
+        teacherModuleIds = (moduleRows ?? [])
+          .filter((m: any) => {
+            const isDefault = m.is_default === true; // treat null/undefined as not default
+            const createdBy = m.created_by || m.owner_teacher_id || null;
+            const isTeacherMade =
+              (createdBy && teacherSet.has(createdBy)) || teacherIds.length === 0 ? false : false; // fallback set below
 
-        if (delErr) throw delErr;
+            // Keep if NOT default AND (created_by/owner matches one of the teacherIds, when present)
+            return !isDefault && (!createdBy || teacherSet.has(createdBy));
+          })
+          .map((m: any) => m.id);
       }
-
-      setIsLeaving(false);
-      setShowLeaveModal(false);
-      setHasJoinedClass(false);
-      onLeaveClass?.();
-
-      // Small toast + route to Join screen
-      setSuccessMessage("You left the class. You can join again anytime.");
-      setShowSuccessMessage(true);
-      setTimeout(() => setShowSuccessMessage(false), 2200);
-
-      handleClose();
-      setTimeout(() => {
-        router.push("/StudentScreen/ClassProgress/join-class");
-      }, 200);
-    } catch (e: any) {
-      setIsLeaving(false);
-      setSuccessMessage(e?.message || "Failed to leave class.");
-      setShowSuccessMessage(true);
-      setTimeout(() => setShowSuccessMessage(false), 2200);
     }
-  };
+
+    // 3) Delete progress only for those teacher-made module_ids
+    if (teacherModuleIds.length > 0) {
+      const { error: delProgErr } = await supabase
+        .from("student_progress")
+        .delete()
+        .eq("student_id", uid)
+        .in("module_id", teacherModuleIds);
+      if (delProgErr) throw delProgErr;
+    }
+
+    // 4) Hard delete enrollments and teacher-student links
+    const { error: delEnrollErr } = await supabase
+      .from("class_enrollments")
+      .delete()
+      .eq("student_id", uid);
+    if (delEnrollErr) throw delEnrollErr;
+
+    const { error: delMembershipErr } = await supabase
+      .from(STUDENT_CLASS_TABLE)
+      .delete()
+      .eq("student_id", uid);
+    if (delMembershipErr) throw delMembershipErr;
+
+    // 5) Clean approved join requests for those teachers (optional)
+    if (teacherIds.length > 0) {
+      const { error: delReqErr } = await supabase
+        .from(JOIN_TABLE)
+        .delete()
+        .eq("student_id", uid)
+        .in("teacher_id", teacherIds)
+        .eq("status", "approved");
+      if (delReqErr) throw delReqErr;
+    }
+
+    setIsLeaving(false);
+    setShowLeaveModal(false);
+    setHasJoinedClass(false);
+    onLeaveClass?.();
+
+    setSuccessMessage("You left the class. You can join again anytime.");
+    setShowSuccessMessage(true);
+    setTimeout(() => setShowSuccessMessage(false), 2200);
+
+    handleClose();
+    setTimeout(() => router.push("/StudentScreen/ClassProgress/join-class"), 200);
+  } catch (e: any) {
+    setIsLeaving(false);
+    setSuccessMessage(e?.message || "Failed to leave class.");
+    setShowSuccessMessage(true);
+    setTimeout(() => setShowSuccessMessage(false), 2200);
+  }
+};
+
 
   // ⬇️ Do NOT mark joined here; the request is only pending. The listener flips UI on approval.
   const handleJoinClass = (data: { classCode: string; gradeLevel: string; strand: string }) => {
@@ -476,7 +532,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
             {/* Menu items */}
             <View className="space-y-2">
               <TouchableOpacity
-                className="flex-row items-center p-4 rounded-xl active:bg-white/5"
+                className="flex-row items-center p-4 rounded-xl active:bg:white/5"
                 onPress={() => {
                   handleClose();
                   setTimeout(() => router.push("/ProfileMenu/settings"), 300);
@@ -552,7 +608,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
                     <View className="flex-row items-center">
                       <Text className="text-white text-base font-medium">Join Class</Text>
                       {joinStatus === "pending" && (
-                        <View className="ml-2 bg-white/10 px-2 py-0.5 rounded-full border border-white/20">
+                        <View className="ml-2 bg-white/10 px-2 py-0.5 rounded-full border border:white/20">
                           <Text className="text-white text-xs font-medium">Pending…</Text>
                         </View>
                       )}
@@ -572,7 +628,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
                 onPress={handleSignOutPress}
                 activeOpacity={0.7}
               >
-                <View className="w-10 h-10 bg-[#2D3748] rounded-xl items-center justify-center mr-3">
+                <View className="w-10 h-10 bg-[#2D3748] rounded-xl items:center justify-center mr-3">
                   <View className="ml-1.5">
                     <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
                   </View>
@@ -664,7 +720,7 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({
         <View className="flex-1 justify-center items-center p-4">
           <View className="bg-[#1A1F2E]/95 backdrop-blur-xl rounded-2xl p-6 w-full max-w-md">
             <View className="flex-row items-center">
-              <View className="w-10 h-10 bg-white/10 rounded-full items-center justify-center mr-3">
+              <View className="w-10 h-10 bg:white/10 rounded-full items-center justify-center mr-3">
                 <Ionicons name="information-circle" size={22} color="#8A5CFF" />
               </View>
               <View className="flex-1">

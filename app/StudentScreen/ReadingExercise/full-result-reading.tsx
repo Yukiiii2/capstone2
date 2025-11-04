@@ -20,29 +20,184 @@ const fmtPct = (n: number) => `${clampPct(n)}%`;
 const widthStyle = (n: number): ViewStyle => ({ width: `${clampPct(n)}%` as `${number}%` });
 
 type Trend = "up" | "down";
-type Metric = {
+
+type MetricBlock = {
   label: string;
   value: number; // 0..100
   icon: keyof typeof Ionicons.glyphMap;
   trend: Trend;
+  change: number;
 };
+
+type StrengthItem = { skill: string; level: number; trend: Trend };
+type ImprovementItem = { skill: string; level: number; trend: Trend };
+
+type FullAnalysisResponse = {
+  success: boolean;
+  confidence_score: number;
+  metrics: MetricBlock[];
+  skills: {
+    strengths: StrengthItem[];
+    improvements: ImprovementItem[];
+  };
+};
+
+/* ───────── analysis (mirrors speaking, category=reading) ───────── */
+const getDefaultResponse = (): FullAnalysisResponse => ({
+  success: false,
+  confidence_score: 75,
+  metrics: [],
+  skills: { strengths: [], improvements: [] },
+});
+
+async function getFinalAnalysis(
+  feedback: string,
+  readingText: string,
+  moduleId: string | null
+): Promise<FullAnalysisResponse> {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session || !moduleId) return getDefaultResponse();
+
+    const resp = await fetch(`https://unbalanceable-lyman-microstomatous.ngrok-free.dev/full-analysis`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        feedback,
+        // backend can accept a reading-specific text field; keep both keys for safety
+        reading_text: readingText,
+        passage_text: readingText,
+        category: "reading",
+        student_id: session.user.id,
+        module_id: moduleId,
+        attempt_id: null,
+        session_id: null,
+      }),
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) return getDefaultResponse();
+
+    // Map reading-centric metrics (tweak thresholds later as needed)
+    const metrics: MetricBlock[] = [
+      {
+        label: "Reading Speed",
+        value: data.analysis?.reading_performance?.speed?.score ?? 70,
+        icon: "speedometer",
+        trend: (data.analysis?.reading_performance?.speed?.wpm ?? 0) >= 180 ? "up" : "down",
+        change: Math.abs(((data.analysis?.reading_performance?.speed?.wpm ?? 180) - 180) / 180),
+      },
+      {
+        label: "Comprehension",
+        value: data.analysis?.comprehension?.overall?.score ?? 72,
+        icon: "book",
+        trend: (data.analysis?.comprehension?.overall?.score ?? 0) >= 75 ? "up" : "down",
+        change: (data.analysis?.comprehension?.detail_accuracy ?? 0) / 100,
+      },
+      {
+        label: "Vocabulary Use",
+        value: data.analysis?.language?.vocabulary?.score ?? 70,
+        icon: "albums",
+        trend: (data.analysis?.language?.vocabulary?.score ?? 0) >= 60 ? "up" : "down",
+        change: (data.analysis?.language?.vocabulary?.diversity ?? 0) / 100,
+      },
+      {
+        label: "Inference & Analysis",
+        value: data.analysis?.comprehension?.inference?.score ?? 68,
+        icon: "analytics",
+        trend: (data.analysis?.comprehension?.inference?.score ?? 0) >= 65 ? "up" : "down",
+        change: (data.analysis?.comprehension?.integration ?? 0) / 100,
+      },
+    ];
+
+    const strengths: StrengthItem[] = [];
+    const improvements: ImprovementItem[] = [];
+
+    if ((metrics[1]?.value ?? 0) >= 75) strengths.push({ skill: "Comprehension", level: metrics[1].value, trend: "up" });
+    if ((metrics[0]?.value ?? 0) >= 75) strengths.push({ skill: "Reading Speed", level: metrics[0].value, trend: "up" });
+
+    if ((metrics[3]?.value ?? 100) < 75) improvements.push({ skill: "Inference & Analysis", level: metrics[3].value, trend: "down" });
+    if ((metrics[2]?.value ?? 100) < 75) improvements.push({ skill: "Vocabulary Use", level: metrics[2].value, trend: "down" });
+
+    return {
+      success: true,
+      confidence_score: data.confidence_score ?? 75,
+      metrics,
+      skills: { strengths, improvements },
+    };
+  } catch {
+    return getDefaultResponse();
+  }
+}
+
+/* ───────── BASIC-only progress rule (reading) ───────── */
+async function applyFullResultsRuleInline(moduleId: string, level: "basic" | "advanced") {
+  try {
+    if (level !== "basic") return; // never touch Advanced here
+    const { data: auth } = await supabase.auth.getUser();
+    const user = auth?.user;
+    if (!user || !moduleId) return;
+
+    const now = new Date().toISOString();
+    await supabase
+      .from("student_progress")
+      .upsert(
+        {
+          student_id: user.id,
+          module_id: moduleId,
+          progress: 100,
+          completed: true,
+          category: "reading",
+          updated_at: now,
+        } as any,
+        { onConflict: "student_id,module_id", ignoreDuplicates: false }
+      );
+
+    await supabase
+      .from("student_progress")
+      .update({ progress: 100, updated_at: now })
+      .eq("student_id", user.id)
+      .eq("module_id", moduleId)
+      .gt("progress", 100);
+  } catch { /* swallow */ }
+}
 
 export default function FullResultReading() {
   const router = useRouter();
 
-  // -------- read params (same idea as speaking) ----------
-  const { level, module_id, module_title, score } = useLocalSearchParams<{
-    level?: string;          // "basic" | "advanced"
-    module_id?: string;      // uuid
-    module_title?: string;   // modules.title
-    score?: string;          // e.g. "78"
+  // -------- read params (aligned with speaking) ----------
+  const {
+    session_id,
+    attempt_id,
+    level,
+    module_id,
+    module_title,
+    score,
+    ai_feedback,
+    readingText,
+  } = useLocalSearchParams<{
+    session_id?: string;
+    attempt_id?: string;
+    level?: "basic" | "advanced" | string;
+    module_id?: string;
+    module_title?: string;
+    score?: string;
+    ai_feedback?: string;
+    readingText?: string;
   }>();
 
+  const levelParam: "basic" | "advanced" = level === "advanced" ? "advanced" : "basic";
+
   // clamp + derive UI numbers (keeps your visuals intact)
-  const uiScore = useMemo(() => {
+  const initialScore = useMemo(() => {
     const n = Number(score);
     return Number.isFinite(n) ? clampPct(n) : 78;
   }, [score]);
+  const [liveScore, setLiveScore] = useState<number | null>(null);
+  const uiScore = liveScore ?? initialScore;
 
   /* ───────── module resolution + next (mirrors speaking) ───────── */
   const [currentModule, setCurrentModule] = useState<{
@@ -52,8 +207,8 @@ export default function FullResultReading() {
     order_index: number | null;
   }>({
     id: module_id ?? null,
-    title: module_title ?? null,
-    level: level === "advanced" ? "advanced" : "basic",
+    title: (module_title as string) ?? null,
+    level: levelParam,
     order_index: null,
   });
 
@@ -117,9 +272,7 @@ export default function FullResultReading() {
           order_index: m.order_index ?? null,
         });
       }
-    } catch {
-      // no-op
-    }
+    } catch { /* no-op */ }
   }, [currentModule.id, currentModule.level, currentModule.title]);
 
   const resolveNextModule = useCallback(async () => {
@@ -137,14 +290,10 @@ export default function FullResultReading() {
 
       if (data && data.length) setNextModule({ id: data[0].id, title: data[0].title });
       else setNextModule(null);
-    } catch {
-      setNextModule(null);
-    }
+    } catch { setNextModule(null); }
   }, [currentModule.level, currentModule.order_index]);
 
   /* ───────── attempts + progress (mirrors speaking logic) ───────── */
-
-  // compute next attempt_number per (student, module)
   const computeNextAttemptNumber = useCallback(
     async (studentId: string): Promise<number> => {
       try {
@@ -156,9 +305,7 @@ export default function FullResultReading() {
           .eq("module_id", currentModule.id)
           .eq("category", "reading");
         return (typeof count === "number" ? count : 0) + 1;
-      } catch {
-        return 1;
-      }
+      } catch { return 1; }
     },
     [currentModule.id]
   );
@@ -167,6 +314,7 @@ export default function FullResultReading() {
     async (studentId: string, finalScore: number) => {
       try {
         const attempt_number = await computeNextAttemptNumber(studentId);
+        const sessionNumeric = Number(session_id);
         await supabase.from("attempts").insert([
           {
             student_id: studentId,
@@ -175,71 +323,163 @@ export default function FullResultReading() {
             score: finalScore,
             category: "reading",
             level: currentModule.level,
-            session_id: null, // no session id for reading; adjust if you add one
+            session_id: Number.isFinite(sessionNumeric) ? sessionNumeric : null,
           } as any,
         ]);
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
     },
-    [currentModule.id, currentModule.level, computeNextAttemptNumber]
+    [currentModule.id, currentModule.level, session_id, computeNextAttemptNumber]
   );
 
-  // BASIC rule from speaking version:
-  // on landing full-results, mark THIS module as 100% complete for the student.
-  const applyFullResultsRuleInlineReading = useCallback(
-    async (moduleId: string) => {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const user = auth?.user;
-        if (!user || !moduleId) return;
+  const fetchFinalScore = useCallback(async (): Promise<number> => {
+    const key = attempt_id || session_id;
+    if (!key) return clampPct(uiScore);
+    const col = attempt_id ? "attempt_id" : "session_id";
+    const { data } = await supabase
+      .from("feedback_ai")
+      .select("evaluation")
+      .eq(col, key)
+      .order("created_at", { ascending: false })
+      .limit(5);
 
-        const now = new Date().toISOString();
-        await supabase
-          .from("student_progress")
-          .upsert(
-            {
-              student_id: user.id,
-              module_id: moduleId,
-              progress: 100,
-              completed: true,
-              category: "reading",
-              updated_at: now,
-            } as any,
-            { onConflict: "student_id,module_id", ignoreDuplicates: false }
-          );
-
-        // hard-cap any rogue >100
-        await supabase
-          .from("student_progress")
-          .update({ progress: 100, updated_at: now })
-          .eq("student_id", user.id)
-          .eq("module_id", moduleId)
-          .gt("progress", 100);
-      } catch {
-        // swallow errors
+    if (data?.length) {
+      for (const row of data) {
+        const ev = row?.evaluation as any;
+        const s =
+          typeof ev?.final_score === "number"
+            ? ev.final_score
+            : typeof ev?.score === "number"
+            ? ev.score
+            : null;
+        if (s != null) return clampPct(s);
       }
+    }
+    return clampPct(uiScore);
+  }, [attempt_id, session_id, uiScore]);
+
+  /* ───────── AI feedback & metrics (mirrors speaking) ───────── */
+  const [tips, setTips] = useState<string[]>([]);
+  const [loadingTips, setLoadingTips] = useState(false);
+  const [metrics, setMetrics] = useState<MetricBlock[] | null>(null);
+  const [strengths, setStrengths] = useState<StrengthItem[]>([]);
+  const [improvements, setImprovements] = useState<ImprovementItem[]>([]);
+  const [storedAiFeedback, setStoredAiFeedback] = useState<string | null>(null);
+  const [readingTextState, setReadingTextState] = useState<string>(typeof readingText === "string" ? readingText : "");
+
+  const recalcFromFeedback = useCallback(
+    async (feedbackBlob: string) => {
+      if (!currentModule.id) return;
+      const analysis = await getFinalAnalysis(feedbackBlob, readingTextState, currentModule.id);
+      if (analysis?.metrics?.length) setMetrics(analysis.metrics);
+      if (analysis?.skills?.strengths) setStrengths(analysis.skills.strengths);
+      if (analysis?.skills?.improvements) setImprovements(analysis.skills.improvements);
+      if (typeof analysis?.confidence_score === "number") setLiveScore(analysis.confidence_score);
     },
-    []
+    [currentModule.id, readingTextState]
   );
 
-  /* ───────── metrics derived from score (keeps your bar UI) ───────── */
-  const [metrics, setMetrics] = useState<Metric[] | null>(null);
-  const deriveMetrics = (p: number): Metric[] => ([
-    { label: "Fluency Score", value: clampPct(p),        icon: "bar-chart",    trend: "up" },
-    { label: "Clarity Precision", value: clampPct(p - 4), icon: "volume-high",  trend: "up" },
-    { label: "Filler Word Reduction", value: clampPct(p - 2), icon: "time",        trend: "up" },
-    { label: "Speaking Rate (WPM)", value: clampPct(p - 5), icon: "pulse",       trend: "up" },
-  ]);
+  const loadFeedbackFromAI = useCallback(async () => {
+    if (!currentModule.id) return;
+    if (ai_feedback) return; // handled in effect below
 
-  useEffect(() => setMetrics(deriveMetrics(uiScore)), [uiScore]);
+    const keyId = attempt_id || session_id;
+    if (!keyId && !storedAiFeedback) return;
 
-  // run once, like speaking
-  const savedOnceRef = useRef(false);
+    try {
+      setLoadingTips(true);
+
+      if (storedAiFeedback) {
+        await recalcFromFeedback(storedAiFeedback);
+        setTips([storedAiFeedback]);
+        return;
+      }
+      // If you later persist reading feedback elsewhere, hydrate here then recalc
+    } finally {
+      setLoadingTips(false);
+    }
+  }, [attempt_id, session_id, storedAiFeedback, ai_feedback, currentModule.id, recalcFromFeedback]);
+
+  // Analyze direct ai_feedback param
   useEffect(() => {
     (async () => {
-      await resolveModule();
+      if (!ai_feedback || !currentModule.id) return;
+      try {
+        setLoadingTips(true);
+        await recalcFromFeedback(ai_feedback);
+        setTips([ai_feedback]);
+      } finally {
+        setLoadingTips(false);
+      }
     })();
+  }, [ai_feedback, currentModule.id, recalcFromFeedback]);
+
+  // Recompute metrics when tips change (combine like speaking)
+  useEffect(() => {
+    (async () => {
+      if (!currentModule.id) return;
+      await resolveModule();
+      await loadFeedbackFromAI();
+      if (tips.length > 0) {
+        const combined = tips.join(" ");
+        await recalcFromFeedback(combined);
+      }
+    })();
+  }, [tips, resolveModule, loadFeedbackFromAI, recalcFromFeedback, currentModule.id]);
+
+  /* ───────── realtime feedback_ai inserts (reading) ───────── */
+  useEffect(() => {
+    const keyId = attempt_id || session_id;
+    if (!keyId) return;
+    const filter = attempt_id ? `attempt_id=eq.${keyId}` : `session_id=eq.${keyId}`;
+
+    const channel = supabase
+      .channel(`feedback_ai_reading:${keyId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "feedback_ai", filter },
+        (payload: any) => {
+          const ev = payload?.new?.evaluation;
+          if (!ev) return;
+          const s =
+            typeof ev?.final_score === "number"
+              ? ev.final_score
+              : typeof ev?.score === "number"
+              ? ev.score
+              : null;
+          if (s != null) setLiveScore(clampPct(s));
+
+          const collected: string[] = [];
+          if (typeof ev?.summary === "string" && ev.summary.trim()) collected.push(ev.summary.trim());
+          if (Array.isArray(ev?.tips)) {
+            ev.tips.forEach((t: any) => {
+              if (typeof t === "string" && t.trim()) collected.push(t.trim());
+            });
+          }
+          if (collected.length) {
+            setTips((prev) => {
+              const merged = [...collected, ...prev];
+              const seen = new Set<string>();
+              const unique = merged.filter((x) => {
+                const k = x.trim();
+                if (seen.has(k)) return false;
+                seen.add(k);
+                return true;
+              });
+              return unique.slice(0, 12);
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch {}
+    };
+  }, [attempt_id, session_id]);
+
+  /* ───────── bootstrap module + next ───────── */
+  useEffect(() => {
+    (async () => { await resolveModule(); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -250,7 +490,8 @@ export default function FullResultReading() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentModule.order_index, currentModule.id, currentModule.title]);
 
-  // ⬇️ THIS is the key bit: when landing on this page, write attempt + progress (once)
+  /* ───────── write attempt + BASIC progress once ───────── */
+  const savedOnceRef = useRef(false);
   useEffect(() => {
     (async () => {
       if (savedOnceRef.current) return;
@@ -262,14 +503,62 @@ export default function FullResultReading() {
 
       savedOnceRef.current = true;
 
-      // 1) write attempt (use uiScore as the final score source here)
-      await logAttempt(user.id, uiScore);
-
-      // 2) mark module 100% (reading)
-      await applyFullResultsRuleInlineReading(currentModule.id);
+      const finalScore = await fetchFinalScore();
+      await logAttempt(user.id, finalScore);
+      await applyFullResultsRuleInline(currentModule.id, levelParam);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentModule.id, uiScore]);
+  }, [currentModule.id, currentModule.level]);
+
+  /* ───────── nav actions (mirrors speaking) ───────── */
+  const goRetake = async () => {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (user && currentModule.id) {
+        const finalScore = await fetchFinalScore();
+        await logAttempt(user.id, finalScore);
+        await applyFullResultsRuleInline(currentModule.id, levelParam);
+      }
+    } catch {}
+    router.replace("/student-voice-reading-recording");
+  };
+
+  const goHome = async () => {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const user = auth?.user;
+      if (user && currentModule.id) {
+        const finalScore = await fetchFinalScore();
+        await logAttempt(user.id, finalScore);
+
+        const progressData = {
+          student_id: user.id,
+          module_id: currentModule.id,
+          progress: 100,
+          completed: true,
+          category: "reading",
+          updated_at: new Date().toISOString(),
+          confidence: finalScore,
+          anxiety: null,
+        };
+
+        const { data: existing } = await supabase
+          .from("student_progress")
+          .select("id")
+          .eq("student_id", user.id)
+          .eq("module_id", currentModule.id)
+          .maybeSingle();
+
+        if (existing?.id) {
+          await supabase.from("student_progress").update(progressData).eq("id", existing.id);
+        } else {
+          await supabase.from("student_progress").insert([progressData]);
+        }
+      }
+    } catch {}
+    router.replace("StudentScreen/HomePage/home-page");
+  };
 
   /**
    * Background decoration component
@@ -340,8 +629,7 @@ export default function FullResultReading() {
             <View className="flex-1 ml-6">
               <Text className="text-white font-semibold text-lg mb-2">Reading Proficiency</Text>
               <Text className="text-sm text-gray-300 leading-relaxed">
-                Your reading skills demonstrate strong comprehension and analysis.
-                Build speed and vocabulary to improve further.
+                Your reading skills demonstrate strong comprehension and analysis. Build speed and vocabulary to improve further.
               </Text>
             </View>
           </View>
@@ -358,32 +646,48 @@ export default function FullResultReading() {
               <Text className="right-3 text-white font-medium text-lg">Key Strengths</Text>
             </View>
             <View className="bottom-1 space-y-4 top-4">
-              {[
-                { skill: "Volume",       level: clampPct(uiScore + 7), trend: "up" as Trend },
-                { skill: "Pacing",       level: clampPct(uiScore + 0), trend: "up" as Trend },
-                { skill: "Grammar",      level: clampPct(uiScore + 4), trend: "up" as Trend },
-                { skill: "Phrasing",     level: clampPct(uiScore + 2), trend: "up" as Trend },
-              ].map((item, i) => (
-                <View key={i} className="space-y-1">
-                  <View className="flex-row justify-between items-center">
-                    <View className="flex-row items-center">
-                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
-                      <Ionicons
-                        name={item.trend === "up" ? "trending-up" : "trending-down"}
-                        size={12}
-                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-                      />
+              {strengths.length
+                ? strengths.map((item, i) => (
+                    <View key={i} className="space-y-1">
+                      <View className="flex-row justify-between items-center">
+                        <View className="flex-row items-center">
+                          <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                          <Ionicons
+                            name={item.trend === "up" ? "trending-up" : "trending-down"}
+                            size={12}
+                            color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                          />
+                        </View>
+                        <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
+                      </View>
+                      <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <View
+                          className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
+                          style={widthStyle(item.level)}
+                        />
+                      </View>
                     </View>
-                    <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
-                  </View>
-                  <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <View
-                      className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
-                      style={widthStyle(item.level)}
-                    />
-                  </View>
-                </View>
-              ))}
+                  ))
+                : [
+                    { skill: "Reading Speed", level: clampPct(uiScore + 5), trend: "up" as Trend },
+                    { skill: "Comprehension", level: clampPct(uiScore + 2), trend: "up" as Trend },
+                  ].map((item, i) => (
+                    <View key={i} className="space-y-1">
+                      <View className="flex-row justify-between items-center">
+                        <View className="flex-row items-center">
+                          <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                          <Ionicons name="trending-up" size={12} color="#00FF00" />
+                        </View>
+                        <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
+                      </View>
+                      <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <View
+                          className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
+                          style={widthStyle(item.level)}
+                        />
+                      </View>
+                    </View>
+                  ))}
             </View>
           </View>
 
@@ -396,32 +700,48 @@ export default function FullResultReading() {
               <Text className="right-2 text-white font-medium text-base bottom-2">Improvement Areas</Text>
             </View>
             <View className="bottom-1 space-y-4">
-              {[
-                { skill: "Clarity",       level: clampPct(100 - (uiScore - 10)), trend: "down" as Trend },
-                { skill: "Vocal Tone",    level: clampPct(100 - (uiScore - 6)),  trend: "down" as Trend },
-                { skill: "Accuracy",      level: clampPct(100 - (uiScore - 8)),  trend: "down" as Trend },
-                { skill: "Pronunciation", level: clampPct(100 - (uiScore - 2)),  trend: "down" as Trend },
-              ].map((item, i) => (
-                <View key={i} className="space-y-1">
-                  <View className="flex-row justify-between items-center">
-                    <View className="flex-row items-center">
-                      <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
-                      <Ionicons
-                        name={item.trend === "up" ? "trending-up" : "trending-down"}
-                        size={12}
-                        color={item.trend === "up" ? "#00FF00" : "#FF0000"}
-                      />
+              {improvements.length
+                ? improvements.map((item, i) => (
+                    <View key={i} className="space-y-1">
+                      <View className="flex-row justify-between items-center">
+                        <View className="flex-row items-center">
+                          <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                          <Ionicons
+                            name={item.trend === "up" ? "trending-up" : "trending-down"}
+                            size={12}
+                            color={item.trend === "up" ? "#00FF00" : "#FF0000"}
+                          />
+                        </View>
+                        <Text className="text-xs text-[#FFFFFF]">{fmtPct(100 - item.level)}</Text>
+                      </View>
+                      <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <View
+                          className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
+                          style={widthStyle(item.level)}
+                        />
+                      </View>
                     </View>
-                    <Text className="text-xs text-[#FFFFFF]">{fmtPct(item.level)}</Text>
-                  </View>
-                  <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <View
-                      className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
-                      style={widthStyle(item.level)}
-                    />
-                  </View>
-                </View>
-              ))}
+                  ))
+                : [
+                    { skill: "Inference & Analysis", level: clampPct(uiScore - 8), trend: "down" as Trend },
+                    { skill: "Vocabulary Use", level: clampPct(uiScore - 6), trend: "down" as Trend },
+                  ].map((item, i) => (
+                    <View key={i} className="space-y-1">
+                      <View className="flex-row justify-between items-center">
+                        <View className="flex-row items-center">
+                          <Text className="text-sm text-gray-300 mr-1">{item.skill}</Text>
+                          <Ionicons name="trending-down" size={12} color="#FF0000" />
+                        </View>
+                        <Text className="text-xs text-[#FFFFFF]">{fmtPct(100 - item.level)}</Text>
+                      </View>
+                      <View className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <View
+                          className="h-full bg-gradient-to-r from-[#8A5CFF] to-[#a78bfa]"
+                          style={widthStyle(item.level)}
+                        />
+                      </View>
+                    </View>
+                  ))}
             </View>
           </View>
         </View>
@@ -430,7 +750,7 @@ export default function FullResultReading() {
         <View className="mx-4 p-6 bg-white/5 backdrop-blur-md rounded-3xl border border-white/20 mb-6">
           <View className="mb-6">
             <Text className="text-white font-semibold text-lg">Performance Metrics</Text>
-            <Text className="text-gray-400 text-sm">Detailed analysis of your speaking performance</Text>
+            <Text className="text-gray-400 text-sm">Detailed analysis of your reading performance</Text>
           </View>
 
           <View className="space-y-6">
@@ -488,44 +808,14 @@ export default function FullResultReading() {
             </View>
 
             <Text className="text-gray-200 text-center text-sm leading-relaxed mb-6">
-              Your speaking assessment is complete. Based on your performance,
-              we've identified key areas to focus on in your learning journey.
+              Your reading assessment is complete. Based on your performance, we've identified key areas to focus on in your learning journey.
             </Text>
-
-            <View className="space-y-3 mb-6 top-2">
-              <View className="flex-row items-start">
-                <View className="w-5 h-5 rounded-full bg-[#90EE90]/70 items-center justify-center mt-0.5 mr-3 ">
-                  <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginTop: 1 }} />
-                </View>
-                <Text className="text-gray-200 bottom-1.5 text-sm flex-1">
-                  <Text className="font-medium text-white">Personalized exercises tailored to your improvement areas</Text>
-                </Text>
-              </View>
-
-              <View className="flex-row items-start">
-                <View className="w-5 h-5 rounded-full bg-[#90EE90]/70 items-center justify-center mt-0.5 mr-3">
-                  <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginTop: 1 }} />
-                </View>
-                <Text className="text-gray-200 bottom-1 text-sm flex-1">
-                  <Text className="font-medium text-white">Track your progress over time with detailed analytics</Text>
-                </Text>
-              </View>
-
-              <View className="flex-row items-start">
-                <View className="w-5 h-5 rounded-full bg-[#90EE90]/70 items-center justify-center mt-0.5 mr-3">
-                  <Ionicons name="checkmark" size={14} color="#FFFFFF" style={{ marginTop: 1 }} />
-                </View>
-                <Text className="text-gray-200 top-1 text-sm flex-1">
-                  <Text className="font-medium text-white">Expert feedback on your speaking patterns</Text>
-                </Text>
-              </View>
-            </View>
 
             <View className="flex-row space-x-4 mt-6">
               <TouchableOpacity
                 className="flex-row items-center bg-violet-500/80 border border-white/30 px-6 py-2.5 rounded-xl w-[45%] justify-center"
                 activeOpacity={0.9}
-                onPress={() => router.replace("/student-voice-reading-recording")}
+                onPress={goRetake}
               >
                 <Text className="text-white font-semibold text-base">Retake</Text>
               </TouchableOpacity>
@@ -533,7 +823,7 @@ export default function FullResultReading() {
               <TouchableOpacity
                 className="flex-row items-center bg-white/30 border border-white/40 px-6 py-2.5 rounded-xl w-[47%] justify-center"
                 activeOpacity={0.9}
-                onPress={() => router.replace("/home-page")}
+                onPress={goHome}
               >
                 <Text className="text-white font-semibold text-base">Home</Text>
               </TouchableOpacity>

@@ -325,7 +325,7 @@ const ClassModulesReadingPage = () => {
           onPress={() =>
             router.push({
               // NOTE: kept as-is; change path if you have a dedicated reading detail route
-              pathname: "/StudentScreen/SpeakingExercise/class-module",
+              pathname: "StudentScreen/ReadingExercise/class-module-reading",
               params: { moduleId: mod.id, classId: mod.class_id ?? "" },
             })
           }
