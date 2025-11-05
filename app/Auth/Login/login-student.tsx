@@ -144,23 +144,12 @@ export default function StudentLoginScreen() {
   }, [formData, isMounted, routeStudentAfterLogin]);
 
   // Handle forgot password
-  const handleForgotPassword = useCallback(async () => {
-    const email = formData.email.trim();
-    if (!email) {
-      Alert.alert("Forgot Password", "Enter your email first.");
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) throw error;
-      Alert.alert(
-        "Reset Email Sent",
-        "Check your inbox for instructions to reset your password."
-      );
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not send reset email.");
-    }
-  }, [formData.email]);
+  // Handle forgot password
+const handleForgotPassword = useCallback(async () => {
+  // ⤵️ Go straight to your in-app Forgot Password screen (no email/link flow here)
+  router.push("/Auth/Login/forgot-password");
+}, [router]);
+
 
   const handleSignUp = useCallback(() => {
     router.push(SIGNUP_ROUTE);

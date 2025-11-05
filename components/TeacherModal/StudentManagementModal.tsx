@@ -154,6 +154,12 @@ const StudentManagementModal: React.FC<
   strand,
   initialFilter = {},
 }) => {
+  // simple color mapping for progress bars
+  const getBarColor = (n: number) => {
+    if (n >= 80) return "#10b981"; // green-500
+    if (n >= 60) return "#f59e0b"; // amber-500
+    return "#ef4444"; // red-500
+  };
   // ---------- local UI state ----------
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] =
@@ -992,9 +998,10 @@ const confidenceLevel = Math.max(
                     </View>
                     <View className="h-2 bg-white/10 rounded-full overflow-hidden">
                       <View
-                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-600"
+                        className="h-full rounded-full"
                         style={{
                           width: `${data.moduleProgress}%`,
+                          backgroundColor: getBarColor(data.moduleProgress),
                         }}
                       />
                     </View>
@@ -1025,9 +1032,10 @@ const confidenceLevel = Math.max(
                       </View>
                       <View className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                         <View
-                          className="h-full rounded-full bg-gradient-to-r from-green-400 to-emerald-500"
+                          className="h-full rounded-full"
                           style={{
                             width: `${data.confidenceLevel}%`,
+                            backgroundColor: getBarColor(data.confidenceLevel),
                           }}
                         />
                       </View>
@@ -1093,17 +1101,6 @@ const confidenceLevel = Math.max(
                               ? value
                               : 0;
 
-                          const getGradientClass =
-                            (
-                              n: number
-                            ) => {
-                              if (n >= 80)
-                                return "from-emerald-500 to-green-400";
-                              if (n >= 60)
-                                return "from-amber-500 to-yellow-400";
-                              return "from-rose-500 to-pink-400";
-                            };
-
                           return (
                             <View
                               key={skill}
@@ -1123,11 +1120,10 @@ const confidenceLevel = Math.max(
                               </View>
                               <View className="h-2 bg-white/10 rounded-full overflow-hidden">
                                 <View
-                                  className={`h-full rounded-full bg-gradient-to-r ${getGradientClass(
-                                    valNum
-                                  )}`}
+                                  className="h-full rounded-full"
                                   style={{
                                     width: `${valNum}%`,
+                                    backgroundColor: getBarColor(valNum),
                                   }}
                                 />
                               </View>

@@ -383,45 +383,25 @@ const handleLeaveClass = async () => {
     if (fetchEnrollErr) throw fetchEnrollErr;
     const classIds = (activeEnrolls ?? []).map((r: any) => r.class_id);
 
-    // 2) Collect module_ids from those classes, then filter out free/default modules.
-    // Assumptions:
-    // - class_modules(class_id, module_id) exists
-    // - modules table has either:
-    //     a) is_default boolean (true for free/global modules), OR
-    //     b) created_by / owner_teacher_id that matches a teacher id for teacher-made modules
+    // 2) Collect module_ids for those classes.
+    // In your schema, class_modules uses `id` as the module identifier and
+    // links to a class via `class_id`. We'll use class_modules.id as module_id.
     let teacherModuleIds: string[] = [];
     if (classIds.length > 0) {
+      // Avoid joins that rely on FK metadata; simply get module ids for these classes
       const { data: mapped, error: mapErr } = await supabase
         .from("class_modules")
-        .select("module_id, classes!inner(teacher_id), modules!inner(id, is_default, created_by, owner_teacher_id)")
+        .select("id")
         .in("class_id", classIds);
       if (mapErr) throw mapErr;
 
-      teacherModuleIds = (mapped ?? [])
-        .map((row: any) => row.module_id)
-        .filter(Boolean);
-
-      // If we also want to double-ensure they’re not free/default, fetch the module rows and filter:
-      if (teacherModuleIds.length > 0) {
-        const { data: moduleRows, error: modErr } = await supabase
-          .from("modules")
-          .select("id, is_default, created_by, owner_teacher_id")
-          .in("id", teacherModuleIds);
-        if (modErr) throw modErr;
-
-        const teacherSet = new Set(teacherIds);
-        teacherModuleIds = (moduleRows ?? [])
-          .filter((m: any) => {
-            const isDefault = m.is_default === true; // treat null/undefined as not default
-            const createdBy = m.created_by || m.owner_teacher_id || null;
-            const isTeacherMade =
-              (createdBy && teacherSet.has(createdBy)) || teacherIds.length === 0 ? false : false; // fallback set below
-
-            // Keep if NOT default AND (created_by/owner matches one of the teacherIds, when present)
-            return !isDefault && (!createdBy || teacherSet.has(createdBy));
-          })
-          .map((m: any) => m.id);
-      }
+      teacherModuleIds = Array.from(
+        new Set(
+          (mapped ?? [])
+            .map((row: any) => row.id)
+            .filter(Boolean)
+        )
+      );
     }
 
     // 3) Delete progress only for those teacher-made module_ids
