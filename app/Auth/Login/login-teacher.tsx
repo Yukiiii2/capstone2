@@ -146,23 +146,11 @@ export default function TeacherLoginScreen() {
   }, [formData, isMounted, routeTeacherAfterLogin]);
 
   // reset password via Supabase
-  const handleForgotPassword = useCallback(async () => {
-    const email = formData.email.trim();
-    if (!email) {
-      Alert.alert("Forgot Password", "Enter your email first.");
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) throw error;
-      Alert.alert(
-        "Reset Email Sent",
-        "Check your inbox for instructions to reset your password."
-      );
-    } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not send reset email.");
-    }
-  }, [formData.email]);
+  // reset password via in-app route (same as student side)
+const handleForgotPassword = useCallback(() => {
+  router.push("/Auth/Login/forgot-password");
+}, [router]);
+
 
   const handleSignUp = useCallback(
     () => router.push(TEACHER_SIGNUP_ROUTE),

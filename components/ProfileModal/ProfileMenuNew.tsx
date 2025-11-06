@@ -448,7 +448,7 @@ const handleLeaveClass = async () => {
     setTimeout(() => setShowSuccessMessage(false), 2200);
 
     handleClose();
-    setTimeout(() => router.push("/StudentScreen/ClassProgress/join-class"), 200);
+    setTimeout(() => router.push("/components/StudentModal/JoinClassModal"), 200);
   } catch (e: any) {
     setIsLeaving(false);
     setSuccessMessage(e?.message || "Failed to leave class.");
