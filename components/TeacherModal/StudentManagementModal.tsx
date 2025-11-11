@@ -24,7 +24,7 @@ import { Student, defaultPerformanceData } from "../../types";
 
 type PerformanceType = "speaking" | "reading";
 
-type AnxietyLevel = "low" | "medium" | "high";
+type AnxietyLevel = "low" | "moderate" | "high";
 
 type DerivedPerf = {
   moduleProgress: number; // %
@@ -120,9 +120,9 @@ interface StudentManagementModalProps {
    ────────────────────────────────────────────── */
 
 const toAnxietyLevel = (val?: number | null): AnxietyLevel => {
-  if (val === null || val === undefined) return "medium";
+  if (val === null || val === undefined) return "moderate";
   if (val <= 33) return "low";
-  if (val <= 66) return "medium";
+  if (val <= 66) return "moderate";
   return "high";
 };
 
@@ -176,6 +176,9 @@ const StudentManagementModal: React.FC<
     selectedPerformanceType,
     setSelectedPerformanceType,
   ] = useState<PerformanceType>("speaking");
+
+  // NEW: anxiety info modal state
+  const [showAnxietyInfoModal, setShowAnxietyInfoModal] = useState(false);
 
   // we keep teacher-bound live list so we don't trust only `students` prop
   const [teacherId, setTeacherId] = useState<string | null>(
@@ -877,7 +880,7 @@ const confidenceLevel = Math.max(
         progress: 30,
         progressColor: "#10b981",
       },
-      medium: {
+      moderate: {
         text: "text-yellow-400",
         dot: "bg-yellow-400",
         progress: 60,
@@ -1041,8 +1044,12 @@ const confidenceLevel = Math.max(
                       </View>
                     </View>
 
-                    {/* Anxiety */}
-                    <View className="bg-white/10 border border-white/30 rounded-2xl p-5 shadow-lg flex-1 backdrop-blur-md">
+                    {/* Anxiety - make tappable to show info modal */}
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setShowAnxietyInfoModal(true)}
+                      className="bg-white/10 border border-white/30 rounded-2xl p-5 shadow-lg flex-1 backdrop-blur-md"
+                    >
                       <View className="flex-row items-center justify-between mb-3">
                         <Text className="text-sm font-medium text-white/80">
                           Anxiety Level
@@ -1073,7 +1080,10 @@ const confidenceLevel = Math.max(
                           }}
                         />
                       </View>
-                    </View>
+                      <Text className="text-xs text-white/50 mt-2">
+                        Tap for details
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* Skill Mastery */}
@@ -1306,6 +1316,74 @@ const confidenceLevel = Math.max(
             </BlurView>
           </View>
         </View>
+
+        {/* Anxiety Info Modal (information popup) */}
+        <Modal
+          transparent
+          visible={showAnxietyInfoModal}
+          animationType="fade"
+          onRequestClose={() =>
+            setShowAnxietyInfoModal(false)
+          }
+        >
+          <View className="flex-1 bg-black/50 justify-center items-center p-4">
+            <BlurView
+              intensity={30}
+              tint="dark"
+              className="w-full max-w-sm rounded-2xl overflow-hidden"
+            >
+              <View className="p-6 bg-[#1A1F2E]/95 border border-white/10 rounded-2xl">
+                <View className="flex-row justify-between items-start mb-4">
+                  <Text className="text-lg font-semibold text-white">
+                    How Anxiety Score is Calculated
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setShowAnxietyInfoModal(false)}
+                    className="p-2"
+                    activeOpacity={0.8}
+                  >
+                    <Text className="text-gray-300 text-lg">✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={{ maxHeight: 260 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text className="text-white/80 text-sm mb-3 leading-relaxed">
+                    The anxiety level shown here is derived from the most recent
+                    recorded anxiety metric for the selected student and
+                    performance category (speaking or reading). Numeric values
+                    are mapped to categories as follows:
+                  </Text>
+
+                  <View className="mb-3">
+                    <Text className="text-white/80 text-sm">• Low: ≤ 33</Text>
+                    <Text className="text-white/80 text-sm">• Moderate: 34–66</Text>
+                    <Text className="text-white/80 text-sm">• High: ≥ 67</Text>
+                  </View>
+
+                  <Text className="text-white/80 text-sm mb-3 leading-relaxed">
+                    Source: latest entry from the confidence_anxiety_score table for
+                    the student. If no recent data exists, a fallback/estimate is
+                    used.
+                  </Text>
+
+                  <Text className="text-white/80 text-sm leading-relaxed">
+                    Tap outside or press Close to return.
+                  </Text>
+                </ScrollView>
+
+                <TouchableOpacity
+                  onPress={() => setShowAnxietyInfoModal(false)}
+                  className="mt-4 p-3 bg-white/5 border border-white/10 rounded-xl items-center active:bg-white/10"
+                >
+                  <Text className="text-gray-300 font-medium">Close</Text>
+                </TouchableOpacity>
+              </View>
+            </BlurView>
+          </View>
+        </Modal>
       </Modal>
     );
   };
