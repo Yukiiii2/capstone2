@@ -9,10 +9,15 @@ import {
   RefreshControl,
   Alert,
   TextInput,
+  Modal,      // ⬅️ added
+  Linking,    // ⬅️ added (for external open fallback if you want)
+  Platform,   // ⬅️ added
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "@/lib/supabaseClient";
+import { WebView } from "react-native-webview";            // ⬅️ added
+import * as DocumentPicker from "expo-document-picker";    // ⬅️ optional (for Replace PDF)
 
 type Params = {
   moduleId?: string;
@@ -83,6 +88,10 @@ export default function ModuleEditorScreen() {
   const [details, setDetails] = useState<ModuleDetails | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // ⬇️ Preview state (added)
+  const [pdfModalUrl, setPdfModalUrl] = useState<string | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   const assignedToThisClass = useMemo(() => {
     if (!header) return false;
@@ -218,6 +227,167 @@ export default function ModuleEditorScreen() {
   const updatedLabel = useMemo(
     () => toDateLabel(details?.updated_at, header?.created_at, header?.due_at) ?? "—",
     [details?.updated_at, header]
+  );
+
+  // ────────────────────────────────────────────────────────────
+  // Preview helpers (copied/adapted from your StudentScreen logic)
+  // ────────────────────────────────────────────────────────────
+  const SUPA_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const DEFAULT_BUCKET = "class_resources";
+  const GV = (u: string) => `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(u)}`;
+  const OFFICE = (u: string) =>
+    `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(u)}`;
+
+  const resolveStorageSignedUrl = useCallback(async (storagePath: string): Promise<string | null> => {
+  try {
+    let p = (storagePath || "").trim();
+    if (!p) return null;
+
+    // absolute URL? return as-is
+    if (/^https?:\/\//i.test(p)) return p;
+
+    // normalize: strip leading slashes and "public/"
+    p = p.replace(/^\/+/, "").replace(/^public\//, "");
+
+    // Detect bucket only if the path starts with a known bucket prefix.
+    // Otherwise, treat the whole string as the object path under DEFAULT_BUCKET.
+    const KNOWN_BUCKETS = ["class_resources", "modules", "avatars", "class_files"];
+    let bucket = DEFAULT_BUCKET;
+    let objectPath = p;
+
+    for (const b of KNOWN_BUCKETS) {
+      if (p.startsWith(b + "/")) {
+        bucket = b;
+        objectPath = p.slice(b.length + 1); // remove "bucket/"
+        break;
+      }
+    }
+
+    if (!bucket || !objectPath) return null;
+
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(objectPath, 3600);
+    if (!error && data?.signedUrl) return data.signedUrl;
+
+    // If the object is public, this will work:
+    if (SUPA_URL) {
+      return `${SUPA_URL}/storage/v1/object/public/${bucket}/${objectPath}`;
+    }
+
+    console.warn("resolveStorageSignedUrl: failed for", { bucket, objectPath, error });
+    return null;
+  } catch (e) {
+    console.warn("resolveStorageSignedUrl exception:", e);
+    return null;
+  }
+}, [SUPA_URL]);
+
+  const isPdfLike = (urlOrPath: string) => /\.pdf(\?|#|$)/i.test(urlOrPath);
+  const isDocLike = (urlOrPath: string) =>
+    /\.(doc|docx|ppt|pptx|rtf|odt)(\?|#|$)/i.test(urlOrPath);
+
+  const openResource = useCallback(
+    async (path?: string | null, index?: number) => {
+      if (!path) {
+        Alert.alert("File not available", "No path provided for this resource.");
+        return;
+      }
+
+      let rawUrl: string | null = null;
+
+      // Absolute URL provided?
+      if (/^https?:\/\//i.test(path)) {
+        rawUrl = path;
+      } else {
+        rawUrl = await resolveStorageSignedUrl(path);
+      }
+
+      if (!rawUrl) {
+        Alert.alert("File not available", "Could not open this file.");
+        return;
+      }
+
+      // Use online viewers for PDF / Office docs so WebView renders reliably
+      let viewerUrl = rawUrl;
+      if (isPdfLike(rawUrl)) {
+        viewerUrl = GV(rawUrl);
+      } else if (isDocLike(rawUrl)) {
+        viewerUrl = OFFICE(rawUrl);
+      }
+
+      setPreviewIndex(typeof index === "number" ? index : null);
+      setPdfModalUrl(viewerUrl);
+    },
+    [resolveStorageSignedUrl]
+  );
+
+  const replacePdfAt = useCallback(
+    async (index: number) => {
+      // Optional: keep "Replace" inside preview; comment out this whole function if not needed
+      if (!details || !header) return;
+
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled) return;
+
+      const asset = picked.assets?.[0];
+      if (!asset?.uri) return;
+
+      try {
+        const oldPath = details.resources?.[index]?.path ?? "";
+        // infer bucket from oldPath or use DEFAULT_BUCKET
+        const cleaned = oldPath.replace(/^\/+/, "").replace(/^public\//, "");
+        const firstSlash = cleaned.indexOf("/");
+        const oldBucket = firstSlash > 0 ? cleaned.slice(0, firstSlash) : DEFAULT_BUCKET;
+
+        const filename = asset.name || "document.pdf";
+        const objectPath = `${header.id}/${Date.now()}-${filename}`;
+
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+
+        const { error: upErr } = await supabase.storage
+          .from(oldBucket)
+          .upload(objectPath, blob, { contentType: "application/pdf", upsert: true });
+        if (upErr) throw upErr;
+
+        const newPath = `${oldBucket}/${objectPath}`;
+        const next = [...(details.resources ?? [])];
+        next[index] = { ...(next[index] || {}), path: newPath, name: filename };
+
+        setDetails((d) => (d ? { ...d, resources: next, updated_at: new Date().toISOString() } : d));
+
+        const payload = {
+          module_id: header.id,
+          lessons: asArray(details.lessons),
+          importance: asArray(details.importance),
+          tips: asArray(details.tips),
+          task_body: details.task_body ?? "",
+          task_instructions: asArray(details.task_instructions),
+          rubric: asArray(details.rubric),
+          quiz: asArray(details.quiz),
+          resources: next,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error: dErr } = await supabase
+          .from("class_module_details")
+          .upsert(payload, { onConflict: "module_id" });
+        if (dErr) throw dErr;
+
+        // refresh preview with new file
+        const newRaw = await resolveStorageSignedUrl(newPath);
+        setPdfModalUrl(newRaw ? GV(newRaw) : null);
+
+        Alert.alert("Replaced", "PDF replaced successfully.");
+      } catch (e: any) {
+        console.warn("[module-editor] replacePdfAt error:", e);
+        Alert.alert("Upload failed", e?.message ?? "Could not replace the PDF.");
+      }
+    },
+    [details, header, resolveStorageSignedUrl]
   );
 
   return (
@@ -504,7 +674,13 @@ export default function ModuleEditorScreen() {
                   <Ionicons name="link-outline" size={20} color="#fff" />
                 </View>
                 {details!.resources!.map((res, i) => (
-                  <View key={`res-${i}`} className="flex-row items-center mb-1">
+                  <View
+                    key={`res-${i}`}
+                    className="flex-row items-center mb-1"
+                    // ⬇️ make the row tappable WITHOUT changing its UI
+                    onStartShouldSetResponder={() => true}
+                    onResponderRelease={() => openResource(res?.path, i)}
+                  >
                     <View className="w-5 h-5 bg-white/10 rounded-full items-center justify-center mr-2">
                       <Ionicons name="document-text-outline" size={12} color="#fff" />
                     </View>
@@ -518,6 +694,44 @@ export default function ModuleEditorScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* PDF/Doc preview modal (WebView) */}
+      <Modal
+        visible={!!pdfModalUrl}
+        onRequestClose={() => { setPdfModalUrl(null); setPreviewIndex(null); }}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <View style={{ paddingTop: 50, paddingHorizontal: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>Preview</Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {typeof previewIndex === "number" ? (
+                <TouchableOpacity
+                  onPress={() => replacePdfAt(previewIndex)}
+                  style={{ paddingVertical: 6, paddingHorizontal: 10, marginRight: 8, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10 }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 13 }}>Replace PDF</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity onPress={() => { setPdfModalUrl(null); setPreviewIndex(null); }} style={{ padding: 8 }}>
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {pdfModalUrl ? (
+            <WebView
+              originWhitelist={["*"]}
+              source={{ uri: pdfModalUrl }}
+              style={{ flex: 1 }}
+              startInLoadingState
+              javaScriptEnabled
+              domStorageEnabled
+              allowsInlineMediaPlayback
+            />
+          ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }

@@ -39,12 +39,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
       route: "components/LevelSelectionModal",
       onPress: () => setShowLevelModal(true),
     },
-    {
-      icon: "people-outline",
-      label: "Live Session",
-      route: "StudentScreen/StudentLiveSession/live-sessions-select",
-      onPress: () => router.push("/StudentScreen/StudentLiveSession/live-sessions-select"),
-    },
   ];
 
   return (
@@ -54,20 +48,18 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
           {navItems.map((item) => {
             const isActive = defaultActiveTab
               ? item.label === defaultActiveTab
-              : pathname.includes(item.route);
-            // Make the active background for Home tab wider
-            const isLiveSession = item.label === "Live Session";
+              : pathname?.includes(item.route);
             const isSpeaking = item.label === "Speaking";
             const isHome = item.label === "Home";
+
             const activeStyle = isActive && isHome
               ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 16, minWidth: 64 }
-              : isActive && isLiveSession
-                ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 2, borderRadius: 14, minWidth: 20 }
-                : isActive && isSpeaking
-                  ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 7, borderRadius: 14, minWidth: 36 }
-                  : isActive
-                    ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12 }
-                    : { backgroundColor: 'transparent', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12 };
+              : isActive && isSpeaking
+                ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 7, borderRadius: 14, minWidth: 36 }
+                : isActive
+                  ? { backgroundColor: 'rgba(255,255,255,0.14)', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12 }
+                  : { backgroundColor: 'transparent', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12 };
+
             return (
               <TouchableOpacity
                 key={item.route}

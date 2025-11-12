@@ -774,107 +774,89 @@ useEffect(() => {
     </AnimatedTouchable>
   );
 
-  // Sidebar Component (navigation unchanged; prop added to open Peer Review levels)
-  const Sidebar = ({
-    showSidebar,
-    toggleSidebar,
-    sidebarAnim,
-    panResponder,
-    router,
-    setShowReadingLevelModal,
-    setShowCommunityModal,
-    setShowCommunityLevelModal, // added
-  }: {
-    showSidebar: boolean;
-    toggleSidebar: () => void;
-    sidebarAnim: Animated.Value;
-    panResponder: any;
-    router: any;
-    setShowReadingLevelModal: (show: boolean) => void;
-    setShowCommunityModal: (show: boolean) => void;
-    setShowCommunityLevelModal: (show: boolean) => void;
-  }) => (
-    <Animated.View
-      className="absolute right-0 top-0 bottom-0 w-64 bg-[#0F172A]/95 drop-shadow-xl rounded-3xl z-50"
-      onLayout={onSidebarLayout}
-      style={[
-        {
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: sidebarWidth,
-          position: "absolute",
-          backgroundColor: "rgba(15, 23, 42, 0.95)",
-          borderRadius: 12,
-          elevation: 5,
-          shadowColor: "#000",
-          shadowOffset: { width: 4, height: 0 },
-          shadowOpacity: 0.3,
-          shadowRadius: 4,
-          transform: [{ translateX: sidebarAnim }],
-        },
-      ]}
-      {...panResponder.panHandlers}
-    >
-      <View className="p-5 pt-14">
-        {/* Quick Actions Header */}
-        <View className="flex-row items-center justify-between mb-8">
-          <Text className="text-white font-bold text-2xl">Quick Actions</Text>
-          <TouchableOpacity onPress={toggleSidebar}>
-            <Ionicons name="close" size={24} color="white" />
-          </TouchableOpacity>
-        </View>
-
-        {/* SPEAKING EXERCISE */}
-        <QuickActionButton
-          onPress={() => {
-            toggleSidebar();
-            setShowLevelModal(true);
-          }}
-          icon="mic-outline"
-          title="SPEAKING EXERCISE"
-          subtitle="Practice Speaking with AI"
-          iconColor="#FFFFFF"
-        />
-
-        {/* READING EXERCISES */}
-        <QuickActionButton
-          onPress={() => {
-            toggleSidebar();
-            setShowReadingLevelModal(true);
-          }}
-          icon="book-outline"
-          title="READING EXERCISES"
-          subtitle="Practice Reading with AI"
-          iconColor="#FFFFFF"
-        />
-
-        {/* PEER REVIEW */}
-        <QuickActionButton
-          onPress={() => {
-            toggleSidebar();
-            setShowCommunityLevelModal(true);
-          }}
-          icon="people-outline"
-          title="PEER REVIEW"
-          subtitle="Community Feedback"
-          iconColor="#FFFFFF"
-        />
-
-        {/* LIVE SESSION */}
-        <QuickActionButton
-          onPress={() => {
-            toggleSidebar();
-            router.push("/StudentScreen/StudentLiveSession/live-sessions-select");
-          }}
-          icon="videocam-outline"
-          title="LIVE SESSION"
-          subtitle="Join sessions with peers"
-          iconColor="#FFFFFF"
-        />
+  // --- inside home-page.tsx ---
+// Sidebar Component (navigation unchanged; props kept for compatibility)
+const Sidebar = ({
+  showSidebar,
+  toggleSidebar,
+  sidebarAnim,
+  panResponder,
+  router,
+  setShowReadingLevelModal,
+  setShowCommunityModal,
+  setShowCommunityLevelModal, // kept to avoid wider edits
+}: {
+  showSidebar: boolean;
+  toggleSidebar: () => void;
+  sidebarAnim: Animated.Value;
+  panResponder: any;
+  router: any;
+  setShowReadingLevelModal: (show: boolean) => void;
+  setShowCommunityModal: (show: boolean) => void;
+  setShowCommunityLevelModal: (show: boolean) => void;
+}) => (
+  <Animated.View
+    className="absolute right-0 top-0 bottom-0 w-64 bg-[#0F172A]/95 drop-shadow-xl rounded-3xl z-50"
+    onLayout={onSidebarLayout}
+    style={[
+      {
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: sidebarWidth,
+        position: "absolute",
+        backgroundColor: "rgba(15, 23, 42, 0.95)",
+        borderRadius: 12,
+        elevation: 5,
+        shadowColor: "#000",
+        shadowOffset: { width: 4, height: 0 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        transform: [{ translateX: sidebarAnim }],
+      },
+    ]}
+    {...panResponder.panHandlers}
+  >
+    <View className="p-5 pt-14">
+      {/* Quick Actions Header */}
+      <View className="flex-row items-center justify-between mb-8">
+        <Text className="text-white font-bold text-2xl">Quick Actions</Text>
+        <TouchableOpacity onPress={toggleSidebar}>
+          <Ionicons name="close" size={24} color="white" />
+        </TouchableOpacity>
       </View>
-    </Animated.View>
-  );
+
+      {/* SPEAKING EXERCISE */}
+      <QuickActionButton
+        onPress={() => {
+          toggleSidebar();
+          setShowLevelModal(true);
+        }}
+        icon="mic-outline"
+        title="SPEAKING EXERCISE"
+        subtitle="Practice Speaking with AI"
+        iconColor="#FFFFFF"
+      />
+
+      {/* READING EXERCISES */}
+      <QuickActionButton
+        onPress={() => {
+          toggleSidebar();
+          setShowReadingLevelModal(true);
+        }}
+        icon="book-outline"
+        title="READING EXERCISES"
+        subtitle="Practice Reading with AI"
+        iconColor="#FFFFFF"
+      />
+
+      {/* (Removed) PEER REVIEW button */}
+
+      {/* (Removed) LIVE SESSION button */}
+    </View>
+  </Animated.View>
+);
+
 
   // Overlay Component - Optimized to prevent scheduling conflicts
   const Overlay = useCallback(

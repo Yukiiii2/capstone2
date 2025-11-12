@@ -597,11 +597,20 @@ export default function TeacherClasses() {
         return;
       }
 
-      // 2) fetch matching profiles (may be empty for some students)
+      // 2) get names via RPC (profiles.name OR auth.users.full_name)
+      let nameById: Record<string, string> = {};
+      const { data: nameRows, error: nameErr } = await supabase.rpc("get_user_names", { uids: ids });
+      if (!nameErr && Array.isArray(nameRows)) {
+        for (const r of nameRows) {
+          if (r?.id) nameById[r.id] = r.name ?? "";
+        }
+      }
+
+      // 3) fetch avatars from profiles (keep selection minimal; profiles has no email column)
       let profs: any[] = [];
       const { data: profRows, error: pErr } = await supabase
         .from("profiles")
-        .select("id, name, avatar_url, email")
+        .select("id, avatar_url")
         .in("id", ids);
 
       if (!pErr && Array.isArray(profRows)) {
@@ -610,7 +619,7 @@ export default function TeacherClasses() {
 
       const pmap = new Map(profs.map((p) => [p.id, p]));
 
-      // 3) Build result for EVERY enrolled id (even without profile)
+      // 4) Build result for EVERY enrolled id (even without profile)
       const resolved: EnrolledStudent[] = await Promise.all(
         ids.map(async (sid) => {
           const p = pmap.get(sid);
@@ -618,18 +627,18 @@ export default function TeacherClasses() {
             p?.avatar_url ? await resolveSignedAvatar(sid, p.avatar_url?.toString()) : null;
           return {
             id: sid,
-            name: (p?.name ?? null) as string | null,
-            email: (p?.email ?? null) as string | null,
+            name: (nameById[sid] || null) as string | null,
+            email: null,
             avatar_url: (p?.avatar_url ?? null) as string | null,
             signed: signed ?? null,
           };
         })
       );
 
-      // sort by name (fallback to email)
+      // sort by name only
       resolved.sort((a, b) => {
-        const an = (a.name || a.email || "").toLowerCase();
-        const bn = (b.name || b.email || "").toLowerCase();
+        const an = (a.name || "").toLowerCase();
+        const bn = (b.name || "").toLowerCase();
         return an.localeCompare(bn);
       });
 

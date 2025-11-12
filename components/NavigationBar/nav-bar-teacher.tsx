@@ -26,13 +26,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
       onPress: () =>
         router.replace("/TeacherScreen/TeacherClasses/teacher-classes"),
     },
-    {
-      icon: "mic-circle-outline",
-      label: "Live Session",
-      route: "/TeacherScreen/TeacherLiveSession/teacher-live-sessions",
-      onPress: () =>
-        router.replace("/TeacherScreen/TeacherLiveSession/teacher-live-sessions"),
-    },
   ];
 
   return (
@@ -102,11 +95,6 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ defaultActiveTab }) => {
                     activeStyle.paddingHorizontal = 8;
                     activeStyle.borderRadius = 14;
                     activeStyle.minWidth = 50;
-                    break;
-                  case "Live Session":
-                    activeStyle.paddingHorizontal = 7;
-                    activeStyle.borderRadius = 14;
-                    activeStyle.minWidth = 36;
                     break;
                   default:
                     activeStyle.paddingHorizontal = 10;

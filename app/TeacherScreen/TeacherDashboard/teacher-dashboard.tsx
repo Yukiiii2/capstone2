@@ -1,3 +1,4 @@
+
 // MERGED FINAL: TeacherDashboard.tsx
 // UI from FILE B + Supabase logic, data loading, realtime, profile, stats from FILE A
 
@@ -1089,7 +1090,7 @@ const loadConfidenceAnxietyScores = useCallback(async (studentIds: string[]) => 
   <View className="bg-white/10 border border-white/20 rounded-2xl p-5">
     <View className="flex-row justify-between mb-4">
       <Text className="text-white/80 text-sm">Strand</Text>
-      <Text className="text-white/80 text-sm">Confidence / Anxiety</Text>
+      <Text className="text-white/80 text-sm"></Text>
     </View>
 
     {["ABM", "STEM", "HUMSS", "GAS", "TVL"]
