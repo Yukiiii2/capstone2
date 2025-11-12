@@ -428,12 +428,18 @@ export default function TeacherDashboard() {
   // Students state
   
   const activeStudents = students.filter((student) => student.status === "active");
+// Update the rankedStudents useMemo
 const rankedStudents = useMemo(() => {
     return [...students]
+      .map(student => ({
+        ...student,
+        anxiety: Math.max(0, Math.min(100, 100 - (student.confidence ?? 0)))
+      }))
       .sort((a, b) => {
-        // Sort by confidence score (high to low) and anxiety score (low to high)
+        // Sort by confidence score (high to low)
         const confidenceDiff = (b.confidence ?? 0) - (a.confidence ?? 0);
         if (confidenceDiff !== 0) return confidenceDiff;
+        // Then by anxiety score (low to high)
         return (a.anxiety ?? 100) - (b.anxiety ?? 100);
       })
       .slice(0, 5);
@@ -1088,9 +1094,22 @@ const loadConfidenceAnxietyScores = useCallback(async (studentIds: string[]) => 
     Strand Performance
   </Text>
   <View className="bg-white/10 border border-white/20 rounded-2xl p-5">
+    {/* Color Legend */}
+    <View className="flex-row justify-start gap-6 mb-4 pb-4 border-b border-white/10">
+      <View className="flex-row items-center gap-2">
+        <View className="w-3 h-3 rounded-full bg-violet-500" />
+        <Text className="text-white/70 text-sm">Confidence</Text>
+      </View>
+      <View className="flex-row items-center gap-2">
+        <View className="w-3 h-3 rounded-full bg-red-500" />
+        <Text className="text-white/70 text-sm">Anxiety</Text>
+      </View>
+    </View>
+
+    {/* Strand Rows */}
     <View className="flex-row justify-between mb-4">
       <Text className="text-white/80 text-sm">Strand</Text>
-      <Text className="text-white/80 text-sm"></Text>
+      <Text className="text-white/80 text-sm">Score</Text>
     </View>
 
     {["ABM", "STEM", "HUMSS", "GAS", "TVL"]
@@ -1126,7 +1145,7 @@ const loadConfidenceAnxietyScores = useCallback(async (studentIds: string[]) => 
               {strand}
             </Text>
             <Text className="text-white font-medium">
-              {avgConfidence}% / {avgAnxiety}%
+              {avgConfidence}% / {100-avgConfidence}%
             </Text>
           </View>
           <View className="space-y-1">
@@ -1142,7 +1161,7 @@ const loadConfidenceAnxietyScores = useCallback(async (studentIds: string[]) => 
               <View
                 className="h-full rounded-full bg-red-500"
                 style={{
-                  width: `${avgAnxiety}%`,
+                  width: `${100-avgConfidence}%`,
                 }}
               />
             </View>
